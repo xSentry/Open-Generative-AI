@@ -16,6 +16,16 @@
 
 > **Open-source AI Design Agent** -> https://github.com/Anil-matcha/Open-AI-Design-Agent 
 
+## Related Projects
+
+- [Generative-Media-Skills](https://github.com/SamurAIGPT/Generative-Media-Skills) — Use these models as AI agent skills in Claude Code, Cursor, and Gemini CLI
+- [AI-Youtube-Shorts-Generator](https://github.com/SamurAIGPT/AI-Youtube-Shorts-Generator) — Auto-generate viral YouTube Shorts from long-form videos using AI
+- [muapi-cli](https://github.com/SamurAIGPT/muapi-cli) — Official CLI for MuAPI — run these models from your terminal
+- [Vibe-Workflow](https://github.com/SamurAIGPT/Vibe-Workflow) — Node-based AI workflow builder for generative image & video pipelines
+- [Text-To-Video-AI](https://github.com/SamurAIGPT/Text-To-Video-AI) — Lightweight text-to-video script — no UI required
+- [muapi-comfyui](https://github.com/SamurAIGPT/muapi-comfyui) — ComfyUI nodes for 100+ MuAPI models
+- [n8n-nodes-muapi](https://github.com/SamurAIGPT/n8n-nodes-muapi) — n8n community nodes for MuAPI — automate media generation
+
 ## 🌐 Try it Online — No Install Required
 
 **Hosted version:** [https://muapi.ai/open-generative-ai](https://muapi.ai/open-generative-ai)
