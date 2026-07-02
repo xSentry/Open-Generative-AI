@@ -443,6 +443,16 @@ npm run electron:dev   # Desktop app (Electron + Vite) — recommended
 npm run dev            # Hosted web version (Next.js) → http://localhost:3000
 ```
 
+### Keeping a Fork Updated
+
+If this repository is a fork and `upstream` points to the main project, update your current branch with:
+
+```bash
+npm run sync:upstream
+```
+
+This runs `git fetch upstream` and then merges `upstream/main` into the branch you have checked out.
+
 You'll be prompted to enter your Muapi API key on first use (skip the key if you only plan to use local models).
 
 > **Troubleshooting — `Couldn't find a 'pages' directory`**: this means Next.js can't see the `app/` folder. Confirm you're running `npm run dev` from the repo root (the directory that contains `app/`, `package.json`, and `next.config.mjs`), and that you cloned with submodules. Re-run `npm run setup` if `packages/Vibe-Workflow` or `packages/agents` are empty.
