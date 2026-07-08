@@ -1,0 +1,338 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  handleMuapiV1PostRequest,
+  handleStudioGenerateRequest,
+  handleStudioModelsRequest,
+  handleStudioUploadRequest,
+} from '../modules/studio/server/apiHandlers.js';
+
+async function readJson(response) {
+  return JSON.parse(await response.text());
+}
+
+function errorResponse(error) {
+  if (error.status) {
+    return {
+      body: { error: { code: error.code || 'test_error', message: error.message } },
+      status: error.status,
+    };
+  }
+
+  return {
+    body: { error: { code: 'server_error', message: 'Unexpected server error.' } },
+    status: 500,
+  };
+}
+
+test('/api/studio/models returns MuAPI catalog unchanged for MuAPI provider', async () => {
+  const response = await handleStudioModelsRequest(new Request('http://test.local/api/studio/models'), {
+    errorResponse,
+    getActiveProviderKey: async () => ({ provider: 'muapi', apiKey: 'muapi-key' }),
+    getReplicateUnavailableCounts: () => ({ t2i: 1 }),
+    getSerializableStudioModelLists: () => ({ t2i: [{ id: 'flux-schnell', endpoint: 'flux-schnell-image' }] }),
+    listGeneratedReplicateModels: () => {
+      throw new Error('Replicate catalog should not be read for MuAPI.');
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await readJson(response), {
+    provider: 'muapi',
+    models: { t2i: [{ id: 'flux-schnell', endpoint: 'flux-schnell-image' }] },
+    unavailableCounts: {},
+  });
+});
+
+test('/api/studio/models returns provider metadata for Replicate mappings', async () => {
+  const response = await handleStudioModelsRequest(new Request('http://test.local/api/studio/models'), {
+    errorResponse,
+    getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: 'r8_test' }),
+    getReplicateUnavailableCounts: () => ({ i2i: 2 }),
+    getSerializableStudioModelLists: () => {
+      throw new Error('MuAPI catalog should not be read for Replicate.');
+    },
+    listGeneratedReplicateModels: () => [
+      {
+        studio: { id: 'flux-schnell', name: 'Flux Schnell', mode: 't2i', muapiEndpoint: 'flux-schnell-image' },
+        status: 'supported',
+        confidence: 0.95,
+        replicate: { owner: 'black-forest-labs', name: 'flux-schnell' },
+        unsupportedInputs: ['seed'],
+      },
+    ],
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await readJson(response), {
+    provider: 'replicate',
+    models: {
+      t2i: [{
+        id: 'flux-schnell',
+        name: 'Flux Schnell',
+        endpoint: 'flux-schnell-image',
+        provider: 'replicate',
+        providerModel: 'black-forest-labs/flux-schnell',
+        mappingStatus: 'supported',
+        confidence: 0.95,
+        unsupportedInputs: ['seed'],
+      }],
+    },
+    unavailableCounts: { i2i: 2 },
+  });
+});
+
+test('/api/studio/generate returns 401 when selected provider has no key', async () => {
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 't2i', model: 'flux-schnell', params: {} }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: null }),
+      getGeneratedReplicateModel: () => null,
+      getProviderMissingKeyMessage: () => 'missing replicate',
+      getStudioModel: () => null,
+      isReplicateMappingExposed: () => false,
+      runMuapiPrediction: async () => null,
+      runReplicatePrediction: async () => null,
+    }
+  );
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await readJson(response), {
+    error: 'missing_provider_key',
+    message: 'missing replicate',
+  });
+});
+
+test('/api/studio/generate rejects unsupported Replicate mappings', async () => {
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 't2i', model: 'bad-model', params: { prompt: 'x' } }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: 'r8_test' }),
+      getGeneratedReplicateModel: () => ({ status: 'unsupported', studio: { mode: 't2i' } }),
+      getProviderMissingKeyMessage: () => 'missing',
+      getStudioModel: () => ({ id: 'bad-model', endpoint: 'bad-model' }),
+      isReplicateMappingExposed: () => false,
+      runMuapiPrediction: async () => null,
+      runReplicatePrediction: async () => {
+        throw new Error('Unsupported mapping should not run.');
+      },
+    }
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal((await readJson(response)).error, 'unsupported_replicate_model');
+});
+
+test('/api/studio/generate routes supported Replicate generation server-side', async () => {
+  let call;
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 't2i', model: 'flux-schnell', params: { prompt: 'hello' } }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: 'r8_test' }),
+      getGeneratedReplicateModel: () => ({ status: 'supported', studio: { mode: 't2i', id: 'flux-schnell' } }),
+      getProviderMissingKeyMessage: () => 'missing',
+      getStudioModel: () => ({ id: 'flux-schnell', endpoint: 'flux-schnell-image' }),
+      isReplicateMappingExposed: () => true,
+      runMuapiPrediction: async () => null,
+      runReplicatePrediction: async (input) => {
+        call = input;
+        return { provider: 'replicate', url: 'https://example.test/out.png' };
+      },
+    }
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(call.apiKey, 'r8_test');
+  assert.deepEqual(call.params, { prompt: 'hello', model: 'flux-schnell' });
+  assert.deepEqual(await readJson(response), {
+    provider: 'replicate',
+    url: 'https://example.test/out.png',
+  });
+});
+
+test('/api/studio/generate returns typed Replicate parameter errors', async () => {
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 't2i', model: 'flux-schnell', params: {} }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: 'r8_test' }),
+      getGeneratedReplicateModel: () => ({ status: 'supported', studio: { mode: 't2i', id: 'flux-schnell' } }),
+      getProviderMissingKeyMessage: () => 'missing',
+      getStudioModel: () => ({ id: 'flux-schnell', endpoint: 'flux-schnell-image' }),
+      isReplicateMappingExposed: () => true,
+      runMuapiPrediction: async () => null,
+      runReplicatePrediction: async () => {
+        const error = new Error('Model "flux-schnell" cannot run on Replicate because required mapped input "prompt" is missing.');
+        error.code = 'missing_replicate_input';
+        error.status = 400;
+        throw error;
+      },
+    }
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await readJson(response), {
+    error: 'missing_replicate_input',
+    message: 'Model "flux-schnell" cannot run on Replicate because required mapped input "prompt" is missing.',
+  });
+});
+
+test('/api/studio/upload returns auth and validation errors', async () => {
+  const unauthorized = await handleStudioUploadRequest(
+    new Request('http://test.local/api/studio/upload', { method: 'POST', body: new FormData() }),
+    {
+      createObjectKey: () => 'key',
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'muapi' }),
+      getS3Config: () => ({}),
+      maxUploadBytes: 10,
+      requireUser: async () => {
+        const error = new Error('Authentication is required.');
+        error.status = 401;
+        error.code = 'unauthorized';
+        throw error;
+      },
+      uploadObject: async () => null,
+    }
+  );
+
+  assert.equal(unauthorized.status, 401);
+
+  const invalid = await handleStudioUploadRequest(
+    new Request('http://test.local/api/studio/upload', { method: 'POST', body: new FormData() }),
+    {
+      createObjectKey: () => 'key',
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'muapi' }),
+      getS3Config: () => ({}),
+      maxUploadBytes: 10,
+      requireUser: async () => ({ id: 'user-1' }),
+      uploadObject: async () => null,
+    }
+  );
+
+  assert.equal(invalid.status, 400);
+  assert.equal((await readJson(invalid)).error, 'invalid_file');
+});
+
+test('/api/studio/upload requires HTTPS-readable URLs for Replicate and returns uploaded URL on success', async () => {
+  const formData = new FormData();
+  formData.set('file', new Blob(['abc'], { type: 'text/plain' }), 'test.txt');
+
+  const badConfig = await handleStudioUploadRequest(
+    new Request('http://test.local/api/studio/upload', { method: 'POST', body: formData }),
+    {
+      createObjectKey: () => 'key',
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate' }),
+      getS3Config: () => ({ endpoint: 'http://localhost:9000' }),
+      maxUploadBytes: 10,
+      requireUser: async () => ({ id: 'user-1' }),
+      uploadObject: async () => null,
+    }
+  );
+
+  assert.equal(badConfig.status, 500);
+  assert.equal((await readJson(badConfig)).error, 'upload_url_not_public');
+
+  const successFormData = new FormData();
+  successFormData.set('file', new Blob(['abc'], { type: 'text/plain' }), 'test.txt');
+  const success = await handleStudioUploadRequest(
+    new Request('http://test.local/api/studio/upload', { method: 'POST', body: successFormData }),
+    {
+      createObjectKey: ({ userId, filename }) => `studio-uploads/${userId}/${filename}`,
+      errorResponse,
+      getActiveProviderKey: async () => ({ provider: 'replicate' }),
+      getS3Config: () => ({ endpoint: 'http://localhost:9000', publicBaseUrl: 'https://cdn.example.test' }),
+      maxUploadBytes: 10,
+      requireUser: async () => ({ id: 'user-1' }),
+      uploadObject: async ({ key }) => `https://cdn.example.test/${key}`,
+    }
+  );
+
+  assert.equal(success.status, 200);
+  assert.deepEqual(await readJson(success), {
+    url: 'https://cdn.example.test/studio-uploads/user-1/test.txt',
+    file_url: 'https://cdn.example.test/studio-uploads/user-1/test.txt',
+    key: 'studio-uploads/user-1/test.txt',
+  });
+});
+
+test('/api/api/v1 compatibility bridge routes Replicate-supported Studio endpoints', async () => {
+  let call;
+  const response = await handleMuapiV1PostRequest(
+    new Request('http://test.local/api/api/v1/flux-schnell-image', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: 'bridge' }),
+    }),
+    {
+      path: 'flux-schnell-image',
+      deps: {
+        errorResponse,
+        findStudioModelByEndpoint: () => ({ mode: 't2i', model: { id: 'flux-schnell' } }),
+        getActiveProviderKey: async () => ({ provider: 'replicate', apiKey: 'r8_test' }),
+        getGeneratedReplicateModel: () => ({ status: 'supported', studio: { mode: 't2i', id: 'flux-schnell' } }),
+        getProviderMissingKeyMessage: () => 'missing',
+        getRequestApiKey: () => null,
+        isReplicateMappingExposed: () => true,
+        proxyMuapiV1Request: async () => {
+          throw new Error('MuAPI proxy should not run for supported Replicate endpoint.');
+        },
+        runReplicatePrediction: async (input) => {
+          call = input;
+          return { provider: 'replicate', url: 'https://example.test/out.png' };
+        },
+      },
+    }
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(call.apiKey, 'r8_test');
+  assert.deepEqual(call.params, { prompt: 'bridge', model: 'flux-schnell' });
+});
+
+test('/api/api/v1 compatibility bridge returns missing-key errors before MuAPI proxying', async () => {
+  const response = await handleMuapiV1PostRequest(
+    new Request('http://test.local/api/api/v1/flux-schnell-image', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: 'bridge' }),
+    }),
+    {
+      path: 'flux-schnell-image',
+      deps: {
+        errorResponse,
+        findStudioModelByEndpoint: () => ({ mode: 't2i', model: { id: 'flux-schnell' } }),
+        getActiveProviderKey: async () => ({ provider: 'muapi', apiKey: null }),
+        getGeneratedReplicateModel: () => null,
+        getProviderMissingKeyMessage: () => 'missing muapi',
+        getRequestApiKey: () => null,
+        isReplicateMappingExposed: () => false,
+        proxyMuapiV1Request: async () => {
+          throw new Error('MuAPI proxy should not run without a selected MuAPI key.');
+        },
+        runReplicatePrediction: async () => null,
+      },
+    }
+  );
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await readJson(response), {
+    error: 'missing_provider_key',
+    message: 'missing muapi',
+  });
+});

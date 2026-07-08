@@ -170,7 +170,7 @@ export function createUploadPicker({ anchorContainer, onSelect, onClear, maxImag
         if (isMulti && selectedEntries.length > 0) {
             const doneBtn = document.createElement('button');
             doneBtn.type = 'button';
-            doneBtn.className = 'flex items-center gap-1 px-3 py-1.5 bg-primary text-black rounded-xl text-xs font-black transition-all hover:scale-105';
+            doneBtn.className = 'flex items-center gap-1 px-3 py-1.5 bg-primary text-[var(--primary-color-text)] rounded-xl text-xs font-black transition-all hover:scale-105';
             doneBtn.innerHTML = `✓ Done (${selectedEntries.length})`;
             doneBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -296,7 +296,7 @@ export function createUploadPicker({ anchorContainer, onSelect, onClear, maxImag
             bottomBar.innerHTML = `<span class="text-xs text-secondary">${selectedEntries.length} of ${maxImages} selected</span>`;
             const doneBtn2 = document.createElement('button');
             doneBtn2.type = 'button';
-            doneBtn2.className = 'px-4 py-1.5 bg-primary text-black rounded-xl text-xs font-black transition-all hover:scale-105';
+            doneBtn2.className = 'px-4 py-1.5 bg-primary text-[var(--primary-color-text)] rounded-xl text-xs font-black transition-all hover:scale-105';
             doneBtn2.textContent = 'Use Selected';
             doneBtn2.onclick = (e) => {
                 e.stopPropagation();

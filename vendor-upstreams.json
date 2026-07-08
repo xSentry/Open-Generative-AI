@@ -1,0 +1,29 @@
+{
+  "root": {
+    "name": "Open-Generative-AI",
+    "path": ".",
+    "remote": "upstream",
+    "url": "https://github.com/Anil-matcha/Open-Generative-AI.git",
+    "branch": "main"
+  },
+  "packages": [
+    {
+      "name": "Vibe-Workflow",
+      "path": "packages/Vibe-Workflow",
+      "url": "https://github.com/SamurAIGPT/Vibe-Workflow.git",
+      "branch": "main"
+    },
+    {
+      "name": "Open-Poe-AI",
+      "path": "packages/Open-Poe-AI",
+      "url": "https://github.com/Anil-matcha/Open-Poe-AI.git",
+      "branch": "main"
+    },
+    {
+      "name": "Open-AI-Design-Agent",
+      "path": "packages/Open-AI-Design-Agent",
+      "url": "https://github.com/Anil-matcha/Open-AI-Design-Agent.git",
+      "branch": "main"
+    }
+  ]
+}

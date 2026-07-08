@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { generateImage, uploadFile } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 
 // ─── Constants (inlined from promptUtils) ───────────────────────────────────
 
@@ -143,6 +144,107 @@ function Dropdown({ items, selected, onSelect, triggerRef, onClose }) {
           {item}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ─── Model Dropdown (provider-aware, id/name objects) ────────────────────────
+// Styling mirrors ImageStudio's ModelDropdown so the two tools look identical.
+
+function ModelDropdown({ items, selected, onSelect, triggerRef, onClose }) {
+  const menuRef = useRef(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target)
+      ) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose, triggerRef]);
+
+  const filtered = query.trim()
+    ? items.filter((m) =>
+        `${m.name || ""} ${m.id || ""}`.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : items;
+
+  return (
+    <div
+      ref={menuRef}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute bottom-[calc(100%+12px)] left-0 z-50 bg-[#0a0a0a] rounded-lg p-3 shadow-2xl border border-white/[0.05] w-[calc(100vw-3rem)] max-w-xs animate-fade-in"
+    >
+      <div className="flex flex-col gap-2 h-full max-h-[60vh]">
+        {/* Search */}
+        <div className="border-b border-white/5 shrink-0">
+          <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5 focus-within:border-primary/50 transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted shrink-0">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search models..."
+              value={query}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setQuery(e.target.value)}
+              className="bg-transparent border-none text-xs text-white focus:ring-0 w-full p-0 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="text-xs font-medium text-secondary py-2 shrink-0">
+          Available models
+        </div>
+
+        <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-2">
+          {filtered.length === 0 && (
+            <div className="px-1 py-2 text-xs text-white/30">No compatible models</div>
+          )}
+          {filtered.map((m) => (
+            <div
+              key={m.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(m.id);
+                onClose();
+              }}
+              className={`flex items-center justify-between p-3.5 hover:bg-white/5 rounded-lg cursor-pointer transition-all border border-transparent hover:border-white/5 ${
+                selected === m.id ? "bg-white/5 border-white/5" : ""
+              }`}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 shrink-0 bg-primary/10 text-primary border border-white/5 rounded-full flex items-center justify-center font-bold text-xs shadow-inner uppercase">
+                  {(m.name || m.id || "?").charAt(0)}
+                </div>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-xs font-bold text-white tracking-tight truncate">
+                    {m.name || m.id}
+                  </span>
+                  {m.name && m.id && m.name !== m.id && (
+                    <span className="text-[10px] font-medium text-white/30 truncate">
+                      {m.id}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {selected === m.id && (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="4" className="shrink-0 ml-2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -445,8 +547,21 @@ export default function CinemaStudio({
   apiKey,
   onGenerationComplete,
   historyItems,
+  provider,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_cinema_studio_persistent";
+
+  // ── Provider-aware model selection ──
+  // When Replicate is active, the user picks any "cinema"-capable model
+  // (t2i/i2i exposing prompt + aspect_ratio); on MuAPI we keep the fixed
+  // nano-banana-pro endpoints.
+  const isReplicate = provider === "replicate";
+  const cinemaModels = useMemo(
+    () => (Array.isArray(modelsByMode?.cinema) ? modelsByMode.cinema : []),
+    [modelsByMode],
+  );
+  const [selectedModelId, setSelectedModelId] = useState(null);
 
   // ── Settings state ──
   const [settings, setSettings] = useState({
@@ -473,10 +588,43 @@ export default function CinemaStudio({
   // ── Internal history state (used when historyItems prop is not provided) ──
   const [internalHistory, setInternalHistory] = useState([]);
 
+  // ── Server-persisted generations (DB + S3, async loading cards, live SSE) ──
+  // Scoped to the "cinema" mode so Cinema keeps its own history. Falls back to
+  // the legacy local flow when not in a hosted browser (Electron file://).
+  const serverGen = useServerGenerations({
+    mediaType: "image",
+    mode: "cinema",
+    onSucceeded: (card) => {
+      setCanvasUrl(card.url);
+      onGenerationComplete?.({
+        url: card.url,
+        model: card.model,
+        prompt: card.prompt,
+        type: "cinema",
+      });
+    },
+  });
+  const serverActive = serverGen.active;
+
   // ── Dropdown state ──
-  const [openDropdown, setOpenDropdown] = useState(null); // 'ar' | 'res' | null
+  const [openDropdown, setOpenDropdown] = useState(null); // 'ar' | 'res' | 'model' | null
   const arBtnRef = useRef(null);
   const resBtnRef = useRef(null);
+  const modelBtnRef = useRef(null);
+
+  // Default the model selection to the first cinema-capable model, and keep it
+  // valid when the provider/catalog changes.
+  useEffect(() => {
+    if (!isReplicate || cinemaModels.length === 0) {
+      setSelectedModelId(null);
+      return;
+    }
+    setSelectedModelId((prev) =>
+      prev && cinemaModels.some((m) => m.id === prev) ? prev : cinemaModels[0].id,
+    );
+  }, [isReplicate, cinemaModels]);
+
+  const selectedModel = cinemaModels.find((m) => m.id === selectedModelId) || null;
 
   // ── Textarea auto-grow ──
   const textareaRef = useRef(null);
@@ -553,8 +701,12 @@ export default function CinemaStudio({
     return () => clearTimeout(timer);
   }, [settings, resolution, internalHistory, uploadedImage]);
 
-  // Derive effective history (prop wins over internal)
-  const history = historyItems != null ? historyItems : internalHistory;
+  // Derive effective history (server-persisted wins when active, then prop, then internal)
+  const history = serverActive
+    ? serverGen.items
+    : historyItems != null
+      ? historyItems
+      : internalHistory;
 
   useEffect(() => {
     setCanvasUrl(history[0]?.url || null);
@@ -587,15 +739,31 @@ export default function CinemaStudio({
       settings.aperture,
     );
 
+    // On Replicate, use the user-selected cinema model; on MuAPI keep the fixed
+    // nano-banana-pro endpoints (with its edit variant for image input).
+    const fallbackModel = uploadedImage ? "nano-banana-pro-edit" : "nano-banana-pro";
+    const model = isReplicate ? (selectedModelId || fallbackModel) : fallbackModel;
+
+    const params = {
+      prompt: finalPrompt,
+      aspect_ratio: settings.aspect_ratio,
+      resolution: resolution.toLowerCase(),
+      negative_prompt: "blurry, low quality, distortion, bad composition",
+    };
+    if (uploadedImage) {
+      params.images_list = [uploadedImage];
+      params.image_url = uploadedImage;
+    }
+
     try {
-      const res = await generateImage(apiKey, {
-        model: uploadedImage ? "nano-banana-pro-edit" : "nano-banana-pro",
-        prompt: finalPrompt,
-        aspect_ratio: settings.aspect_ratio,
-        resolution: resolution.toLowerCase(),
-        negative_prompt: "blurry, low quality, distortion, bad composition",
-        images_list: uploadedImage ? [uploadedImage] : [],
-      });
+      // ── Server-persisted async path (DB + S3 + loading card + SSE) ─────────
+      if (serverActive) {
+        await serverGen.generate({ mode: "cinema", model, params, count: 1 });
+        return;
+      }
+
+      // ── Legacy synchronous path (Electron / non-hosted) ────────────────────
+      const res = await generateImage(apiKey, { model, ...params });
 
       if (res && res.url) {
         const entry = {
@@ -622,7 +790,7 @@ export default function CinemaStudio({
         if (onGenerationComplete) {
           onGenerationComplete({
             url: res.url,
-            model: "nano-banana-pro",
+            model,
             prompt: basePrompt,
             type: "cinema",
           });
@@ -643,6 +811,11 @@ export default function CinemaStudio({
     isGenerating,
     onGenerationComplete,
     historyItems,
+    isReplicate,
+    selectedModelId,
+    uploadedImage,
+    serverActive,
+    serverGen,
   ]);
 
   // ── Regenerate ──
@@ -692,8 +865,13 @@ export default function CinemaStudio({
         textareaRef.current.style.height =
           textareaRef.current.scrollHeight + "px";
       }
+    } else if (entry.params || entry.prompt) {
+      // Server-persisted card: only prompt / aspect_ratio / resolution are stored.
+      const ar = entry.params?.aspect_ratio || entry.aspect_ratio;
+      if (ar) setSettings((prev) => ({ ...prev, aspect_ratio: ar }));
+      if (entry.params?.resolution) setResolution(entry.params.resolution.toUpperCase());
     }
-    setCanvasUrl(entry.url);
+    if (entry.url) setCanvasUrl(entry.url);
   };
 
   const resetToPrompt = () => {
@@ -714,20 +892,55 @@ export default function CinemaStudio({
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
         {history.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full pt-4 animate-fade-in-up">
-            {history.map((entry, idx) => (
+            {history.map((entry, idx) => {
+              const status = entry.status;
+              const isLoading = status === "generating" || (!entry.url && status !== "failed" && status !== undefined);
+              const isFailed = status === "failed";
+              const promptText = entry.settings?.prompt || entry.prompt || "No prompt";
+              const cameraText = entry.settings?.camera || null;
+              const lensText = entry.settings?.lens || null;
+              const arText =
+                entry.settings?.aspect_ratio ||
+                entry.params?.aspect_ratio ||
+                entry.aspect_ratio ||
+                null;
+              return (
               <div
-                key={entry.timestamp ?? idx}
-                className="relative group rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-xl hover:border-[#22d3ee]/50 transition-all duration-300 flex flex-col cursor-pointer"
-                onClick={() => loadHistoryItem(entry, idx)}
+                key={entry.id ?? entry.timestamp ?? idx}
+                className="relative group rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-xl hover:border-[var(--primary-color)]/50 transition-all duration-300 flex flex-col cursor-pointer"
+                onClick={() => !isLoading && loadHistoryItem(entry, idx)}
               >
-                <img
-                  src={entry.url}
-                  alt={`History item ${idx + 1}`}
-                  className="w-full aspect-[4/3] object-cover bg-black/40"
-                />
-                
+                {isLoading ? (
+                  <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-black/40 gap-3">
+                    <span className="animate-spin text-[var(--primary-color)] text-2xl">◌</span>
+                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
+                      Rendering…
+                    </span>
+                  </div>
+                ) : isFailed ? (
+                  <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-red-500/5 gap-2 px-4 text-center">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span className="text-[11px] font-bold text-red-300">Generation failed</span>
+                    {entry.error && (
+                      <span className="text-[10px] text-white/30 line-clamp-2">{entry.error}</span>
+                    )}
+                  </div>
+                ) : (
+                  <img
+                    src={entry.url}
+                    alt={`History item ${idx + 1}`}
+                    className="w-full aspect-[4/3] object-cover bg-black/40"
+                  />
+                )}
+
                 {/* Overlay actions */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {entry.url && !isLoading && (
+                    <>
                   <button
                     type="button"
                     title="Fullscreen"
@@ -735,7 +948,7 @@ export default function CinemaStudio({
                       e.stopPropagation();
                       setFullscreenUrl(entry.url);
                     }}
-                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[#22d3ee] hover:text-black transition-all border border-white/10"
+                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[var(--primary-color)] hover:text-black transition-all border border-white/10"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <polyline points="15 3 21 3 21 9" />
@@ -764,33 +977,52 @@ export default function CinemaStudio({
                         window.open(entry.url, "_blank");
                       }
                     }}
-                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[#22d3ee] hover:text-black transition-all border border-white/10"
+                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[var(--primary-color)] hover:text-black transition-all border border-white/10"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                     </svg>
                   </button>
+                    </>
+                  )}
+                  {serverActive && entry.id && !isLoading && (
+                    <button
+                      type="button"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        serverGen.remove(entry.id);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
                 {/* Details */}
                 <div className="p-3 bg-black/80 backdrop-blur-sm border-t border-white/5 flex-1 flex flex-col justify-between gap-2">
                   <p className="text-white/70 text-xs line-clamp-3 leading-relaxed">
-                    {entry.settings?.prompt || "No prompt"}
+                    {promptText}
                   </p>
                   <div className="flex items-center justify-between mt-1 flex-wrap gap-1">
-                    <span className="text-[10px] font-bold text-[#22d3ee] px-2 py-0.5 bg-[#22d3ee]/10 rounded border border-[#22d3ee]/20">
-                      {entry.settings?.camera || "Standard"}
+                    <span className="text-[10px] font-bold text-[var(--primary-color)] px-2 py-0.5 bg-[var(--primary-color)]/10 rounded border border-[var(--primary-color)]/20">
+                      {cameraText || (isLoading ? "Rendering" : isFailed ? "Failed" : "Cinema")}
                     </span>
                     <div className="flex gap-2">
-                      <span className="text-[10px] text-white/40">{entry.settings?.lens || "35mm"}</span>
-                      {entry.settings?.aspect_ratio && (
-                        <span className="text-[10px] text-white/40">{entry.settings.aspect_ratio}</span>
+                      {lensText && <span className="text-[10px] text-white/40">{lensText}</span>}
+                      {arText && (
+                        <span className="text-[10px] text-white/40">{arText}</span>
                       )}
                     </div>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-4 animate-fade-in-up transition-all duration-700 min-h-[50vh]">
@@ -904,6 +1136,36 @@ export default function CinemaStudio({
             </div>
             <div className="flex justify-between gap-2">
               <div className="flex flex-wrap items-center gap-3">
+                {/* Model Select (Replicate only) */}
+                {isReplicate && (
+                  <div className="relative">
+                    <button
+                      ref={modelBtnRef}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-white/[0.03] hover:bg-white/10 text-xs font-bold text-white/40 hover:text-white transition-colors rounded-md border border-white/[0.03] max-w-[220px]"
+                      onClick={() =>
+                        setOpenDropdown((d) => (d === "model" ? null : "model"))
+                      }
+                      title={selectedModel?.id || "Select a model"}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 shrink-0">
+                        <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                      </svg>
+                      <span className="truncate">
+                        {selectedModel?.name || selectedModel?.id || "Select model"}
+                      </span>
+                    </button>
+                    {openDropdown === "model" && (
+                      <ModelDropdown
+                        items={cinemaModels}
+                        selected={selectedModelId}
+                        onSelect={setSelectedModelId}
+                        triggerRef={modelBtnRef}
+                        onClose={() => setOpenDropdown(null)}
+                      />
+                    )}
+                  </div>
+                )}
+
                 {/* Aspect Ratio Button */}
                 <div className="relative">
                   <button
@@ -962,18 +1224,18 @@ export default function CinemaStudio({
                   className="flex flex-col items-start justify-center px-4 py-1.5 bg-white/[0.03] rounded-md border border-white/[0.03] hover:border-white/20 transition-all text-left flex-1 min-w-[100px] md:min-w-[160px] max-w-[240px] h-[50px] relative group overflow-hidden"
                   onClick={() => setIsOverlayOpen(true)}
                 >
-                  <div className="absolute top-3 right-3 w-1.5 h-1.5 bg-[#22d3ee] rounded-full shadow-lg shadow-[#22d3ee]/20" />
+                  <div className="absolute top-3 right-3 w-1.5 h-1.5 bg-[var(--primary-color)] rounded-full shadow-lg shadow-[var(--primary-color)]/20" />
                   <span className="text-[9px] font-bold text-white/30 uppercase truncate w-full tracking-wider group-hover:text-white transition-colors">
                     {settings.camera}
                   </span>
-                  <span className="text-xs font-semibold text-white/70 truncate w-full group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-xs font-semibold text-white/70 truncate w-full group-hover:text-[var(--primary-color)] transition-colors">
                     {formatSummaryValue()}
                   </span>
                 </button>
 
                 {/* Generate Button */}
                 <button
-                  className="h-[50px] px-8 bg-[#22d3ee] text-black rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="h-[50px] px-8 bg-[var(--primary-color)] text-black rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={isGenerating || !settings.prompt.trim()}
                   onClick={handleGenerate}
                 >

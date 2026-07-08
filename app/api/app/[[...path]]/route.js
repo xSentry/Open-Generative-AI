@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+
+export const runtime = 'nodejs';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
@@ -68,7 +71,26 @@ export async function POST(request, { params }) {
     const slug = await params;
     const pathSegments = slug.path || [];
     const path = pathSegments.join('/');
-    
+
+    // Self-hosted providers (e.g. Replicate) have no MuAPI cost API, and their
+    // task_names (model ids) are unknown to MuAPI — proxying would 404. Resolve
+    // the active provider and compute the dynamic cost locally instead so the
+    // builder's useGenerationCost hook works. Only MuAPI keeps proxying.
+    if (path === 'calculate_dynamic_cost') {
+        let provider = 'muapi';
+        try {
+            ({ provider } = await getActiveProviderKey(request));
+        } catch {
+            // Legacy/unauthenticated MuAPI-key mode: fall through to the proxy.
+        }
+        if (provider !== 'muapi') {
+            // No pricing metadata exists for Replicate models in our catalog, so
+            // we return a nominal local estimate (see workflow self-hosting plan
+            // §9). The local workflow engine does not charge against this value.
+            return NextResponse.json({ cost: 0 }, { status: 200 });
+        }
+    }
+
     const { search } = new URL(request.url);
     const targetUrl = `${MUAPI_BASE}/app/${path}${search}`;
 

@@ -1,13 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { processLipSync, uploadFile } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 import {
   lipsyncModels,
-  imageLipSyncModels,
-  videoLipSyncModels,
-  getLipSyncModelById,
-  getResolutionsForLipSyncModel,
 } from "../models.js";
 
 // ---------------------------------------------------------------------------
@@ -321,14 +318,32 @@ export default function LipSyncStudio({
   historyItems,
   droppedFiles,
   onFilesHandled,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_lipsync_studio_persistent";
+
+  // ── Provider-aware model catalog ────────────────────────────────────────
+  // When the active provider is Replicate, the shell passes provider-correct
+  // lipsync models via `modelsByMode.lipsync`. Fall back to the bundled MuAPI
+  // catalog only when nothing was supplied, so we never send a MuAPI-only id
+  // (e.g. "infinitetalk-image-to-video") to Replicate.
+  const effectiveLipsyncModels = useMemo(
+    () => (modelsByMode?.lipsync?.length ? modelsByMode.lipsync : lipsyncModels),
+    [modelsByMode],
+  );
+  const imageModels = useMemo(
+    () => effectiveLipsyncModels.filter((m) => m.category === "image"),
+    [effectiveLipsyncModels],
+  );
+  const videoModels = useMemo(
+    () => effectiveLipsyncModels.filter((m) => m.category === "video"),
+    [effectiveLipsyncModels],
+  );
 
   // ── Mode & model state ──────────────────────────────────────────────────
   const [inputMode, setInputMode] = useState("image"); // 'image' | 'video'
 
-  const currentModels =
-    inputMode === "image" ? imageLipSyncModels : videoLipSyncModels;
+  const currentModels = inputMode === "image" ? imageModels : videoModels;
   const firstModel = currentModels[0];
 
   const [selectedModelId, setSelectedModelId] = useState(firstModel?.id ?? "");
@@ -367,7 +382,8 @@ export default function LipSyncStudio({
   // ── History ─────────────────────────────────────────────────────────────
   // If historyItems prop is provided, use it; otherwise use internal state.
   const [internalHistory, setInternalHistory] = useState([]);
-  const history = historyItems ?? internalHistory;
+  const serverGen = useServerGenerations({ mediaType: "video", mode: "lipsync" });
+  const history = historyItems ?? (serverGen.active ? serverGen.items : internalHistory);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
 
   // ── Dropdown state ──────────────────────────────────────────────────────
@@ -404,7 +420,7 @@ export default function LipSyncStudio({
         if (data.videoName) setVideoName(data.videoName);
         if (data.audioName) setAudioName(data.audioName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.internalHistory) setInternalHistory(data.internalHistory);
+        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
       }
     } catch (err) {
       console.warn("Failed to load LipSyncStudio persistence:", err);
@@ -428,7 +444,8 @@ export default function LipSyncStudio({
           audioUrl,
           audioName,
           prompt,
-          internalHistory,
+          // Phase 5: results live server-side when active — persist prefs only.
+          internalHistory: serverGen.active ? [] : internalHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -451,21 +468,32 @@ export default function LipSyncStudio({
   ]);
 
   // ── Derived model info ──────────────────────────────────────────────────
-  const selectedModel = lipsyncModels.find((m) => m.id === selectedModelId);
-  const resolutionOptions = getResolutionsForLipSyncModel(selectedModelId);
+  const selectedModel = effectiveLipsyncModels.find((m) => m.id === selectedModelId);
+  const resolutionOptions = selectedModel?.inputs?.resolution?.enum || [];
   const showResolution = resolutionOptions.length > 0;
   const showPrompt = !!selectedModel?.hasPrompt;
 
   // ── Sync model when mode changes ────────────────────────────────────────
   useEffect(() => {
     if (hasRestored.current) return;
-    const models =
-      inputMode === "image" ? imageLipSyncModels : videoLipSyncModels;
+    const models = inputMode === "image" ? imageModels : videoModels;
     const first = models[0];
     if (!first) return;
     setSelectedModelId(first.id);
     setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
   }, [inputMode]);
+
+  // ── Keep the selection valid for the active provider/mode ───────────────
+  // A stale id can come from localStorage or from switching providers (e.g. a
+  // MuAPI-only "infinitetalk-*" id while Replicate is active). If the current
+  // list doesn't contain it, fall back to the first available model.
+  useEffect(() => {
+    if (!currentModels.length) return;
+    if (currentModels.some((m) => m.id === selectedModelId)) return;
+    const first = currentModels[0];
+    setSelectedModelId(first.id);
+    setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
+  }, [currentModels, selectedModelId]);
 
   // ── Upload handlers ─────────────────────────────────────────────────────
   const handleImageUpload = useCallback(
@@ -570,7 +598,7 @@ export default function LipSyncStudio({
     setVideoUrl(null);
     setVideoState(UPLOAD_STATE.IDLE);
     setVideoName("");
-    const first = imageLipSyncModels[0];
+    const first = imageModels[0];
     if (first) {
       setSelectedModelId(first.id);
       setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
@@ -583,7 +611,7 @@ export default function LipSyncStudio({
     setImageUrl(null);
     setImageState(UPLOAD_STATE.IDLE);
     setImageName("");
-    const first = videoLipSyncModels[0];
+    const first = videoModels[0];
     if (first) {
       setSelectedModelId(first.id);
       setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
@@ -593,7 +621,7 @@ export default function LipSyncStudio({
   // ── Model selection ─────────────────────────────────────────────────────
   const handleModelSelect = (model) => {
     setSelectedModelId(model.id);
-    const resolutions = getResolutionsForLipSyncModel(model.id);
+    const resolutions = model.inputs?.resolution?.enum || [];
     if (resolutions.length > 0) {
       setSelectedResolution(
         model.inputs?.resolution?.default ?? resolutions[0],
@@ -624,6 +652,23 @@ export default function LipSyncStudio({
   };
 
   // ── Generation ──────────────────────────────────────────────────────────
+  // Reuse a past generation's settings back into the form.
+  const handleReuse = (entry) => {
+    const p = entry.params || {};
+    if (entry.model) setSelectedModelId(entry.model);
+    if (p.audio_url) setAudioUrl(p.audio_url);
+    if (p.image_url) {
+      setInputMode("image");
+      setImageUrl(p.image_url);
+    } else if (p.video_url) {
+      setInputMode("video");
+      setVideoUrl(p.video_url);
+    }
+    if (p.resolution) setSelectedResolution(p.resolution);
+    setPrompt(p.prompt || entry.prompt || "");
+    setView("input");
+  };
+
   const handleGenerate = async () => {
     if (!audioUrl) {
       alert("Please upload an audio file first.");
@@ -651,6 +696,14 @@ export default function LipSyncStudio({
       if (prompt && selectedModel?.hasPrompt) lipsyncParams.prompt = prompt;
       if (showResolution) lipsyncParams.resolution = selectedResolution;
       if (selectedModel?.hasSeed) lipsyncParams.seed = -1;
+
+      // ── Server-persisted async path ──────────────────────────────────────
+      if (serverGen.active) {
+        const { model, ...serverParams } = lipsyncParams;
+        await serverGen.generate({ mode: "lipsync", model: selectedModelId, params: serverParams });
+        setActiveHistoryIdx(0);
+        return;
+      }
 
       const res = await processLipSync(apiKey, lipsyncParams);
 
@@ -758,8 +811,24 @@ export default function LipSyncStudio({
                     e.target.pause();
                     e.target.currentTime = 0;
                   }}
+                  style={{ display: entry.url ? "block" : "none" }}
                 />
-                
+
+                {!entry.url && entry.status !== "failed" && (
+                  <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-3">
+                    <div className="animate-spin text-primary text-2xl">◌</div>
+                    <span className="text-[11px] text-white/40">Generating…</span>
+                  </div>
+                )}
+                {!entry.url && entry.status === "failed" && (
+                  <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-2 px-3 text-center">
+                    <span className="text-red-400 text-xl">⚠</span>
+                    <span className="text-[11px] text-white/50 line-clamp-3">
+                      {entry.error || "Generation failed"}
+                    </span>
+                  </div>
+                )}
+
                 {/* Overlay actions */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
@@ -791,6 +860,38 @@ export default function LipSyncStudio({
                       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                     </svg>
                   </button>
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Reuse settings"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReuse(entry);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                      </svg>
+                    </button>
+                  )}
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        serverGen.remove(entry.id);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
                 {/* Details */}
@@ -976,12 +1077,12 @@ export default function LipSyncStudio({
                   }}
                   className="flex items-center gap-2 px-2 py-1.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-3.5 h-3.5 bg-[#22d3ee] rounded-sm flex items-center justify-center">
+                  <div className="w-3.5 h-3.5 bg-[var(--primary-color)] rounded-sm flex items-center justify-center">
                     <span className="text-[9px] font-black text-black">
                       S
                     </span>
                   </div>
-                  <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModel?.name ?? "Select model"}
                   </span>
                   <svg
@@ -1020,7 +1121,7 @@ export default function LipSyncStudio({
                     }}
                     className="flex items-center gap-2 px-2 py-1.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                   >
-                    <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedResolution}
                     </span>
                   </button>
@@ -1041,7 +1142,7 @@ export default function LipSyncStudio({
               type="button"
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? (
                 <>

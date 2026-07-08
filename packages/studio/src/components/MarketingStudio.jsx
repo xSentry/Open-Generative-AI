@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { uploadFile, generateMarketingStudioAd } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 
 const SCROLLBAR_STYLE = `
   .custom-scrollbar-thin::-webkit-scrollbar {
@@ -15,14 +16,14 @@ const SCROLLBAR_STYLE = `
     border-radius: 10px;
   }
   .custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: rgba(34, 211, 238, 0.3);
+    background: oklch(0.35 0.05 192 / 0.3);
   }
 `;
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 
 const CheckSvg = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="4">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="4">
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
@@ -92,6 +93,11 @@ const OPTIONS = {
   res: ["720p", "1080p"],
   duration: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 };
+
+// A "no reference video" option so the base case (product + avatar + prompt)
+// doesn't force a UGC template video onto the model (some cap length at 10s).
+const FORMAT_NONE = { id: "none", name: "None", url: null };
+const FORMAT_ITEMS = [FORMAT_NONE, ...ASSETS.ugc];
 
 // ── Components ───────────────────────────────────────────────────────────────
 
@@ -174,7 +180,14 @@ function Dropdown({ isOpen, title, items, selectedId, onSelect, onClose, isVideo
             }`}
           >
             {isVideo ? (
-              <video src={item.url} autoPlay loop muted className="w-full aspect-[3/4] object-cover group-hover:scale-105 transition-all duration-500" />
+              item.url ? (
+                <video src={item.url} autoPlay loop muted className="w-full aspect-[3/4] object-cover group-hover:scale-105 transition-all duration-500" />
+              ) : (
+                <div className="w-full aspect-[3/4] flex flex-col items-center justify-center bg-white/[0.02] gap-1.5 text-white/40 group-hover:text-white/70 transition-colors">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="5" y1="5" x2="19" y2="19" /></svg>
+                  <span className="text-[9px] font-black uppercase tracking-tight">None</span>
+                </div>
+              )
             ) : (
               <img src={item.url} className="w-full aspect-square object-cover group-hover:scale-105 transition-all duration-500" alt={item.name} />
             )}
@@ -229,9 +242,57 @@ function SimpleDropdown({ isOpen, title, options, selected, onSelect, onClose })
   );
 }
 
+// ── Model dropdown (id/name/description, provider-aware) ─────────────────────
+
+function ModelDropdown({ isOpen, models, selectedId, onSelect, onClose }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      ref={ref}
+      className="absolute bottom-[calc(100%+12px)] left-0 z-50 bg-[#0a0a0a] rounded p-1 max-h-[300px] overflow-y-auto custom-scrollbar shadow-3xl border border-white/10 w-[calc(100vw-3rem)] max-w-[260px] animate-fade-in-up"
+    >
+      <div className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2 px-3 pt-2">
+        Model
+      </div>
+      {models.length === 0 && (
+        <div className="px-3 py-2 text-xs text-white/30">No compatible models</div>
+      )}
+      {models.map((m) => (
+        <button
+          key={m.id}
+          onClick={() => { onSelect(m.id); onClose(); }}
+          className={`w-full text-left px-3 py-2 rounded text-xs transition-all ${
+            selectedId === m.id ? "bg-primary/10 text-primary font-bold" : "text-white/70 hover:bg-white/5 hover:text-white"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-bold">{m.name || m.id}</span>
+            {selectedId === m.id && <CheckSvg />}
+          </div>
+          {m.description && (
+            <div className="text-[10px] text-white/30 mt-0.5 line-clamp-2">{m.description}</div>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }) {
+export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, modelsByMode }) {
   const PERSIST_KEY = "hg_marketing_studio_persistent";
   
   const [prompt, setPrompt] = useState("");
@@ -241,19 +302,105 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
   
   const [params, setParams] = useState({
     ratio: "9:16",
-    format: ASSETS.ugc[0].name,
-    videoUrl: ASSETS.ugc[0].url,
+    format: FORMAT_NONE.name,
+    videoUrl: null,
     res: "1080p",
     duration: 5
   });
 
   const [history, setHistory] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [dropdown, setDropdown] = useState(null); // 'format' | 'avatar' | 'ratio' | 'res' | 'duration'
+  const [dropdown, setDropdown] = useState(null); // 'model' | 'format' | 'avatar' | 'ratio' | 'res' | 'duration'
   const [uploadProgress, setUploadProgress] = useState({ product: 0, avatar: 0, additional: 0 });
   const [fullscreenUrl, setFullscreenUrl] = useState(null);
 
   const textareaRef = useRef(null);
+
+  // ── Provider-aware model selection + server-persisted generations ──────────
+  const marketingModels = useMemo(
+    () => (Array.isArray(modelsByMode?.marketing) ? modelsByMode.marketing : []),
+    [modelsByMode],
+  );
+  const [selectedModelId, setSelectedModelId] = useState(null);
+  const serverGen = useServerGenerations({
+    mediaType: "video",
+    mode: "marketing",
+    onSucceeded: (card) => setFullscreenUrl(card.url),
+  });
+  const serverActive = serverGen.active;
+
+  // Keep the selection valid as the provider/catalog changes.
+  useEffect(() => {
+    if (marketingModels.length === 0) {
+      setSelectedModelId(null);
+      return;
+    }
+    setSelectedModelId((prev) =>
+      prev && marketingModels.some((m) => m.id === prev) ? prev : marketingModels[0].id,
+    );
+  }, [marketingModels]);
+  const selectedModel = marketingModels.find((m) => m.id === selectedModelId) || null;
+
+  // Derive control options from the selected model's input enums (Replicate and
+  // MuAPI models differ), falling back to the static presets for the legacy path.
+  const modelInputs = selectedModel?.inputs || null;
+  const optionsFor = (key) => {
+    if (!modelInputs) return OPTIONS[key];
+    if (key === 'ratio') return modelInputs.aspect_ratio?.enum || OPTIONS.ratio;
+    if (key === 'res') return modelInputs.resolution?.enum || OPTIONS.res;
+    if (key === 'duration') {
+      const d = modelInputs.duration;
+      if (Array.isArray(d?.enum) && d.enum.length) return d.enum;
+      if (d && (d.type === 'int' || d.type === 'number')) {
+        // Keep the sensible presets, clamped to the model's [min,max] range.
+        const min = Math.max(1, d.minValue ?? 1);
+        const max = d.maxValue != null && d.maxValue > 0 ? d.maxValue : OPTIONS.duration[OPTIONS.duration.length - 1];
+        const clamped = OPTIONS.duration.filter((v) => v >= min && v <= max);
+        return clamped.length ? clamped : [d.default != null ? d.default : min];
+      }
+      return OPTIONS.duration;
+    }
+    return OPTIONS[key];
+  };
+  // A control is shown when the (catalog) model declares that input; on the
+  // legacy path (no catalog model) all presets stay visible.
+  const controlSupported = (key) => {
+    if (!serverActive || !modelInputs) return true;
+    if (key === 'ratio') return Boolean(modelInputs.aspect_ratio);
+    if (key === 'res') return Boolean(modelInputs.resolution);
+    if (key === 'duration') return Boolean(modelInputs.duration);
+    return true;
+  };
+  const controlKeys = ['ratio', 'res', 'duration'].filter(controlSupported);
+
+  // Coerce ratio/res/duration to values the active model actually accepts so we
+  // never submit e.g. resolution "1080p" to a model whose enum is ["480p","720p"].
+  useEffect(() => {
+    if (!serverActive || !selectedModel) return;
+    setParams((prev) => {
+      const next = { ...prev };
+      const coerce = (key, inputKey) => {
+        const input = selectedModel.inputs?.[inputKey];
+        if (!input) return;
+        const opts = optionsFor(key);
+        const match = opts.find((o) => String(o) === String(next[key]));
+        if (match === undefined) {
+          next[key] = input.default != null ? input.default : opts[0];
+        } else if (match !== next[key]) {
+          // Normalize the value's type to the exact enum entry ("5" vs 5).
+          next[key] = match;
+        }
+      };
+      coerce('ratio', 'aspect_ratio');
+      coerce('res', 'resolution');
+      coerce('duration', 'duration');
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModelId, serverActive]);
+
+  // History source: server-persisted wins when active.
+  const displayHistory = serverActive ? serverGen.items : history;
 
   // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -263,7 +410,17 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
       if (stored) {
         const data = JSON.parse(stored);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.params) setParams(data.params);
+        if (data.params) {
+          const p = { ...data.params };
+          // Migrate the previous forced default (UGC template as reference video)
+          // to the new opt-in "None" so it isn't silently attached (some models
+          // reject reference videos > 10s).
+          if (p.videoUrl === ASSETS.ugc[0].url && p.format === ASSETS.ugc[0].name) {
+            p.format = FORMAT_NONE.name;
+            p.videoUrl = null;
+          }
+          setParams(p);
+        }
         if (data.productImage) setProductImage(data.productImage);
         if (data.avatarImage) setAvatarImage(data.avatarImage);
         if (data.additionalImages) setAdditionalImages(data.additionalImages);
@@ -326,16 +483,36 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
   const handleGenerate = async () => {
     if (!prompt.trim()) return alert("Please enter an ad script.");
     if (!productImage) return alert("Please upload a product image.");
+    if (serverActive && !selectedModelId) return alert("No marketing model available for the active provider.");
 
     setIsGenerating(true);
     try {
+      const images_list = [productImage, avatarImage, ...additionalImages].filter(Boolean);
+      const genParams = {
+        prompt,
+        aspect_ratio: params.ratio,
+        duration: params.duration,
+        resolution: params.res,
+        images_list,
+      };
+      // Pass the reference/UGC video generically; models with a video input map
+      // it (others ignore it).
+      if (params.videoUrl) genParams.video_url = params.videoUrl;
+
+      // ── Server-persisted async path (DB + S3 + loading card + SSE) ─────────
+      if (serverActive) {
+        await serverGen.generate({ mode: "marketing", model: selectedModelId, params: genParams });
+        return;
+      }
+
+      // ── Legacy synchronous path (Electron / non-hosted) ────────────────────
       const result = await generateMarketingStudioAd(apiKey, {
         prompt,
         aspect_ratio: params.ratio,
         duration: params.duration,
         resolution: params.res,
-        images_list: [productImage, avatarImage, ...additionalImages].filter(Boolean),
-        video_files: params.videoUrl ? [params.videoUrl] : []
+        images_list,
+        video_files: params.videoUrl ? [params.videoUrl] : [],
       });
 
       if (result?.url) {
@@ -370,19 +547,41 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
       
       {/* ── MAIN CONTENT AREA ── */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-40">
-        {history.length > 0 ? (
+        {displayHistory.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in-up">
-            {history.map(entry => (
+            {displayHistory.map(entry => {
+              const status = entry.status;
+              const isLoading = status === "generating" || (!entry.url && status !== "failed" && status !== undefined);
+              const isFailed = status === "failed";
+              const badge = entry.format || selectedModel?.name || "AD";
+              const ts = entry.timestamp || new Date().toISOString();
+              return (
               <div key={entry.id} className="relative group rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-xl hover:border-primary/50 transition-all duration-300 flex flex-col">
-                <video 
-                  src={entry.url} 
-                  className="w-full aspect-video object-cover cursor-pointer hover:opacity-80 transition-opacity" 
-                  onClick={() => setFullscreenUrl(entry.url)}
-                  muted loop onMouseOver={e => e.target.play()} onMouseOut={e => { e.target.pause(); e.target.currentTime = 0; }}
-                />
-                
+                {isLoading ? (
+                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-black/40 gap-3">
+                    <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Rendering…</span>
+                  </div>
+                ) : isFailed ? (
+                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-red-500/5 gap-2 px-4 text-center">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span className="text-[11px] font-bold text-red-300">Generation failed</span>
+                    {entry.error && <span className="text-[10px] text-white/30 line-clamp-2">{entry.error}</span>}
+                  </div>
+                ) : (
+                  <video
+                    src={entry.url}
+                    className="w-full aspect-video object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setFullscreenUrl(entry.url)}
+                    muted loop onMouseOver={e => e.target.play()} onMouseOut={e => { e.target.pause(); e.target.currentTime = 0; }}
+                  />
+                )}
+
                 {/* Actions Overlay */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                   {entry.url && !isLoading && (
                    <button
                     onClick={(e) => { e.stopPropagation(); downloadFile(entry.url, `marketing-ad-${entry.id}.mp4`); }}
                     className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
@@ -392,19 +591,33 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                      </svg>
                    </button>
+                   )}
+                   {serverActive && entry.id && !isLoading && (
+                   <button
+                    onClick={(e) => { e.stopPropagation(); serverGen.remove(entry.id); }}
+                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                    title="Delete"
+                   >
+                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                       <polyline points="3 6 5 6 21 6" />
+                       <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                     </svg>
+                   </button>
+                   )}
                 </div>
 
                 <div className="p-3 bg-black/80 backdrop-blur-sm border-t border-white/5 flex flex-col gap-1.5 flex-1">
                   <p className="text-white/60 text-[10px] line-clamp-2 leading-relaxed font-medium">{entry.prompt}</p>
                   <div className="flex items-center justify-between mt-auto">
                     <span className="text-[9px] font-black text-primary px-2 py-0.5 bg-primary/10 rounded border border-primary/20 uppercase tracking-tighter">
-                      {entry.format}
+                      {isLoading ? "Rendering" : isFailed ? "Failed" : badge}
                     </span>
-                    <span className="text-[9px] text-white/30 font-bold">{new Date(entry.timestamp).toLocaleDateString()}</span>
+                    <span className="text-[9px] text-white/30 font-bold">{new Date(ts).toLocaleDateString()}</span>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center animate-fade-in-up transition-all duration-700">
@@ -412,7 +625,7 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                 <div className="absolute inset-0 bg-primary/10 blur-[120px] rounded-full opacity-30 group-hover:opacity-60 transition-opacity duration-1000" />
                 <div className="relative w-24 h-24 md:w-32 md:h-32 bg-white/[0.02] rounded-[2rem] flex items-center justify-center border border-white/[0.05] overflow-hidden backdrop-blur-sm">
                   <div className="w-16 h-16 bg-primary/5 rounded-2xl flex items-center justify-center border border-primary/10 relative z-10 transition-transform duration-500 group-hover:scale-110 shadow-inner">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="1.5">
                       <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                       <line x1="8" y1="21" x2="16" y2="21" />
                       <line x1="12" y1="17" x2="12" y2="21" />
@@ -503,6 +716,32 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                 />
               </div>
 
+              {/* Model Select (provider-aware) */}
+              {marketingModels.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDropdown(dropdown === 'model' ? null : 'model'); }}
+                    className={`flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.08] rounded border transition-all group whitespace-nowrap max-w-[200px] ${dropdown === 'model' ? 'border-primary/50' : 'border-white/5'}`}
+                    title={selectedModel?.id || "Select a model"}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 shrink-0">
+                      <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                    <span className="text-sm font-bold text-white/70 group-hover:text-primary transition-colors truncate">
+                      {selectedModel?.name || selectedModel?.id || "Model"}
+                    </span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-20 group-hover:opacity-100 transition-opacity shrink-0"><path d="M6 9l6 6 6-6" /></svg>
+                  </button>
+                  <ModelDropdown
+                    isOpen={dropdown === 'model'}
+                    models={marketingModels}
+                    selectedId={selectedModelId}
+                    onSelect={setSelectedModelId}
+                    onClose={() => setDropdown(null)}
+                  />
+                </div>
+              )}
+
               {/* Format Button */}
               <div className="relative">
                 <button
@@ -518,7 +757,7 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                 <Dropdown 
                   isOpen={dropdown === 'format'} 
                   title="Video Format Presets"
-                  items={ASSETS.ugc} 
+                  items={FORMAT_ITEMS}
                   selectedId={params.format}
                   onSelect={(item) => setParams({ ...params, format: item.name, videoUrl: item.url })}
                   onClose={() => setDropdown(null)}
@@ -550,8 +789,8 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                 />
               </div>
 
-              {/* Simple Controls */}
-              {['ratio', 'res', 'duration'].map(key => (
+              {/* Simple Controls (options derived from the selected model) */}
+              {controlKeys.map(key => (
                 <div key={key} className="relative">
                   <button
                     onClick={(e) => { e.stopPropagation(); setDropdown(dropdown === key ? null : key); }}
@@ -562,8 +801,8 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
                   <SimpleDropdown 
                     isOpen={dropdown === key} 
                     title={key === 'res' ? 'Resolution' : key.toUpperCase()} 
-                    options={OPTIONS[key]} 
-                    selected={params[key]} 
+                    options={optionsFor(key)}
+                    selected={params[key]}
                     onSelect={(val) => setParams({ ...params, [key]: val })} 
                     onClose={() => setDropdown(null)} 
                   />
@@ -574,7 +813,7 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled }
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="bg-primary text-black px-8 py-2.5 rounded font-bold text-base hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 shadow-glow disabled:opacity-50 disabled:grayscale z-10"
+              className="bg-primary text-black px-8 py-2.5 rounded font-bold text-base hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 shadow-glow disabled:opacity-50 disabled:grayscale z-10"
             >
               {isGenerating ? (
                 <>

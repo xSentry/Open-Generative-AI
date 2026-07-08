@@ -1,16 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ImageStudio, VideoStudio, ClippingStudio, VibeMotionStudio, LipSyncStudio, RecastStudio, CinemaStudio, AudioStudio, MarketingStudio, WorkflowStudio, AgentStudio, AppsStudio, getUserBalance } from 'studio';
+import { ImageStudio, VideoStudio, ClippingStudio, VibeMotionStudio, LipSyncStudio, RecastStudio, CinemaStudio, AudioStudio, MarketingStudio, WorkflowStudio, AgentStudio, AppsStudio } from 'studio';
 
 const DesignAgentStudio = dynamic(() => import('studio').then(mod => mod.DesignAgentStudio), {
   ssr: false,
   loading: () => <div className="h-full w-full bg-black flex items-center justify-center text-white/20">Loading Design Studio...</div>
 });
 import axios from 'axios';
-import ApiKeyModal from './ApiKeyModal';
 
 const TABS = [
   { id: 'image',   label: 'Image Studio' },
@@ -28,10 +27,14 @@ const TABS = [
   { id: 'apps', label: 'Explore Apps' },
 ];
 
+// Tabs/features that are only available when MuAPI is the selected provider.
+const MUAPI_ONLY_TABS = new Set(['clipping', 'vibe-motion', 'apps']);
+
 const STORAGE_KEY = 'muapi_key';
 
 export default function StandaloneShell() {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
   const slug = params?.slug || []; 
   const idFromParams = params?.id;
@@ -66,7 +69,9 @@ export default function StandaloneShell() {
   const [apiKey, setApiKey] = useState(null);
   const [activeTab, setActiveTab] = useState(getInitialTab());
 
-  const [balance, setBalance] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [studioModelsByMode, setStudioModelsByMode] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [hasMounted, setHasMounted] = useState(false);
@@ -103,6 +108,68 @@ export default function StandaloneShell() {
     // setActiveTab(tabId);
   };
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (!response.ok) {
+          router.replace(`/login?next=${encodeURIComponent(pathname || '/studio')}`);
+          return;
+        }
+
+        const data = await response.json();
+        if (isMounted) {
+          setAuthUser(data.user);
+          setAuthChecked(true);
+        }
+      } catch {
+        router.replace(`/login?next=${encodeURIComponent(pathname || '/studio')}`);
+      }
+    }
+
+    checkAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pathname, router]);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    let isMounted = true;
+
+    async function loadStudioModels() {
+      try {
+        const response = await fetch('/api/studio/models', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (isMounted) {
+          setStudioModelsByMode(data.models || null);
+        }
+      } catch {
+        if (isMounted) setStudioModelsByMode(null);
+      }
+    }
+
+    loadStudioModels();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authChecked, authUser?.provider, authUser?.preferredProvider]);
+
+  // Redirect away from MuAPI-only tabs (AI Clipping, Vibe Motion, Explore Apps)
+  // if the selected provider is not MuAPI (e.g. Replicate).
+  useEffect(() => {
+    if (!authChecked) return;
+    const provider = authUser?.provider || authUser?.preferredProvider || 'replicate';
+    if (provider !== 'muapi' && MUAPI_ONLY_TABS.has(activeTab)) {
+      router.replace('/studio/image');
+    }
+  }, [authChecked, authUser?.provider, authUser?.preferredProvider, activeTab, router]);
+
   // Auto-hide header when inside a specific workflow view or design agent
   useEffect(() => {
     const isEditingWorkflow = (activeTab === 'workflows' || !!idFromParams) && urlWorkflowId;
@@ -127,39 +194,22 @@ export default function StandaloneShell() {
     }
   }, [activeTab]);
 
-  const fetchBalance = useCallback(async (key) => {
-    try {
-      const data = await getUserBalance(key);
-      setBalance(data.balance);
-    } catch (err) {
-      console.error('Balance fetch failed:', err);
-    }
-  }, []);
-
   useEffect(() => {
     setHasMounted(true);
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       setApiKey(stored);
-      fetchBalance(stored);
       // Sync cookie immediately on mount to establish identity for background requests
       document.cookie = `muapi_key=${stored}; path=/; max-age=31536000; SameSite=Lax`;
     }
-  }, [fetchBalance]);
-
-  const handleKeySave = useCallback((key) => {
-    localStorage.setItem(STORAGE_KEY, key);
-    setApiKey(key);
-    fetchBalance(key);
-    document.cookie = `muapi_key=${key}; path=/; max-age=31536000; SameSite=Lax`;
-  }, [fetchBalance]);
-
-  const handleKeyChange = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setApiKey(null);
-    setBalance(null);
-    document.cookie = "muapi_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   }, []);
+
+  const handleLogout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    localStorage.removeItem(STORAGE_KEY);
+    document.cookie = "muapi_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    router.replace('/login');
+  }, [router]);
 
   // Inject API key into all outgoing Axios requests (prop-based approach)
   // We use an interceptor to be selective and NOT send the key to external domains like S3
@@ -185,13 +235,6 @@ export default function StandaloneShell() {
       axios.interceptors.request.eject(interceptorId);
     };
   }, [apiKey]);
-
-  // Poll for balance every 30 seconds if key is present
-  useEffect(() => {
-    if (!apiKey) return;
-    const interval = setInterval(() => fetchBalance(apiKey), 30000);
-    return () => clearInterval(interval);
-  }, [apiKey, fetchBalance]);
 
   // Drag and Drop Handlers
   const handleDragOver = useCallback((e) => {
@@ -230,15 +273,21 @@ export default function StandaloneShell() {
     setDroppedFiles(null);
   }, []);
 
-  if (!hasMounted) return (
+  if (!hasMounted || !authChecked) return (
     <div className="min-h-screen bg-[#050505] flex items-center justify-center">
-      <div className="animate-spin text-[#22d3ee] text-3xl">◌</div>
+      <div className="animate-spin text-[var(--primary-color)] text-3xl">◌</div>
     </div>
   );
 
-  if (!apiKey) {
-    return <ApiKeyModal onSave={handleKeySave} />;
-  }
+  const preferredProvider = authUser?.provider || authUser?.preferredProvider || 'replicate';
+  const isMuapiProvider = preferredProvider === 'muapi';
+  const providerLabel = preferredProvider === 'muapi' ? 'MuAPI' : 'Replicate';
+  const selectedProviderHasKey = preferredProvider === 'muapi'
+    ? Boolean(authUser?.hasMuapiApiKey)
+    : Boolean(authUser?.hasReplicateApiKey);
+
+  // Hide MuAPI-only features (AI Clipping, Vibe Motion, Explore Apps) for other providers.
+  const visibleTabs = TABS.filter((tab) => isMuapiProvider || !MUAPI_ONLY_TABS.has(tab.id));
 
   return (
     <div 
@@ -250,9 +299,9 @@ export default function StandaloneShell() {
     >
       {/* Drag Overlay */}
       {isDragging && (
-        <div className="fixed inset-0 z-[100] bg-[#22d3ee]/10 backdrop-blur-md border-4 border-dashed border-[#22d3ee]/50 flex items-center justify-center pointer-events-none transition-all duration-300">
+        <div className="fixed inset-0 z-[100] bg-[var(--primary-color)]/10 backdrop-blur-md border-4 border-dashed border-[var(--primary-color)]/50 flex items-center justify-center pointer-events-none transition-all duration-300">
           <div className="bg-[#0a0a0a] p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center gap-4 scale-110 animate-pulse">
-            <div className="w-20 h-20 bg-[#22d3ee] rounded-2xl flex items-center justify-center">
+            <div className="w-20 h-20 bg-[var(--primary-color)] rounded-2xl flex items-center justify-center">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
               </svg>
@@ -295,11 +344,22 @@ export default function StandaloneShell() {
           {/* Left: Logo */}
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              <svg xmlns="http://www.w3.org/2000/svg" id="Ebene_2" data-name="Ebene 2" viewBox="0 0 801 1081.21" width="25" height="25">
+                <g id="Ebene_2-2" data-name="Ebene 2">
+                  <g>
+                    <path d="m1,810.34V270.87L400.5,1.21l399.5,269.66v539.47l-399.5,269.66L1,810.34Zm122-494.97v450.48l277.5,225.41,277.5-225.41v-450.48L400.5,89.96,123,315.37Z"/>
+                    <path d="m400.5,1.81l399,269.32v538.94l-399,269.33L1.5,810.07V271.13L400.5,1.81m0,990.08l.63-.51,277-225,.37-.3v-450.95l-.37-.3L401.13,89.83l-.63-.51-.63.51L122.87,314.83l-.37.3v450.95l.37.3,277,225,.63.51M400.5.6L.5,270.6v540l400,270,400-270V270.6L400.5.6h0Zm0,990l-277-225v-450L400.5,90.6l277,225v450l-277,225h0Z"/>
+                  </g>
+                  <g>
+                    <path d="m270.6,592.1l-128.75-51.5,128.75-51.5h259.81l128.75,51.5-128.75,51.5h-259.81Zm129.9-84c-17.92,0-32.5,14.58-32.5,32.5s14.58,32.5,32.5,32.5,32.5-14.58,32.5-32.5-14.58-32.5-32.5-32.5Z"/>
+                    <path d="m530.31,489.6l127.5,51-127.5,51h-259.61l-127.5-51,127.5-51h259.61m-129.81,84c18.2,0,33-14.8,33-33s-14.8-33-33-33-33,14.8-33,33,14.8,33,33,33m130-85h-260l-130,52,130,52h260l130-52-130-52h0Zm-130,84c-17.67,0-32-14.33-32-32s14.33-32,32-32,32,14.33,32,32-14.33,32-32,32h0Z"/>
+                  </g>
+                </g>
               </svg>
             </div>
-            <span className="text-sm font-bold tracking-tight hidden sm:block">OpenGenerativeAI</span>
+            <span className="text-[1.25rem] font-bold tracking-[-0.1rem] hidden sm:block">
+              AI HUB
+            </span>
           </div>
 
           {/* Center: Navigation Container with fade edges */}
@@ -308,19 +368,19 @@ export default function StandaloneShell() {
             <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#030303] to-transparent pointer-events-none z-10 block lg:hidden" />
             
             <nav className="flex items-center gap-4 overflow-x-auto scrollbar-none w-full lg:w-auto h-full px-4 lg:px-0">
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => handleTabChange(tab.id)}
                   className={`relative text-[13px] font-medium transition-all duration-300 whitespace-nowrap px-1 flex-shrink-0 flex items-center h-full ${
                     activeTab === tab.id
-                      ? 'text-[#22d3ee]'
+                      ? 'text-[var(--primary-color)]'
                       : 'text-white/50 hover:text-white'
                   }`}
                 >
                   <span className="relative z-10">{tab.label}</span>
                   {activeTab === tab.id && (
-                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#22d3ee] to-[#a855f7] rounded-full shadow-[0_0_8px_rgba(34,211,238,0.5)]" />
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[var(--primary-color)] to-[var(--color-accent)] rounded-full shadow-[var(--shadow-glow)]" />
                   )}
                 </button>
               ))}
@@ -333,17 +393,13 @@ export default function StandaloneShell() {
           {/* Right: Actions */}
           <div className="flex-shrink-0 flex items-center gap-4">
             <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/5 transition-colors">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-white/90">
-                  ${balance !== null ? `${balance}` : '---'}
-                </span>
-              </div>
+              <div className={`w-2 h-2 rounded-full ${selectedProviderHasKey ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-xs font-bold text-white/90">{providerLabel}</span>
             </div>
 
             <button
               onClick={() => setShowSettings(true)}
-              title="Settings — API key, local models, preferences"
+              title="Settings - provider keys, account, preferences"
               className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-white/10 bg-white/5 text-[13px] font-bold text-white/80 hover:text-white hover:bg-white/10 hover:border-white/20 transition-colors"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -358,19 +414,19 @@ export default function StandaloneShell() {
 
       {/* Studio Content */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
-        {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'clipping' && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'vibe-motion' && <VibeMotionStudio apiKey={apiKey} />}
-        {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'body-swap' && <RecastStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} />}
-        {activeTab === 'audio'   && <AudioStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'marketing' && <MarketingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
+        {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'clipping' && isMuapiProvider && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'vibe-motion' && isMuapiProvider && <VibeMotionStudio apiKey={apiKey} />}
+        {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'body-swap' && <RecastStudio apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} />}
+        {activeTab === 'audio'   && <AudioStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'marketing' && <MarketingStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} provider={preferredProvider} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'agents' && <AgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'design-agent' && <DesignAgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
-        {activeTab === 'apps' && <AppsStudio apiKey={apiKey} />}
+        {activeTab === 'apps' && isMuapiProvider && <AppsStudio apiKey={apiKey} />}
       </div>
 
       {/* Settings Modal */}
@@ -385,24 +441,44 @@ export default function StandaloneShell() {
             <div className="space-y-4 mb-8">
               <div className="bg-white/5 border border-white/[0.03] rounded-md p-4">
                 <label className="block text-xs font-bold text-white/30 mb-2">
-                   Active API Key
+                   Signed In
                 </label>
-                <div className="text-[13px] font-mono text-white/80">
-                  {apiKey.slice(0, 8)}••••••••••••••••
+                <div className="text-[13px] text-white/80">
+                  {authUser?.name || authUser?.email}
+                </div>
+                <div className="text-[12px] text-white/35 truncate">
+                  {authUser?.email}
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/[0.03] rounded-md p-4">
+                <label className="block text-xs font-bold text-white/30 mb-2">
+                   Provider
+                </label>
+                <div className="flex items-center justify-between gap-4 text-[13px] text-white/80">
+                  <span>{providerLabel}</span>
+                  <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] font-semibold text-white/55">
+                    {selectedProviderHasKey ? 'Key saved' : 'No key yet'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <button
-                onClick={handleKeyChange}
-                className="flex-1 h-10 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs font-semibold transition-all"
+                onClick={() => router.push('/settings/account')}
+                className="h-10 rounded-md bg-[var(--primary-color)] text-black hover:bg-[var(--primary-light-color)] text-xs font-semibold transition-all"
               >
-                Change Key
+                Account
+              </button>
+              <button
+                onClick={handleLogout}
+                className="h-10 rounded-md bg-white/5 text-white/80 hover:bg-white/10 text-xs font-semibold transition-all border border-white/5"
+              >
+                Logout
               </button>
               <button
                 onClick={() => setShowSettings(false)}
-                className="flex-1 h-10 rounded-md bg-white/5 text-white/80 hover:bg-white/10 text-xs font-semibold transition-all border border-white/5"
+                className="h-10 rounded-md bg-white/5 text-white/80 hover:bg-white/10 text-xs font-semibold transition-all border border-white/5"
               >
                 Close
               </button>

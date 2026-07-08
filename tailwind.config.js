@@ -14,17 +14,17 @@ module.exports = {
         extend: {
             colors: {
                 primary: {
-                    DEFAULT: '#22d3ee',
-                    hover: '#06b6d4',
+                    DEFAULT: 'var(--color-primary)',
+                    hover: 'var(--color-primary-hover)',
                 },
-                'app-bg': '#050505',
-                'panel-bg': '#0a0a0a',
-                'card-bg': '#141414',
-                secondary: '#a1a1aa',
-                muted: '#52525b',
+                'app-bg': 'var(--bg-app)',
+                'panel-bg': 'var(--bg-panel)',
+                'card-bg': 'var(--bg-card)',
+                secondary: 'var(--text-secondary)',
+                muted: 'var(--text-muted)',
             },
             fontFamily: {
-                sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                sans: ['var(--font-family)'],
             },
             borderRadius: {
                 'xl': '1rem',
@@ -32,8 +32,8 @@ module.exports = {
                 '3xl': '2rem',
             },
             boxShadow: {
-                'glow': '0 0 20px rgba(34, 211, 238, 0.4)',
-                'glow-accent': '0 0 20px rgba(168, 85, 247, 0.4)',
+                'glow': 'var(--shadow-glow)',
+                'glow-accent': 'var(--shadow-glow-accent)',
                 '3xl': '0 35px 60px -15px rgba(0, 0, 0, 0.8)',
             }
         },

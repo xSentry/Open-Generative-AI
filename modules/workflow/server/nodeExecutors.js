@@ -1,0 +1,109 @@
+// Phase 3 — provider-agnostic node execution.
+//
+// Each graph node has a `category` (text/image/video/audio/api/utility) and a
+// `model` + resolved `params`. This module turns one node into the UI output
+// contract: { id, outputs: [{ type, value, id }] } with
+//   type ∈ { image_url, video_url, audio_url, text }.
+//
+// Pure/local node types (text, passthrough, prompt-concatenator) run inline.
+// Media nodes delegate the actual inference to the existing provider
+// abstraction (modules/providers/*), which is what keeps the engine
+// provider-independent: adding a custom provider only means adding a runner in
+// `runModel`.
+import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
+import { runMuapiPrediction } from '../../providers/muapi/server/run.js';
+import { getReplicateModelById } from '../../providers/replicate/server/catalog.js';
+
+function newId() {
+  return (globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+}
+
+// UI output type for a node, derived from its category. Text/utility concat
+// nodes emit text; media nodes emit the matching *_url type.
+function outputTypeForCategory(category) {
+  switch (category) {
+    case 'image':
+      return 'image_url';
+    case 'video':
+      return 'video_url';
+    case 'audio':
+      return 'audio_url';
+    default:
+      return 'text';
+  }
+}
+
+function textOutput(value) {
+  return { id: newId(), outputs: [{ type: 'text', value: value ?? '', id: newId() }] };
+}
+
+// Normalize a provider result ({ url, outputs }) into the UI output list.
+function normalizeOutputs(providerResult, category) {
+  const type = outputTypeForCategory(category);
+  const urls = Array.isArray(providerResult?.outputs) && providerResult.outputs.length
+    ? providerResult.outputs
+    : providerResult?.url
+      ? [providerResult.url]
+      : [];
+  return urls.map((value) => ({ type, value, id: newId() }));
+}
+
+// Dispatch real model inference to the active provider. Injectable via
+// executeNode's `runners` for tests.
+async function defaultRunModel({ provider, apiKey, model, params }) {
+  if (provider === 'muapi') {
+    return runMuapiPrediction({ apiKey, endpoint: model, params });
+  }
+  if (provider === 'replicate') {
+    const resolved = getReplicateModelById(model);
+    if (!resolved) throw new Error(`Unknown Replicate model "${model}".`);
+    return runReplicatePrediction({ apiKey, model: resolved, params });
+  }
+  throw new Error(`No node runner for provider "${provider}".`);
+}
+
+function isPassthrough(model) {
+  return typeof model === 'string' && model.endsWith('-passthrough');
+}
+
+// Execute a single node with already-resolved params.
+export async function executeNode({ provider, apiKey, node, runModel = defaultRunModel }) {
+  const category = node.category || null;
+  const model = node.model || null;
+  const params = node.params || {};
+
+  // ---- Pure local nodes (no inference) ----
+
+  // Text input node — emits its prompt text downstream.
+  if (category === 'text' || model === 'text-passthrough') {
+    return textOutput(params.prompt ?? params.text ?? '');
+  }
+
+  // Prompt concatenator utility — joins incoming prompt fragments.
+  if (model === 'prompt-concatenator') {
+    const parts = [];
+    if (Array.isArray(params.prompt)) parts.push(...params.prompt);
+    else if (params.prompt != null && params.prompt !== '') parts.push(params.prompt);
+    return textOutput(parts.filter((p) => p != null && p !== '').join(' '));
+  }
+
+  // Media passthrough / upload nodes — surface the provided URL unchanged.
+  if (isPassthrough(model)) {
+    const value =
+      params.image_url ?? params.video_url ?? params.audio_url ?? params.prompt ?? '';
+    return { id: newId(), outputs: [{ type: outputTypeForCategory(category), value, id: newId() }] };
+  }
+
+  // ---- Inference nodes (image / video / audio) ----
+  if (category === 'image' || category === 'video' || category === 'audio') {
+    const providerResult = await runModel({ provider, apiKey, model, params });
+    return { id: newId(), outputs: normalizeOutputs(providerResult, category) };
+  }
+
+  // API / video-combiner and other externally-backed utility nodes are not part
+  // of Phase 3. Fail clearly so the UI surfaces an actionable message.
+  throw new Error(`Node type not supported by the local engine yet (category="${category}", model="${model}").`);
+}
+
+export { normalizeOutputs, outputTypeForCategory };
+

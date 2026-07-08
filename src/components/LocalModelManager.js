@@ -55,7 +55,7 @@ function BinaryStatusBar(onStatusChange) {
             text.textContent = t('localModels.notInstalled');
             text.className = 'text-[11px] text-yellow-400';
             btn.textContent = t('localModels.installEngine');
-            btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-black transition-all';
+            btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-[var(--primary-color-text)] transition-all';
             btn.classList.remove('hidden');
         }
         if (onStatusChange) onStatusChange(status.exists);
@@ -169,7 +169,7 @@ function Wan2gpConfigBar(onChange) {
             <input id="wan2gp-url" type="text" placeholder="http://127.0.0.1:7860"
                    class="flex-1 bg-white/5 border border-white/5 focus:border-primary/40 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none"/>
             <button id="wan2gp-test" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 transition-all">Test</button>
-            <button id="wan2gp-save" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-black hover:shadow-glow transition-all">Save</button>
+            <button id="wan2gp-save" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-[var(--primary-color-text)] hover:shadow-glow transition-all">Save</button>
         </div>
         <div id="wan2gp-status" class="text-[11px] text-muted">${t('localModels.notConfigured')}</div>
     `;
@@ -273,7 +273,7 @@ function ModelCard(model, onStateChange) {
             <div class="flex items-center gap-2 shrink-0">
                 ${isDownloaded
                     ? `<button class="delete-btn p-2 rounded-lg text-red-400 hover:bg-red-500/10 transition-all">${TrashIcon}</button>`
-                    : `<button class="download-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-black hover:shadow-glow transition-all">${DownloadIcon} ${t('localModels.download')}</button>`
+                    : `<button class="download-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-[var(--primary-color-text)] hover:shadow-glow transition-all">${DownloadIcon} ${t('localModels.download')}</button>`
                 }
             </div>
         </div>

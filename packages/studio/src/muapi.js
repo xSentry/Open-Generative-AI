@@ -1,4 +1,5 @@
 import { getModelById, getVideoModelById, getI2IModelById, getI2VModelById, getV2VModelById, getRecastModelById, getLipSyncModelById, getAudioModelById } from './models.js';
+import { registerDeferredFile, resolveDeferred } from './deferredUploads.js';
 
 // In an http(s) browser we route through the host app's proxy (Next.js routes
 // under /api/* re-issue the call server-side) so api.muapi.ai CORS is bypassed.
@@ -40,6 +41,9 @@ async function pollForResult(requestId, key, maxAttempts = 900, interval = 2000)
 }
 
 async function submitAndPoll(endpoint, payload, key, onRequestId, maxAttempts = 60) {
+    // Inputs are held locally until this moment; upload any deferred files now so
+    // the request carries real bucket URLs (legacy / Electron sync path).
+    payload = await resolveDeferredParams(key, payload);
     const url = `${BASE_URL}/api/v1/${endpoint}`;
     const response = await fetch(url, {
         method: 'POST',
@@ -221,15 +225,19 @@ export async function generateAudio(apiKey, params) {
     return submitAndPoll(endpoint, payload, apiKey, params.onRequestId, 900);
 }
 
-export function uploadFile(apiKey, file, onProgress) {
+// Actually upload a file to the storage bucket (S3/MinIO). In a hosted browser
+// this goes through the app's own /api/studio/upload route; in Electron's
+// file:// renderer it hits the upstream upload endpoint directly.
+export function uploadFileToBucket(apiKey, file, onProgress) {
     return new Promise((resolve, reject) => {
-        const url = `${BASE_URL}/api/v1/upload_file`;
+        const isHostedBrowser = typeof window !== 'undefined' && window.location?.protocol?.startsWith('http');
+        const url = isHostedBrowser ? '/api/studio/upload' : `${BASE_URL}/api/v1/upload_file`;
         const formData = new FormData();
         formData.append('file', file);
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
-        xhr.setRequestHeader('x-api-key', apiKey);
+        if (!isHostedBrowser) xhr.setRequestHeader('x-api-key', apiKey);
 
         if (onProgress) {
             xhr.upload.onprogress = (event) => {
@@ -257,7 +265,8 @@ export function uploadFile(apiKey, file, onProgress) {
                 let detail = xhr.statusText;
                 try {
                     const errObj = JSON.parse(xhr.responseText);
-                    detail = errObj.detail || detail;
+                    // Server routes return { error, message }; MuAPI returns { detail }.
+                    detail = errObj.detail || errObj.message || errObj.error || detail;
                 } catch (e) {
                     // fallback to statusText
                 }
@@ -269,6 +278,27 @@ export function uploadFile(apiKey, file, onProgress) {
         xhr.onerror = () => reject(new Error('Network error during file upload'));
         xhr.send(formData);
     });
+}
+
+// Select a file WITHOUT uploading it. The file is held in the browser and a
+// local blob: URL is returned for preview. The real bucket upload is deferred
+// until the generation is submitted (see resolveDeferredParams), so choosing a
+// file that never gets generated leaves nothing behind in the bucket.
+//
+// The signature is unchanged, so every studio tool keeps calling it as before;
+// the returned "url" is simply a local blob: URL until submit time.
+export function uploadFile(apiKey, file, onProgress) {
+    // No network happens yet — report completion so existing progress UIs settle.
+    if (onProgress) onProgress(100);
+    return Promise.resolve(registerDeferredFile(file));
+}
+
+// Resolve any deferred (locally-held) file inputs inside a params/payload object
+// by uploading them to the bucket now and swapping in the real URLs. Called at
+// the generation submit choke points (submitAndPoll here; startGeneration for the
+// server-persisted path).
+export function resolveDeferredParams(apiKey, params) {
+    return resolveDeferred(params, (file) => uploadFileToBucket(apiKey, file));
 }
 
 export async function getUserBalance(apiKey) {
@@ -434,6 +464,41 @@ export async function deleteWorkflow(apiKey, workflowId) {
     if (!response.ok) {
         const errText = await response.text();
         throw new Error(`Failed to delete workflow: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+};
+
+// Mark/unmark one of your own workflows as a provider-wide template. Once a
+// template, it appears in every user's Templates list (provider-scoped).
+export async function setWorkflowTemplate(apiKey, workflowId, isTemplate) {
+    const response = await fetch(`${BASE_URL}/workflow/workflow/${workflowId}/template`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey
+        },
+        body: JSON.stringify({ is_template: isTemplate })
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to update template: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+};
+
+// Clone a readable workflow (a template, a community/published one, or your own)
+// into a fresh private workflow you own. Returns { workflow_id }.
+export async function cloneWorkflow(apiKey, workflowId) {
+    const response = await fetch(`${BASE_URL}/workflow/${workflowId}/clone`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey
+        }
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to clone workflow: ${response.status} - ${errText.slice(0, 100)}`);
     }
     return await response.json();
 };

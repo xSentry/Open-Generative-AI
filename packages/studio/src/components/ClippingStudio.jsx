@@ -6,7 +6,7 @@ import { runClipping, uploadFile } from "../muapi.js";
 // ---------------------------------------------------------------------------
 // Inline SVG Icons
 // ---------------------------------------------------------------------------
-const ScissorsIcon = ({ className = "text-[#22d3ee]" }) => (
+const ScissorsIcon = ({ className = "text-[var(--primary-color)]" }) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <circle cx="6" cy="6" r="3" />
     <circle cx="6" cy="18" r="3" />
@@ -51,7 +51,7 @@ const ClockIcon = () => (
 );
 
 const CheckIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="3">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="3">
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
@@ -578,7 +578,7 @@ export default function ClippingStudio({
                             }}
                             className={`w-full p-4 border rounded-lg text-left transition-all hover:bg-zinc-900/60 flex flex-col gap-2 group/hl ${
                               isActive 
-                                ? "border-primary bg-primary/5 shadow-[0_0_12px_rgba(34,211,238,0.03)]" 
+                                ? "border-primary bg-primary/5 shadow-[var(--shadow-glow)]" 
                                 : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700"
                             }`}
                           >
@@ -740,8 +740,8 @@ export default function ClippingStudio({
               onClick={() => videoUrl ? clearVideoUpload() : videoFileInputRef.current?.click()}
               className={`w-10 h-10 shrink-0 rounded-full border transition-all flex items-center justify-center relative overflow-hidden ${
                 videoUrl 
-                  ? "border-[#22d3ee]/60 bg-[#22d3ee]/5" 
-                  : "bg-white/5 border-white/[0.03] hover:bg-white/10 hover:border-[#22d3ee]/40"
+                  ? "border-[var(--primary-color)]/60 bg-[var(--primary-color)]/5" 
+                  : "bg-white/5 border-white/[0.03] hover:bg-white/10 hover:border-[var(--primary-color)]/40"
               } group`}
             >
               {videoUploading ? (
@@ -757,24 +757,24 @@ export default function ClippingStudio({
                       fill="transparent"
                       strokeDasharray={88}
                       strokeDashoffset={88 - (88 * videoProgress) / 100}
-                      className="text-[#22d3ee] transition-all duration-300"
+                      className="text-[var(--primary-color)] transition-all duration-300"
                     />
                   </svg>
-                  <span className="absolute text-[8px] font-black text-[#22d3ee] leading-none">
+                  <span className="absolute text-[8px] font-black text-[var(--primary-color)] leading-none">
                     {videoProgress}%
                   </span>
                 </div>
               ) : null}
 
               {videoUrl ? (
-                <div className="w-full h-full flex items-center justify-center bg-[#22d3ee]/10 text-[#22d3ee]">
+                <div className="w-full h-full flex items-center justify-center bg-[var(--primary-color)]/10 text-[var(--primary-color)]">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <polygon points="23 7 16 12 23 17 23 7" />
                     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                   </svg>
                 </div>
               ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/40 group-hover:text-[#22d3ee] transition-colors">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/40 group-hover:text-[var(--primary-color)] transition-colors">
                   <polygon points="23 7 16 12 23 17 23 7" />
                   <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                 </svg>
@@ -815,7 +815,7 @@ export default function ClippingStudio({
               
               {/* Model Identifier (C) */}
               <div className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] rounded-md border border-white/[0.03] whitespace-nowrap">
-                <div className="w-4 h-4 bg-[#22d3ee] rounded flex items-center justify-center shadow-lg shadow-[#22d3ee]/10">
+                <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center shadow-lg shadow-[var(--primary-color)]/10">
                   <span className="text-[9px] font-bold text-black uppercase">C</span>
                 </div>
                 <span className="text-[11px] font-semibold text-white/70">
@@ -833,7 +833,7 @@ export default function ClippingStudio({
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 text-white">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                   </svg>
-                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {aspectRatio}
                   </span>
                   <ChevronDownIcon />
@@ -872,7 +872,7 @@ export default function ClippingStudio({
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
                   <ClockIcon />
-                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {numHighlights} Highlights
                   </span>
                   <ChevronDownIcon />
@@ -909,7 +909,7 @@ export default function ClippingStudio({
                 onClick={() => setReturnCoordinatesOnly(!returnCoordinatesOnly)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all border whitespace-nowrap text-[11px] font-semibold ${
                   returnCoordinatesOnly 
-                    ? "bg-primary/10 border-primary/20 text-[#22d3ee]" 
+                    ? "bg-primary/10 border-primary/20 text-[var(--primary-color)]" 
                     : "bg-white/[0.03] border-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
                 }`}
               >
@@ -924,7 +924,7 @@ export default function ClippingStudio({
               type="button"
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
             >
               {isGenerating ? (
                 <>

@@ -1,0 +1,25 @@
+import { requireUser } from '@/modules/auth/server/auth';
+import { errorResponse } from '@/modules/auth/server/errors';
+import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import { handleStudioUploadRequest } from '@/modules/studio/server/apiHandlers';
+import {
+  createObjectKey,
+  getS3Config,
+  uploadObject,
+} from '@/modules/storage/server/s3';
+
+export const runtime = 'nodejs';
+
+const MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
+
+export async function POST(request) {
+  return handleStudioUploadRequest(request, {
+    createObjectKey,
+    errorResponse,
+    getActiveProviderKey,
+    getS3Config,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    requireUser,
+    uploadObject,
+  });
+}

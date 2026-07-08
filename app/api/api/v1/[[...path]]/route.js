@@ -1,4 +1,13 @@
 import { NextResponse } from 'next/server';
+import { errorResponse } from '@/modules/auth/server/errors';
+import {
+    getActiveProviderKey,
+    getProviderMissingKeyMessage,
+} from '@/modules/providers/server/providerKeys';
+import { proxyMuapiV1Request } from '@/modules/providers/muapi/server/run';
+import { handleMuapiV1PostRequest } from '@/modules/studio/server/apiHandlers';
+import { findReplicateModelByEndpoint } from '@/modules/providers/replicate/server/catalog';
+import { runReplicatePrediction } from '@/modules/providers/replicate/server/run';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
@@ -30,7 +39,6 @@ export async function GET(request, { params }) {
     const headers = cleanHeaders(request);
     const apiKey = getApiKey(request);
     
-    console.log(`[double-api proxy GET] ${targetUrl} | apiKey: ${apiKey ? apiKey.slice(0,8)+'...' : 'MISSING'}`);
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {
@@ -46,20 +54,17 @@ export async function POST(request, { params }) {
     const slug = await params;
     const pathSegments = slug.path || [];
     const path = pathSegments.join('/');
-    
-    const { search } = new URL(request.url);
-    const targetUrl = `${MUAPI_BASE}/api/v1/${path}${search}`;
 
-    const headers = cleanHeaders(request);
-    const apiKey = getApiKey(request);
-    if (apiKey) headers.set('x-api-key', apiKey);
-
-    try {
-        const body = await request.arrayBuffer();
-        const response = await fetch(targetUrl, { method: 'POST', headers, body });
-        const data = await response.json();
-        return NextResponse.json(data, { status: response.status });
-    } catch (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    return handleMuapiV1PostRequest(request, {
+        path,
+        deps: {
+            errorResponse,
+            findReplicateModelByEndpoint,
+            getActiveProviderKey,
+            getProviderMissingKeyMessage,
+            getRequestApiKey: getApiKey,
+            proxyMuapiV1Request,
+            runReplicatePrediction,
+        },
+    });
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { generateVideo, generateI2V, processV2V, uploadFile } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 import {
   t2vModels,
   i2vModels,
@@ -50,7 +51,7 @@ const CheckSvg = () => (
     height="16"
     viewBox="0 0 24 24"
     fill="none"
-    stroke="#22d3ee"
+    stroke="var(--primary-color)"
     strokeWidth="4"
   >
     <polyline points="20 6 9 17 4 12" />
@@ -84,7 +85,7 @@ const VideoReadySvg = () => (
   >
     <polygon points="23 7 16 12 23 17 23 7" />
     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-    <polyline points="7 10 10 13 15 8" stroke="#22d3ee" strokeWidth="2.5" />
+    <polyline points="7 10 10 13 15 8" stroke="var(--primary-color)" strokeWidth="2.5" />
   </svg>
 );
 
@@ -104,16 +105,19 @@ function DropdownItem({ label, selected, onClick }) {
   );
 }
 
-function ModelDropdown({ imageMode, selectedModel, onSelect, onClose }) {
+function ModelDropdown({ imageMode, selectedModel, onSelect, onClose, modelsByMode }) {
   const [search, setSearch] = useState("");
 
-  const generationModels = imageMode ? i2vModels : t2vModels;
+  const t2vModelList = modelsByMode?.t2v?.length ? modelsByMode.t2v : t2vModels;
+  const i2vModelList = modelsByMode?.i2v?.length ? modelsByMode.i2v : i2vModels;
+  const v2vModelList = modelsByMode?.v2v?.length ? modelsByMode.v2v : v2vModels;
+  const generationModels = imageMode ? i2vModelList : t2vModelList;
 
   const lf = search.toLowerCase();
   const filteredMain = generationModels.filter(
     (m) => m.name.toLowerCase().includes(lf) || m.id.toLowerCase().includes(lf),
   );
-  const filteredV2V = v2vModels.filter(
+  const filteredV2V = v2vModelList.filter(
     (m) => m.name.toLowerCase().includes(lf) || m.id.toLowerCase().includes(lf),
   );
 
@@ -240,15 +244,19 @@ export default function VideoStudio({
   historyItems,
   droppedFiles,
   onFilesHandled,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_video_studio_persistent";
+  const t2vModelList = modelsByMode?.t2v?.length ? modelsByMode.t2v : t2vModels;
+  const i2vModelList = modelsByMode?.i2v?.length ? modelsByMode.i2v : i2vModels;
+  const v2vModelList = modelsByMode?.v2v?.length ? modelsByMode.v2v : v2vModels;
 
   // ── mode state ──
   const [imageMode, setImageMode] = useState(false); // i2v
   const [v2vMode, setV2vMode] = useState(false);
 
   // ── model / params ──
-  const defaultModel = t2vModels[0];
+  const defaultModel = t2vModelList[0] || t2vModels[0];
   const [selectedModel, setSelectedModel] = useState(defaultModel.id);
   const [selectedModelName, setSelectedModelName] = useState(defaultModel.name);
   const [selectedAr, setSelectedAr] = useState(
@@ -321,12 +329,13 @@ export default function VideoStudio({
   const hasRestored = useRef(false);
 
   // ── derived data ──
-  const history = historyItems ?? localHistory;
+  const serverGen = useServerGenerations({ mediaType: "video", mode: ["t2v", "i2v", "v2v"] });
+  const history = historyItems ?? (serverGen.active ? serverGen.items : localHistory);
 
   const getCurrentModels = useCallback(() => {
-    if (v2vMode) return v2vModels;
-    return imageMode ? i2vModels : t2vModels;
-  }, [imageMode, v2vMode]);
+    if (v2vMode) return v2vModelList;
+    return imageMode ? i2vModelList : t2vModelList;
+  }, [imageMode, v2vMode, t2vModelList, i2vModelList, v2vModelList]);
 
   const getCurrentAspectRatios = useCallback(
     (id) =>
@@ -358,10 +367,10 @@ export default function VideoStudio({
   const isMotionControlSelection = useCallback(
     (modelId, isV2v) => {
       if (!isV2v) return false;
-      const m = v2vModels.find((x) => x.id === modelId);
+      const m = v2vModelList.find((x) => x.id === modelId);
       return !!m?.imageField;
     },
-    [],
+    [v2vModelList],
   );
 
   // ── update controls when model/mode changes ──────────────────────────────
@@ -377,7 +386,7 @@ export default function VideoStudio({
         return;
       }
 
-      const modelList = isImageMode ? i2vModels : t2vModels;
+      const modelList = isImageMode ? i2vModelList : t2vModelList;
       const model = modelList.find((m) => m.id === modelId);
 
       const ars = isImageMode
@@ -437,7 +446,7 @@ export default function VideoStudio({
         setShowEffect(false);
       }
     },
-    [],
+    [t2vModelList, i2vModelList],
   );
 
   // ── Persistence: Load ────────────────────────────────────────────────────
@@ -465,7 +474,7 @@ export default function VideoStudio({
         if (data.uploadedVideoUrl) setUploadedVideoUrl(data.uploadedVideoUrl);
         if (data.uploadedVideoName) setUploadedVideoName(data.uploadedVideoName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.localHistory) setLocalHistory(data.localHistory);
+        if (data.localHistory && !serverGen.active) setLocalHistory(data.localHistory);
 
         // Update control visibility based on restored model/mode
         applyControlsForModel(
@@ -514,7 +523,8 @@ export default function VideoStudio({
           uploadedVideoUrl,
           uploadedVideoName,
           prompt,
-          localHistory,
+          // Phase 5: results live server-side when active — persist prefs only.
+          localHistory: serverGen.active ? [] : localHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -561,11 +571,11 @@ export default function VideoStudio({
 
       let targetModelId = selectedModel;
       if (!imageMode) {
-        const currentT2V = t2vModels.find((m) => m.id === selectedModel);
+        const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
         const sibling = currentT2V?.family
-          ? i2vModels.find((m) => m.family === currentT2V.family)
+          ? i2vModelList.find((m) => m.family === currentT2V.family)
           : null;
-        const target = sibling || i2vModels[0];
+        const target = sibling || i2vModelList[0] || i2vModels[0];
         targetModelId = target.id;
         setImageMode(true);
         setSelectedModel(target.id);
@@ -609,7 +619,7 @@ export default function VideoStudio({
         setImageMode(false);
       }
       setV2vMode(true);
-      const firstV2V = v2vModels[0];
+      const firstV2V = v2vModelList[0] || v2vModels[0];
       setSelectedModel(firstV2V.id);
       setSelectedModelName(firstV2V.name);
       applyControlsForModel(firstV2V.id, false, true);
@@ -695,11 +705,11 @@ export default function VideoStudio({
 
         let targetModelId = selectedModel;
         if (!imageMode) {
-          const currentT2V = t2vModels.find((m) => m.id === selectedModel);
+          const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
           const sibling = currentT2V?.family
-            ? i2vModels.find((m) => m.family === currentT2V.family)
+            ? i2vModelList.find((m) => m.family === currentT2V.family)
             : null;
-          const target = sibling || i2vModels[0];
+          const target = sibling || i2vModelList[0] || i2vModels[0];
           targetModelId = target.id;
           setImageMode(true);
           setSelectedModel(target.id);
@@ -735,7 +745,7 @@ export default function VideoStudio({
     // Motion-control v2v: keep model and video; just drop the image
     if (isMotionControlSelection(selectedModel, v2vMode)) return;
     setImageMode(false);
-    const first = t2vModels[0];
+    const first = t2vModelList[0] || t2vModels[0];
     setSelectedModel(first.id);
     setSelectedModelName(first.name);
     applyControlsForModel(first.id, false, false);
@@ -750,7 +760,7 @@ export default function VideoStudio({
       // Reset to text-to-video if empty list
       if (isMotionControlSelection(selectedModel, v2vMode)) return;
       setImageMode(false);
-      const first = t2vModels[0];
+      const first = t2vModelList[0] || t2vModels[0];
       setSelectedModel(first.id);
       setSelectedModelName(first.name);
       applyControlsForModel(first.id, false, false);
@@ -813,7 +823,7 @@ export default function VideoStudio({
           setImageMode(false);
         }
         setV2vMode(true);
-        const firstV2V = v2vModels[0];
+        const firstV2V = v2vModelList[0] || v2vModels[0];
         setSelectedModel(firstV2V.id);
         setSelectedModelName(firstV2V.name);
         applyControlsForModel(firstV2V.id, false, true);
@@ -834,7 +844,7 @@ export default function VideoStudio({
     setUploadedVideoUrl(null);
     setUploadedVideoName(null);
     setV2vMode(false);
-    const first = t2vModels[0];
+    const first = t2vModelList[0] || t2vModels[0];
     setSelectedModel(first.id);
     setSelectedModelName(first.name);
     applyControlsForModel(first.id, false, false);
@@ -891,6 +901,37 @@ export default function VideoStudio({
   }, []);
 
   // ── generate ──────────────────────────────────────────────────────────────
+  // ── Reuse a past generation's settings back into the form ────────────────
+  const handleReuse = useCallback((entry) => {
+    const p = entry.params || {};
+    const isV2V = entry.mode === "v2v";
+    const isI2V = entry.mode === "i2v";
+    setV2vMode(isV2V);
+    setImageMode(isI2V);
+    setSelectedModel(entry.model);
+    setPrompt(p.prompt || entry.prompt || "");
+    if (p.aspect_ratio) setSelectedAr(p.aspect_ratio);
+    if (p.duration != null) setSelectedDuration(p.duration);
+    if (p.resolution) setSelectedResolution(p.resolution);
+    if (p.quality) setSelectedQuality(p.quality);
+    if (p.mode) setSelectedMode(p.mode);
+    if (p.name) setSelectedEffect(p.name);
+    if (isV2V) {
+      setUploadedVideoUrl(p.video_url || null);
+      setUploadedImageUrl(p.image_url || null);
+    } else if (isI2V) {
+      if (Array.isArray(p.images_list) && p.images_list.length > 0) {
+        setUploadedImageUrls(p.images_list);
+        setUploadedImageUrl(p.images_list[0] || null);
+      } else if (p.image_url) {
+        setUploadedImageUrl(p.image_url);
+        setUploadedImageUrls([p.image_url]);
+      }
+      if (p.last_image) setUploadedEndImageUrl(p.last_image);
+    }
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     const currentModel = getCurrentModel();
     const isExtendMode = currentModel?.requiresRequestId;
@@ -942,6 +983,40 @@ export default function VideoStudio({
     let hadError = false;
 
     try {
+      // ── Server-persisted async path (skips seedance extend chaining) ──────
+      if (serverGen.active && !isExtendMode) {
+        const mode = v2vMode ? "v2v" : imageMode ? "i2v" : "t2v";
+        const params = {};
+        if (v2vMode) {
+          params.video_url = uploadedVideoUrl;
+          if (currentModel?.imageField && uploadedImageUrl) params.image_url = uploadedImageUrl;
+          if (currentModel?.hasPrompt && trimmedPrompt) params.prompt = trimmedPrompt;
+        } else if (imageMode) {
+          const maxImgs = getMaxImagesForI2VModel(selectedModel);
+          if (maxImgs > 2) params.images_list = uploadedImageUrls;
+          else params.image_url = uploadedImageUrl;
+          if (trimmedPrompt) params.prompt = trimmedPrompt;
+          params.aspect_ratio = selectedAr;
+          const i2vModel = i2vModelList.find((m) => m.id === selectedModel) || i2vModels.find((m) => m.id === selectedModel);
+          if (uploadedEndImageUrl && i2vModel?.lastImageField) params.last_image = uploadedEndImageUrl;
+          if (getDurationsForI2VModel(selectedModel).length > 0) params.duration = selectedDuration;
+          if (getResolutionsForI2VModel(selectedModel).length > 0) params.resolution = selectedResolution;
+          if (selectedQuality) params.quality = selectedQuality;
+          if (selectedMode) params.mode = selectedMode;
+          if (showEffect && selectedEffect) params.name = selectedEffect;
+        } else {
+          if (trimmedPrompt) params.prompt = trimmedPrompt;
+          params.aspect_ratio = selectedAr;
+          if (getDurationsForModel(selectedModel).length > 0) params.duration = selectedDuration;
+          if (getResolutionsForVideoModel(selectedModel).length > 0) params.resolution = selectedResolution;
+          if (selectedQuality) params.quality = selectedQuality;
+          if (selectedMode) params.mode = selectedMode;
+        }
+        await serverGen.generate({ mode, model: selectedModel, params, count: 1 });
+        setActiveHistoryIdx(0);
+        return;
+      }
+
       let res;
 
       if (v2vMode) {
@@ -989,7 +1064,7 @@ export default function VideoStudio({
         }
         if (trimmedPrompt) i2vParams.prompt = trimmedPrompt;
         i2vParams.aspect_ratio = selectedAr;
-        const i2vModel = i2vModels.find((m) => m.id === selectedModel);
+        const i2vModel = i2vModelList.find((m) => m.id === selectedModel) || i2vModels.find((m) => m.id === selectedModel);
         if (uploadedEndImageUrl && i2vModel?.lastImageField) {
           i2vParams.last_image = uploadedEndImageUrl;
         }
@@ -1126,13 +1201,13 @@ export default function VideoStudio({
     setUploadedVideoUrl(null);
     setUploadedVideoName(null);
     setV2vMode(false);
-    const first = t2vModels[0];
+    const first = t2vModelList[0] || t2vModels[0];
     setSelectedModel(first.id);
     setSelectedModelName(first.name);
     applyControlsForModel(first.id, false, false);
     setPromptDisabled(false);
     setTimeout(() => textareaRef.current?.focus(), 50);
-  }, [resetToPromptBar, applyControlsForModel]);
+  }, [resetToPromptBar, applyControlsForModel, t2vModelList]);
 
   const handleExtend = useCallback(() => {
     if (!lastGenerationId) return;
@@ -1153,6 +1228,15 @@ export default function VideoStudio({
     canvasModel === "seedance-v2.0-t2v" || canvasModel === "seedance-v2.0-i2v";
   const currentModelObj = getCurrentModel();
   const isExtendMode = currentModelObj?.requiresRequestId;
+
+  useEffect(() => {
+    if (currentModelObj) return;
+    const fallback = getCurrentModels()[0] || defaultModel;
+    if (!fallback) return;
+    setSelectedModel(fallback.id);
+    setSelectedModelName(fallback.name);
+    applyControlsForModel(fallback.id, imageMode, v2vMode);
+  }, [currentModelObj, getCurrentModels, defaultModel, applyControlsForModel, imageMode, v2vMode]);
 
   const promptPlaceholder = v2vMode
     ? currentModelObj?.imageField
@@ -1201,8 +1285,25 @@ export default function VideoStudio({
                       e.target.pause();
                       e.target.currentTime = 0;
                     }}
+                    style={{ display: entry.url ? "block" : "none" }}
                   />
-                  
+
+                  {/* Loading / error placeholders for async generations */}
+                  {!entry.url && entry.status !== "failed" && (
+                    <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-3">
+                      <div className="animate-spin text-primary text-2xl">◌</div>
+                      <span className="text-[11px] text-white/40">Generating…</span>
+                    </div>
+                  )}
+                  {!entry.url && entry.status === "failed" && (
+                    <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-2 px-3 text-center">
+                      <span className="text-red-400 text-xl">⚠</span>
+                      <span className="text-[11px] text-white/50 line-clamp-3">
+                        {entry.error || "Generation failed"}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Overlay actions */}
                   <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
@@ -1234,6 +1335,38 @@ export default function VideoStudio({
                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                       </svg>
                     </button>
+                    {serverGen.active && entry.id && (
+                      <button
+                        type="button"
+                        title="Reuse settings"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReuse(entry);
+                        }}
+                        className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="23 4 23 10 17 10" />
+                          <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                        </svg>
+                      </button>
+                    )}
+                    {serverGen.active && entry.id && (
+                      <button
+                        type="button"
+                        title="Delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          serverGen.remove(entry.id);
+                        }}
+                        className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                        </svg>
+                      </button>
+                    )}
                     {isSeedance2 && (
                       <button
                         type="button"
@@ -1451,7 +1584,7 @@ export default function VideoStudio({
             )}
 
             {/* End-frame upload button (FLF i2v models only) */}
-            {imageMode && i2vModels.find((m) => m.id === selectedModel)?.lastImageField && (
+            {imageMode && (i2vModelList.find((m) => m.id === selectedModel) || i2vModels.find((m) => m.id === selectedModel))?.lastImageField && (
               <div className="relative">
                 <input
                   ref={endImageFileInputRef}
@@ -1618,12 +1751,12 @@ export default function VideoStudio({
                   onClick={toggleDropdown("model")}
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-4 h-4 bg-[#22d3ee] rounded flex items-center justify-center shadow-lg shadow-[#22d3ee]/10">
+                  <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center shadow-lg shadow-[var(--primary-color)]/10">
                     <span className="text-[9px] font-bold text-black uppercase">
                       V
                     </span>
                   </div>
-                  <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModelName}
                   </span>
                   <svg
@@ -1649,6 +1782,7 @@ export default function VideoStudio({
                       selectedModel={selectedModel}
                       onSelect={handleModelSelect}
                       onClose={() => setOpenDropdown(null)}
+                      modelsByMode={modelsByMode}
                     />
                   </div>
                 )}
@@ -1680,7 +1814,7 @@ export default function VideoStudio({
                         ry="2"
                       />
                     </svg>
-                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedAr}
                     </span>
                   </button>
@@ -1735,7 +1869,7 @@ export default function VideoStudio({
                     >
                       <path d="M5 3l14 9-14 9V3z" />
                     </svg>
-                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors max-w-[140px] truncate">
+                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors max-w-[140px] truncate">
                       {selectedEffect || "Effect"}
                     </span>
                   </button>
@@ -1791,7 +1925,7 @@ export default function VideoStudio({
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
-                    <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedDuration}s
                     </span>
                   </button>
@@ -1846,7 +1980,7 @@ export default function VideoStudio({
                     >
                       <path d="M6 2L3 6v15a2 2 0 002 2h14a2 2 0 002-2V6l-3-4H6z" />
                     </svg>
-                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedResolution || "720p"}
                     </span>
                   </button>
@@ -1888,7 +2022,7 @@ export default function VideoStudio({
               type="button"
               onClick={handleGenerate}
               disabled={generating}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? (
                 <>

@@ -9,6 +9,8 @@ import {
   createWorkflow,
   updateWorkflowName,
   deleteWorkflow,
+  setWorkflowTemplate,
+  cloneWorkflow,
   getWorkflowInputs,
   executeWorkflow,
   getAllNodeSchemas,
@@ -21,7 +23,7 @@ const WorkflowUI = dynamic(() => import("./WorkflowUI"), {
   loading: () => (
     <div className="absolute inset-0 flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-white/5 border-t-[#22d3ee] rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-white/5 border-t-[var(--primary-color)] rounded-full animate-spin" />
         <div className="text-[10px] font-black text-white/20 uppercase tracking-widest">
           Loading Builder...
         </div>
@@ -30,13 +32,19 @@ const WorkflowUI = dynamic(() => import("./WorkflowUI"), {
   ),
 });
 
-function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
+function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onToggleTemplate, onClone }) {
   const [showOptions, setShowOptions] = useState(false);
+  const isShared = activeTab === 'templates' || activeTab === 'published';
+  // A published template you own stays in My Workflows but is frozen: you can
+  // rename or delete it, but not open it in the editor.
+  const isLockedTemplate = activeTab === 'my-workflows' && workflow.is_template;
 
   return (
     <div
-      onClick={() => onClick(workflow)}
-      className="group relative aspect-[3/4] rounded-lg overflow-hidden cursor-pointer border border-white/5 bg-[#0a0a0a] transition-all hover:border-[#22d3ee]/30 hover:scale-[1.02] shadow-2xl"
+      onClick={() => { if (!isLockedTemplate) onClick(workflow); }}
+      className={`group relative aspect-[3/4] rounded-lg overflow-hidden border border-white/5 bg-[#0a0a0a] transition-all hover:border-[var(--primary-color)]/30 shadow-2xl ${
+        isLockedTemplate ? 'cursor-default' : 'cursor-pointer hover:scale-[1.02]'
+      }`}
     >
       {workflow.thumbnail ? (
         <img
@@ -83,7 +91,7 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
             <div className="absolute top-10 right-0 w-32 bg-[#111] border border-white/10 rounded-lg shadow-2xl py-1 animate-in fade-in zoom-in duration-200">
               <button
                 onClick={() => onRename(workflow)}
-                className="w-full px-4 py-2 text-left text-[11px] font-bold text-white/70 hover:text-[#22d3ee] hover:bg-white/5 transition-colors flex items-center gap-2"
+                className="w-full px-4 py-2 text-left text-[11px] font-bold text-white/70 hover:text-[var(--primary-color)] hover:bg-white/5 transition-colors flex items-center gap-2"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
@@ -91,6 +99,17 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
                 </svg>
                 Rename
               </button>
+              {!workflow.is_template && (
+                <button
+                  onClick={() => onToggleTemplate?.(workflow)}
+                  className="w-full px-4 py-2 text-left text-[11px] font-bold text-white/70 hover:text-[var(--primary-color)] hover:bg-white/5 transition-colors flex items-center gap-2"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21.4 8 14 2 9.4h7.6L12 2z" />
+                  </svg>
+                  Publish as Template
+                </button>
+              )}
               <button
                 onClick={() => onDelete(workflow.id)}
                 className="w-full px-4 py-2 text-left text-[11px] font-bold text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
@@ -105,6 +124,13 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
         </div>
       )}
 
+      {/* "Template" badge on your own published templates */}
+      {activeTab === 'my-workflows' && workflow.is_template && (
+        <div className="absolute top-2 left-2 z-20 flex items-center gap-1 bg-[var(--primary-color)]/20 backdrop-blur-md px-2 py-1 rounded-full border border-[var(--primary-color)]/30">
+          <span className="text-[9px] font-black text-[var(--primary-color)] uppercase tracking-widest">Template</span>
+        </div>
+      )}
+
       {/* Community Profile Info */}
       {activeTab === 'published' && workflow.user_name && (
         <div className="absolute top-2 left-2 z-20 flex items-center gap-2 bg-black/40 backdrop-blur-md px-2 py-1 rounded-full border border-white/10">
@@ -114,18 +140,32 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
       )}
 
       <div className="absolute inset-x-0 bottom-0 p-4">
-        <div className="text-[10px] font-bold text-[#22d3ee] uppercase tracking-wider mb-1 opacity-80">
+        <div className="text-[10px] font-bold text-[var(--primary-color)] uppercase tracking-wider mb-1 opacity-80">
           {workflow.category || "General"}
         </div>
-        <h3 className="text-sm font-bold text-white truncate group-hover:text-[#22d3ee] transition-colors">
+        <h3 className="text-sm font-bold text-white truncate group-hover:text-[var(--primary-color)] transition-colors">
           {workflow.name || "Untitled Flow"}
         </h3>
+
+        {/* Clone-to-own action on shared (template / community) lists */}
+        {isShared && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onClone?.(workflow); }}
+            className="mt-3 w-full px-3 py-2 bg-[var(--primary-color)] text-black text-[10px] font-black uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-white flex items-center justify-center gap-1.5"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+            Use Template
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggleHeader }) {
+export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeaderVisible = true, onToggleHeader }) {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug || [];
@@ -186,7 +226,10 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
 
   // Dedicated data fetching effect for the active workflow
   useEffect(() => {
-    if (!selectedWorkflow?.id || !apiKey) return;
+    // NOTE: don't gate on `apiKey`. In the self-hosted setup the provider key is
+    // resolved server-side from the session, so the client has no apiKey and the
+    // builder must still load (otherwise it hangs on "Loading Builder...").
+    if (!selectedWorkflow?.id) return;
 
     async function loadWorkflowDetails() {
       try {
@@ -311,6 +354,35 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
     }
   };
 
+  // Toggle one of your own workflows as a provider-wide template so every user
+  // sees it under Templates (and can clone it).
+  const handleToggleTemplate = async (wf) => {
+    const next = !wf.is_template;
+    try {
+      await setWorkflowTemplate(apiKey, wf.id, next);
+      setWorkflows((prev) =>
+        prev.map((w) => (w.id === wf.id ? { ...w, is_template: next } : w)),
+      );
+    } catch (err) {
+      console.error("Template toggle failed:", err);
+      alert("Failed to update template status");
+    }
+  };
+
+  // Clone a template / community workflow into a new private workflow and open
+  // it in the builder.
+  const handleCloneWorkflow = async (wf) => {
+    try {
+      const res = await cloneWorkflow(apiKey, wf.id);
+      if (res?.workflow_id) {
+        router.push(`/workflow/${res.workflow_id}/builder`);
+      }
+    } catch (err) {
+      console.error("Clone failed:", err);
+      alert("Failed to use this template");
+    }
+  };
+
   // KEY FIX: If the user is on /studio/workflows/[id], redirect to /workflow/[id]
   // so the builder library's useParams().id resolves correctly, preventing duplicate creation.
   useEffect(() => {
@@ -371,6 +443,13 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
     }
   }, [urlWorkflowId, activeSubTab]);
 
+  // The Community tab is MuAPI-only; if the provider isn't MuAPI, never sit on it.
+  useEffect(() => {
+    if (provider !== 'muapi' && activeMainTab === 'published') {
+      setActiveMainTab('templates');
+    }
+  }, [provider, activeMainTab]);
+
   useEffect(() => {
     async function loadWorkflows() {
       try {
@@ -425,7 +504,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
   if (loading && !selectedWorkflow) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="animate-spin text-[#22d3ee] text-3xl">◌</div>
+        <div className="animate-spin text-[var(--primary-color)] text-3xl">◌</div>
       </div>
     );
   }
@@ -460,7 +539,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                     type="button"
                     className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
                       activeSubTab === "playground"
-                        ? "bg-[#22d3ee] text-black shadow-[0_0_15px_rgba(34, 211, 238,0.2)]"
+                        ? "bg-[var(--primary-color)] text-black shadow-[var(--shadow-glow)]"
                         : "text-white/40 hover:text-white"
                     }`}
                   >
@@ -474,7 +553,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                     type="button"
                     className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
                       activeSubTab === "builder"
-                        ? "bg-[#22d3ee] text-black shadow-[0_0_15px_rgba(34, 211, 238,0.2)]"
+                        ? "bg-[var(--primary-color)] text-black shadow-[var(--shadow-glow)]"
                         : "text-white/40 hover:text-white"
                     }`}
                   >
@@ -485,7 +564,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="text-[11px] font-black text-[#22d3ee] uppercase tracking-widest">
+              <span className="text-[11px] font-black text-[var(--primary-color)] uppercase tracking-widest">
                 {selectedWorkflow.name}
               </span>
               <button
@@ -519,7 +598,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                  onClick={() => setActiveSubTab("playground")}
                  type="button"
                  className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-md transition-all ${
-                   activeSubTab === "playground" ? "bg-[#22d3ee] text-black" : "text-white/40"
+                   activeSubTab === "playground" ? "bg-[var(--primary-color)] text-black" : "text-white/40"
                  }`}
                >
                  Play
@@ -528,7 +607,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                  onClick={() => setActiveSubTab("builder")}
                  type="button"
                  className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-md transition-all ${
-                   activeSubTab === "builder" ? "bg-[#22d3ee] text-black" : "text-white/40"
+                   activeSubTab === "builder" ? "bg-[var(--primary-color)] text-black" : "text-white/40"
                  }`}
                >
                  Builder
@@ -576,7 +655,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                                         [key]: e.target.value,
                                       })
                                     }
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[#22d3ee]/50 transition-colors min-h-[80px] resize-none"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[var(--primary-color)]/50 transition-colors min-h-[80px] resize-none"
                                     placeholder={
                                       prop.description || `Enter ${key}...`
                                     }
@@ -590,7 +669,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                                         [key]: e.target.value,
                                       })
                                     }
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[#22d3ee]/50 transition-colors"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[var(--primary-color)]/50 transition-colors"
                                   >
                                     {prop.enum.map((opt) => (
                                       <option
@@ -612,7 +691,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                                         [key]: e.target.value,
                                       })
                                     }
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[#22d3ee]/50 transition-colors"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-[var(--primary-color)]/50 transition-colors"
                                     placeholder={
                                       prop.description || `Enter ${key}...`
                                     }
@@ -627,7 +706,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                     <button
                       type="submit"
                       disabled={isExecuting || !selectedWorkflow.id}
-                      className="w-full py-4 bg-[#22d3ee] text-black text-xs font-black uppercase tracking-[0.2em] rounded-xl hover:bg-white transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:grayscale shadow-[0_0_30px_rgba(34, 211, 238,0.15)] flex items-center justify-center gap-3 mt-8"
+                      className="w-full py-4 bg-[var(--primary-color)] text-black text-xs font-black uppercase tracking-[0.2em] rounded-xl hover:bg-white transition-all transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:grayscale shadow-[var(--shadow-glow)] flex items-center justify-center gap-3 mt-8"
                     >
                       {isExecuting ? (
                         <>
@@ -711,8 +790,8 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                 {isExecuting && (
                   <div className="flex flex-col items-center gap-6 animate-fade-in">
                     <div className="relative">
-                      <div className="w-24 h-24 border-[3px] border-white/5 border-t-[#22d3ee] rounded-full animate-spin shadow-[0_0_40px_rgba(34, 211, 238,0.1)]" />
-                      <div className="absolute inset-0 flex items-center justify-center text-[#22d3ee]">
+                      <div className="w-24 h-24 border-[3px] border-white/5 border-t-[var(--primary-color)] rounded-full animate-spin shadow-[var(--shadow-glow)]" />
+                      <div className="absolute inset-0 flex items-center justify-center text-[var(--primary-color)]">
                         <svg
                           width="32"
                           height="32"
@@ -727,7 +806,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                       </div>
                     </div>
                     <div className="text-center space-y-2">
-                      <div className="text-[10px] font-black text-[#22d3ee] uppercase tracking-[0.3em] animate-pulse">
+                      <div className="text-[10px] font-black text-[var(--primary-color)] uppercase tracking-[0.3em] animate-pulse">
                         Running Pipeline
                       </div>
                       <div className="text-[13px] text-white/40 font-medium">
@@ -753,7 +832,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                       {result.outputs?.map((out, idx) => (
                         <div
                           key={idx}
-                          className="group relative bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-[#22d3ee]/30 transition-all shadow-2xl"
+                          className="group relative bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-[var(--primary-color)]/30 transition-all shadow-2xl"
                         >
                           {out.type === "image_url" ? (
                             <img
@@ -775,14 +854,14 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
 
                           <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent translate-y-full group-hover:translate-y-0 transition-transform">
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-black text-[#22d3ee] uppercase tracking-widest">
+                              <span className="text-[10px] font-black text-[var(--primary-color)] uppercase tracking-widest">
                                 {out.id}
                               </span>
                               <a
                                 href={out.value}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center hover:bg-[#22d3ee] hover:text-black transition-colors"
+                                className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center hover:bg-[var(--primary-color)] hover:text-black transition-colors"
                               >
                                 <svg
                                   width="14"
@@ -819,7 +898,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-white/5 border-t-[#22d3ee] rounded-full animate-spin" />
+                    <div className="w-12 h-12 border-4 border-white/5 border-t-[var(--primary-color)] rounded-full animate-spin" />
                     <div className="text-[10px] font-black text-white/20 uppercase tracking-widest">
                       Loading Builder...
                     </div>
@@ -849,7 +928,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
             </div>
             <button
               onClick={() => handleCreateWorkflow()}
-              className="px-6 py-3 bg-[#22d3ee] text-black text-xs font-black uppercase tracking-widest rounded-lg hover:bg-white transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(34, 211, 238,0.3)] flex items-center gap-2"
+              className="px-6 py-3 bg-[var(--primary-color)] text-black text-xs font-black uppercase tracking-widest rounded-lg hover:bg-white transition-all transform hover:scale-105 active:scale-95 shadow-[var(--shadow-glow)] flex items-center gap-2"
             >
               <svg
                 width="14"
@@ -873,7 +952,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
               onClick={() => setActiveMainTab("templates")}
               className={`px-6 py-4 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2 ${
                 activeMainTab === "templates"
-                  ? "text-[#22d3ee] border-[#22d3ee]"
+                  ? "text-[var(--primary-color)] border-[var(--primary-color)]"
                   : "text-white/30 border-transparent hover:text-white"
               }`}
             >
@@ -883,34 +962,37 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
               onClick={() => setActiveMainTab("my-workflows")}
               className={`px-6 py-4 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2 ${
                 activeMainTab === "my-workflows"
-                  ? "text-[#22d3ee] border-[#22d3ee]"
+                  ? "text-[var(--primary-color)] border-[var(--primary-color)]"
                   : "text-white/30 border-transparent hover:text-white"
               }`}
             >
               My Workflows
             </button>
-            <button
-              onClick={() => setActiveMainTab("published")}
-              className={`px-6 py-4 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2 ${
-                activeMainTab === "published"
-                  ? "text-[#22d3ee] border-[#22d3ee]"
-                  : "text-white/30 border-transparent hover:text-white"
-              }`}
-            >
-              Community
-            </button>
+            {/* Community (published) sharing is a MuAPI-only feature. */}
+            {provider === 'muapi' && (
+              <button
+                onClick={() => setActiveMainTab("published")}
+                className={`px-6 py-4 text-xs font-black uppercase tracking-[0.2em] transition-all border-b-2 ${
+                  activeMainTab === "published"
+                    ? "text-[var(--primary-color)] border-[var(--primary-color)]"
+                    : "text-white/30 border-transparent hover:text-white"
+                }`}
+              >
+                Community
+              </button>
+            )}
           </div>
         </div>
 
         {loading ? (
           <div className="py-20 flex items-center justify-center">
-            <div className="w-10 h-10 border-4 border-white/5 border-t-[#22d3ee] rounded-full animate-spin" />
+            <div className="w-10 h-10 border-4 border-white/5 border-t-[var(--primary-color)] rounded-full animate-spin" />
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-            {workflows.map((wf) => (
+            {workflows.map((wf, idx) => (
               <WorkflowCard
-                key={wf.id}
+                key={wf.id ?? wf.workflow_id ?? idx}
                 workflow={wf}
                 onClick={handleSelectWorkflow}
                 activeTab={activeMainTab}
@@ -919,12 +1001,16 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                    setNewWorkflowName(wf.name);
                 }}
                 onDelete={handleDeleteWorkflow}
+                onToggleTemplate={handleToggleTemplate}
+                onClone={handleCloneWorkflow}
               />
             ))}
             {!loading && workflows.length === 0 && (
               <div className="col-span-full py-24 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/[0.02]">
                 <div className="text-white/20 text-sm font-medium italic">
-                  No workflows found in this section.
+                  {activeMainTab === "templates"
+                    ? "No templates yet. Open one of your workflows' menu and choose \u201CPublish as Template\u201D to share it here."
+                    : "No workflows found in this section."}
                 </div>
               </div>
             )}
@@ -945,14 +1031,14 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
             
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-[#22d3ee] uppercase tracking-widest">Workflow Name</label>
+                <label className="text-[10px] font-black text-[var(--primary-color)] uppercase tracking-widest">Workflow Name</label>
                 <input
                   autoFocus
                   type="text"
                   value={newWorkflowName}
                   onChange={(e) => setNewWorkflowName(e.target.value)}
                   placeholder="e.g. Cinematic Video Flow"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#22d3ee]/50 transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[var(--primary-color)]/50 transition-colors"
                 />
               </div>
               
@@ -966,7 +1052,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-[#22d3ee] text-black px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white transition-all transform hover:scale-105 active:scale-95"
+                  className="flex-1 bg-[var(--primary-color)] text-black px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white transition-all transform hover:scale-105 active:scale-95"
                 >
                   Save Name
                 </button>

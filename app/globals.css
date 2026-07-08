@@ -1,27 +1,17 @@
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800;900&display=swap');
+@import '../src/styles/variables.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: #050505;
-  color: white;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-app);
+  color: var(--text-color);
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
-}
-
-:root {
-  --color-primary: #22d3ee;
-  --bg-app: #030303;
-  --bg-panel: #0a0a0a;
-  --bg-card: #111111;
-  --border-color: rgba(255,255,255,0.05);
-  --border-radius-xl: 0.75rem;
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.08);
 }
 
 .glass-panel {

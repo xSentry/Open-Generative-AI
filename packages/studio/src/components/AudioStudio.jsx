@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { generateAudio, uploadFile } from "../muapi.js";
 import { audioModels, getAudioModelById } from "../models.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 
 // ---------------------------------------------------------------------------
 // Upload button states
@@ -44,7 +45,7 @@ const VolumeMuteIcon = () => (
   </svg>
 );
 
-const MusicIcon = ({ className = "text-[#22d3ee]" }) => (
+const MusicIcon = ({ className = "text-[var(--primary-color)]" }) => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
@@ -134,7 +135,7 @@ function AudioFileUploader({ label, value, onChange, apiKey }) {
         onClick={() => uploadState === UPLOAD_STATE.IDLE && fileInputRef.current?.click()}
         className={`relative border rounded p-4 transition-all duration-300 flex items-center gap-3.5 cursor-pointer ${
           uploadState === UPLOAD_STATE.READY 
-            ? "border-primary/60 bg-primary/10 shadow-[0_0_15px_rgba(34,211,238,0.05)]" 
+            ? "border-primary/60 bg-primary/10 shadow-[var(--shadow-glow)]" 
             : "border-zinc-700 bg-zinc-900 hover:bg-zinc-850 hover:border-primary/50"
         }`}
       >
@@ -220,6 +221,243 @@ function AudioListUploader({ label, value = [], onChange, apiKey, maxItems = 2 }
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic Image / Video uploaders (for models that take image or video inputs
+// alongside audio, e.g. image-conditioned music models).
+// ---------------------------------------------------------------------------
+const MEDIA_ACCEPT = { image: "image/*", video: "video/*" };
+const MEDIA_LIMIT_MB = { image: 20, video: 100 };
+const MEDIA_HINT = {
+  image: "PNG, JPG, WEBP up to 20MB",
+  video: "MP4, MOV, WEBM up to 100MB",
+};
+
+function MediaFileUploader({ label, description, value, onChange, apiKey, kind = "image" }) {
+  const [uploadState, setUploadState] = useState(value ? UPLOAD_STATE.READY : UPLOAD_STATE.IDLE);
+  const [progress, setProgress] = useState(0);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    setUploadState(value ? UPLOAD_STATE.READY : UPLOAD_STATE.IDLE);
+    if (!value) setProgress(0);
+  }, [value]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const limitMb = MEDIA_LIMIT_MB[kind] || 20;
+    if (file.size > limitMb * 1024 * 1024) {
+      alert(`File exceeds ${limitMb}MB limit.`);
+      return;
+    }
+    setUploadState(UPLOAD_STATE.UPLOADING);
+    setProgress(0);
+    try {
+      const url = await uploadFile(apiKey, file, (pct) => setProgress(pct));
+      setUploadState(UPLOAD_STATE.READY);
+      onChange(url);
+    } catch (err) {
+      setUploadState(UPLOAD_STATE.IDLE);
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setProgress(0);
+    }
+  };
+
+  const clearFile = (e) => {
+    e.stopPropagation();
+    onChange(null);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-bold text-zinc-200 uppercase tracking-wider">{label}</label>
+        {uploadState === UPLOAD_STATE.READY && (
+          <button
+            type="button"
+            onClick={clearFile}
+            className="text-xs font-bold text-red-400 hover:text-red-300 transition-colors uppercase tracking-wider flex items-center gap-1.5"
+          >
+            <TrashIcon /> Clear
+          </button>
+        )}
+      </div>
+
+      <div
+        onClick={() => uploadState === UPLOAD_STATE.IDLE && fileInputRef.current?.click()}
+        className={`relative border rounded p-4 transition-all duration-300 flex items-center gap-3.5 cursor-pointer ${
+          uploadState === UPLOAD_STATE.READY
+            ? "border-primary/60 bg-primary/10"
+            : "border-zinc-700 bg-zinc-900 hover:bg-zinc-850 hover:border-primary/50"
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={MEDIA_ACCEPT[kind] || "image/*"}
+          className="hidden"
+          onChange={handleUpload}
+        />
+
+        {uploadState === UPLOAD_STATE.IDLE && (
+          <>
+            <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center text-zinc-200 border border-zinc-700/50">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
+            </div>
+            <div className="text-left">
+              <div className="text-xs font-bold text-white">Upload {kind}</div>
+              <div className="text-[11px] text-zinc-300 font-medium mt-0.5">{MEDIA_HINT[kind]}</div>
+            </div>
+          </>
+        )}
+
+        {uploadState === UPLOAD_STATE.UPLOADING && (
+          <div className="w-full flex items-center gap-4">
+            <div className="flex-1">
+              <div className="flex justify-between text-xs text-white/95 mb-1.5 font-bold">
+                <span>Uploading...</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {uploadState === UPLOAD_STATE.READY && (
+          <>
+            <div className="w-12 h-12 rounded bg-black/40 overflow-hidden flex items-center justify-center border border-primary/30 shrink-0">
+              {kind === "video" ? (
+                <video src={value} className="w-full h-full object-cover" muted />
+              ) : (
+                <img src={value} alt="preview" className="w-full h-full object-cover" />
+              )}
+            </div>
+            <div className="text-left flex-1 min-w-0">
+              <div className="text-xs font-bold text-white truncate">{value?.split("/").pop()?.slice(-30)}</div>
+              <div className="text-[11px] text-primary font-bold mt-0.5">Ready to generate</div>
+            </div>
+          </>
+        )}
+      </div>
+      {description && (
+        <span className="block text-[11px] text-zinc-300 leading-normal">{description}</span>
+      )}
+    </div>
+  );
+}
+
+function MediaListUploader({ label, description, value = [], onChange, apiKey, kind = "image", maxItems = 10 }) {
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const inputRef = useRef(null);
+  const remaining = Math.max(0, maxItems - value.length);
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (inputRef.current) inputRef.current.value = "";
+    if (files.length === 0) return;
+
+    const limitMb = MEDIA_LIMIT_MB[kind] || 20;
+    const toUpload = files.slice(0, remaining);
+    if (files.length > remaining) {
+      alert(`Only ${remaining} more file(s) allowed (max ${maxItems}).`);
+    }
+
+    setUploading(true);
+    const uploaded = [];
+    for (const file of toUpload) {
+      if (file.size > limitMb * 1024 * 1024) {
+        alert(`${file.name} exceeds ${limitMb}MB limit.`);
+        continue;
+      }
+      try {
+        const url = await uploadFile(apiKey, file, (pct) => setProgress(pct));
+        uploaded.push(url);
+      } catch (err) {
+        alert(`Upload failed: ${err.message}`);
+      }
+    }
+    setUploading(false);
+    setProgress(0);
+    if (uploaded.length > 0) onChange([...value, ...uploaded]);
+  };
+
+  const removeAt = (index) => onChange(value.filter((_, i) => i !== index));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-bold text-zinc-200 uppercase tracking-wider">{label}</label>
+        <span className="text-[11px] font-bold text-zinc-400">{value.length} / {maxItems}</span>
+      </div>
+      {description && (
+        <span className="block text-[11px] text-zinc-300 leading-normal">{description}</span>
+      )}
+
+      <div className="grid grid-cols-3 gap-2.5">
+        {value.map((url, i) => (
+          <div key={url + i} className="relative group aspect-square rounded overflow-hidden border border-zinc-700 bg-black/40">
+            {kind === "video" ? (
+              <video src={url} className="w-full h-full object-cover" muted />
+            ) : (
+              <img src={url} alt={`item ${i + 1}`} className="w-full h-full object-cover" />
+            )}
+            <button
+              type="button"
+              onClick={() => removeAt(i)}
+              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+              title="Remove"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        ))}
+
+        {value.length < maxItems && (
+          <button
+            type="button"
+            onClick={() => !uploading && inputRef.current?.click()}
+            disabled={uploading}
+            className="aspect-square rounded border border-dashed border-zinc-700 bg-zinc-900 hover:border-primary/50 hover:bg-zinc-850 transition-all flex flex-col items-center justify-center gap-1 text-zinc-300 disabled:opacity-60"
+          >
+            {uploading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-zinc-600 border-t-primary rounded-full animate-spin" />
+                <span className="text-[10px] font-bold">{progress}%</span>
+              </>
+            ) : (
+              <>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span className="text-[10px] font-bold uppercase tracking-wider">Add</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={MEDIA_ACCEPT[kind] || "image/*"}
+        className="hidden"
+        onChange={handleFiles}
+      />
     </div>
   );
 }
@@ -377,7 +615,7 @@ function PremiumAudioPlayer({ url, title }) {
           {visualizerHeights.map((h, i) => (
             <div
               key={i}
-              className="w-1.5 rounded-full bg-gradient-to-t from-primary to-[#a855f7] transition-all duration-100"
+              className="w-1.5 rounded-full bg-gradient-to-t from-primary to-[var(--color-accent)] transition-all duration-100"
               style={{ height: `${h}px` }}
             />
           ))}
@@ -478,11 +716,13 @@ export default function AudioStudio({
   historyItems,
   droppedFiles,
   onFilesHandled,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_audio_studio_persistent";
+  const audioModelList = modelsByMode?.audio?.length ? modelsByMode.audio : audioModels;
 
   // ── Mode & model state ──────────────────────────────────────────────────
-  const [selectedModelId, setSelectedModelId] = useState(audioModels[0]?.id ?? "");
+  const [selectedModelId, setSelectedModelId] = useState(audioModelList[0]?.id ?? "");
   const [params, setParams] = useState({});
   const [openDropdown, setOpenDropdown] = useState(false);
   const modelBtnRef = useRef(null);
@@ -496,10 +736,16 @@ export default function AudioStudio({
 
   // ── History state ────────────────────────────────────────────────────
   const [internalHistory, setInternalHistory] = useState([]);
-  const history = historyItems ?? internalHistory;
+  const serverGen = useServerGenerations({ mediaType: "audio" });
+  const history = historyItems ?? (serverGen.active ? serverGen.items : internalHistory);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
 
-  const selectedModel = getAudioModelById(selectedModelId);
+  const selectedModel = audioModelList.find((model) => model.id === selectedModelId) || getAudioModelById(selectedModelId);
+
+  useEffect(() => {
+    if (!selectedModelId || audioModelList.some((model) => model.id === selectedModelId)) return;
+    setSelectedModelId(audioModelList[0]?.id ?? "");
+  }, [audioModelList, selectedModelId]);
 
   // ── Initialize params when model changes ──────────────────────────────
   useEffect(() => {
@@ -524,7 +770,7 @@ export default function AudioStudio({
         const data = JSON.parse(stored);
         if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
         if (data.params) setParams(data.params);
-        if (data.internalHistory) setInternalHistory(data.internalHistory);
+        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
         if (data.activeResultUrl) setActiveResultUrl(data.activeResultUrl);
         if (data.activeResultTitle) setActiveResultTitle(data.activeResultTitle);
         if (data.view) setView(data.view);
@@ -541,7 +787,8 @@ export default function AudioStudio({
         const state = {
           selectedModelId,
           params,
-          internalHistory,
+          // Phase 5: results live server-side when active — persist prefs only.
+          internalHistory: serverGen.active ? [] : internalHistory,
           activeResultUrl,
           activeResultTitle,
           view,
@@ -604,6 +851,13 @@ export default function AudioStudio({
     setView("result");
   };
 
+  // Reuse a past generation's settings back into the form.
+  const handleReuse = (entry) => {
+    if (entry.model) setSelectedModelId(entry.model);
+    setParams(entry.params || {});
+    setView("input");
+  };
+
   const handleGenerate = async () => {
     if (!selectedModel) return;
 
@@ -625,6 +879,17 @@ export default function AudioStudio({
         ...params,
         _modelId: selectedModelId,
       };
+
+      // ── Server-persisted async path ──────────────────────────────────────
+      if (serverGen.active) {
+        await serverGen.generate({
+          mode: "audio",
+          model: selectedModelId,
+          params,
+        });
+        setActiveHistoryIdx(0);
+        return;
+      }
 
       // Call generateAudio
       const res = await generateAudio(apiKey, audioParams);
@@ -699,7 +964,7 @@ export default function AudioStudio({
 
             {openDropdown && (
               <div className="absolute left-0 right-0 mt-2 z-50 bg-[#161618] border border-zinc-700 rounded shadow-3xl max-h-60 overflow-y-auto custom-scrollbar p-1.5">
-                {audioModels.map((model) => (
+                {audioModelList.map((model) => (
                   <button
                     key={model.id}
                     type="button"
@@ -758,6 +1023,64 @@ export default function AudioStudio({
                     onChange={(urls) => setParams(prev => ({ ...prev, [key]: urls }))}
                     apiKey={apiKey}
                     maxItems={schema.maxItems || 2}
+                  />
+                );
+              }
+              // Single image upload
+              if (schema.type === "string" && schema.field === "image") {
+                return (
+                  <MediaFileUploader
+                    key={key}
+                    kind="image"
+                    label={schema.title || key}
+                    description={schema.description}
+                    value={params[key] || ""}
+                    onChange={(url) => setParams(prev => ({ ...prev, [key]: url }))}
+                    apiKey={apiKey}
+                  />
+                );
+              }
+              // Image list upload (multiple)
+              if (schema.type === "array" && schema.field === "images_list") {
+                return (
+                  <MediaListUploader
+                    key={key}
+                    kind="image"
+                    label={schema.title || key}
+                    description={schema.description}
+                    value={params[key] || []}
+                    onChange={(urls) => setParams(prev => ({ ...prev, [key]: urls }))}
+                    apiKey={apiKey}
+                    maxItems={schema.maxItems || 10}
+                  />
+                );
+              }
+              // Single video upload
+              if (schema.type === "string" && schema.field === "video") {
+                return (
+                  <MediaFileUploader
+                    key={key}
+                    kind="video"
+                    label={schema.title || key}
+                    description={schema.description}
+                    value={params[key] || ""}
+                    onChange={(url) => setParams(prev => ({ ...prev, [key]: url }))}
+                    apiKey={apiKey}
+                  />
+                );
+              }
+              // Video list upload (multiple)
+              if (schema.type === "array" && schema.field === "videos_list") {
+                return (
+                  <MediaListUploader
+                    key={key}
+                    kind="video"
+                    label={schema.title || key}
+                    description={schema.description}
+                    value={params[key] || []}
+                    onChange={(urls) => setParams(prev => ({ ...prev, [key]: urls }))}
+                    apiKey={apiKey}
+                    maxItems={schema.maxItems || 4}
                   />
                 );
               }
@@ -825,7 +1148,7 @@ export default function AudioStudio({
                   <div key={key} className="space-y-3 bg-zinc-900 border border-zinc-700/80 rounded p-4 transition-all hover:border-zinc-600">
                     <div className="flex items-center justify-between text-xs font-bold">
                       <span className="text-white tracking-tight">{schema.title || key}</span>
-                      <span className="text-primary font-mono bg-primary/10 px-2 py-0.5 rounded border border-primary/20">{params[key] !== undefined ? params[key] : schema.default}</span>
+                      <span className="text-primary font-mono bg-primary/10 px-2 py-0.5 rounded border border-primary/20">{params[key] ?? schema.default}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-zinc-300 font-medium w-6 text-right">{schema.minValue}</span>
@@ -834,7 +1157,7 @@ export default function AudioStudio({
                         min={schema.minValue}
                         max={schema.maxValue}
                         step={step}
-                        value={params[key] !== undefined ? params[key] : (schema.default || 0)}
+                        value={params[key] ?? (schema.default ?? 0)}
                         onChange={(e) => setParams(prev => ({ ...prev, [key]: parseFloat(e.target.value) }))}
                         className="flex-1 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-primary hover:bg-zinc-700 transition-all"
                       />
@@ -888,7 +1211,7 @@ export default function AudioStudio({
                   </label>
                   <input
                     type={isNumber ? "number" : "text"}
-                    value={params[key] !== undefined ? params[key] : ""}
+                    value={params[key] ?? ""}
                     placeholder={schema.placeholder || schema.description || `Enter ${key}...`}
                     onChange={(e) => {
                       const val = isNumber ? (e.target.value === "" ? "" : parseFloat(e.target.value)) : e.target.value;
@@ -987,7 +1310,7 @@ export default function AudioStudio({
                 {/* Glow behind the icon */}
                 <div className="absolute inset-0 bg-primary/5 blur-3xl rounded-full opacity-25 group-hover:opacity-40 transition-opacity duration-1000 pointer-events-none" />
                 <div className="w-20 h-20 bg-zinc-900 border border-zinc-705 rounded flex items-center justify-center shadow-inner relative z-10 transition-transform duration-500 group-hover:scale-105">
-                  <MusicIcon className="text-primary w-8 h-8 filter drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]" />
+                  <MusicIcon className="text-primary w-8 h-8 filter drop-shadow-[0_0_8px_var(--primary-color)]" />
                 </div>
                 <div className="relative z-10">
                   <h3 className="text-white font-black text-xl mb-3 tracking-tight">Audio Studio</h3>
@@ -1033,27 +1356,69 @@ export default function AudioStudio({
                 {history.map((entry, idx) => (
                   <div
                     key={entry.id || idx}
-                    onClick={() => handleSelectHistory(entry, idx)}
-                    className={`p-3.5 bg-zinc-900 border rounded cursor-pointer transition-all flex flex-col justify-between h-28 border-zinc-700/80 hover:bg-zinc-850 hover:border-zinc-500 ${
+                    onClick={() => entry.url && handleSelectHistory(entry, idx)}
+                    className={`relative group p-3.5 bg-zinc-900 border rounded cursor-pointer transition-all flex flex-col justify-between h-28 border-zinc-700/80 hover:bg-zinc-850 hover:border-zinc-500 ${
                       activeResultUrl === entry.url && view === "result"
                         ? "border-primary bg-primary/5 shadow-glow"
                         : ""
                     }`}
                   >
+                    {serverGen.active && entry.id && (
+                      <button
+                        type="button"
+                        title="Reuse settings"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReuse(entry);
+                        }}
+                        className="absolute top-1.5 right-8 z-10 p-1 bg-black/60 backdrop-blur-md rounded text-white/70 hover:bg-primary hover:text-black transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="23 4 23 10 17 10" />
+                          <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                        </svg>
+                      </button>
+                    )}
+                    {serverGen.active && entry.id && (
+                      <button
+                        type="button"
+                        title="Delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          serverGen.remove(entry.id);
+                        }}
+                        className="absolute top-1.5 right-1.5 z-10 p-1 bg-black/60 backdrop-blur-md rounded text-white/70 hover:bg-red-500 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                        </svg>
+                      </button>
+                    )}
                     <div className="flex items-center gap-2">
                       <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${
                         activeResultUrl === entry.url && view === "result" ? "bg-primary/20 text-primary" : "bg-zinc-800 text-zinc-200"
                       }`}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        </svg>
+                        {entry.status === "generating" ? (
+                          <span className="animate-spin text-primary text-sm">◌</span>
+                        ) : entry.status === "failed" ? (
+                          <span className="text-red-400 text-sm">⚠</span>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          </svg>
+                        )}
                       </div>
                       <span className="text-[10px] font-bold text-primary uppercase tracking-wider truncate">
                         {entry.model ? entry.model.split('-').slice(0, 2).join(' ') : 'Audio'}
                       </span>
                     </div>
                     <p className="text-[11px] font-semibold text-white line-clamp-2 leading-tight">
-                      {entry.title || entry.prompt || "Untitled Audio"}
+                      {entry.status === "generating"
+                        ? "Generating…"
+                        : entry.status === "failed"
+                          ? (entry.error || "Generation failed")
+                          : (entry.title || entry.prompt || "Untitled Audio")}
                     </p>
                   </div>
                 ))}

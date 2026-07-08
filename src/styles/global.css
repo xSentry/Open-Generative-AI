@@ -143,7 +143,7 @@
     left: 50%;
     transform: translateX(-50%) translateY(8px);
     border: 6px solid transparent;
-    border-top-color: #1a1a1a;
+    border-top-color: var(--surface-ground);
     opacity: 0;
     pointer-events: none;
     transition: all 0.2s ease;
@@ -158,7 +158,7 @@
     left: 50%;
     transform: translateX(-50%) translateY(12px);
     padding: 8px 14px;
-    background: #1a1a1a;
+    background: var(--surface-ground);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 10px;
     font-size: 12px;
@@ -184,7 +184,7 @@
     bottom: auto;
     top: 100%;
     border-top-color: transparent;
-    border-bottom-color: #1a1a1a;
+    border-bottom-color: var(--surface-ground);
     transform: translateX(-50%) translateY(-8px);
 }
 

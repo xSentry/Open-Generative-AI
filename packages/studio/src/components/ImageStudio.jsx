@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { generateImage, generateI2I, uploadFile } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 import {
   t2iModels,
   i2iModels,
@@ -18,6 +19,51 @@ import {
 } from "../models.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+// Option/default derivation prefers the *selected model object's* own `inputs`
+// (the object shown in the dropdown — for Replicate this comes from the server
+// catalog and carries provider-correct enums like "1K"). We only fall back to
+// the static MuAPI helpers when a model has no `inputs` attached. This prevents
+// sending values with the wrong casing/shape to the active provider.
+function modelAspectRatios(model, i2i) {
+  if (model?.inputs?.aspect_ratio?.enum) return model.inputs.aspect_ratio.enum;
+  if (model?.inputs) return [];
+  return i2i ? getAspectRatiosForI2IModel(model?.id) : getAspectRatiosForModel(model?.id);
+}
+
+function modelResolutions(model, i2i) {
+  if (model?.inputs) return model.inputs.resolution?.enum || model.inputs.quality?.enum || [];
+  return i2i ? getResolutionsForI2IModel(model?.id) : getResolutionsForModel(model?.id);
+}
+
+function modelQualityField(model, i2i) {
+  if (model?.inputs) {
+    if (model.inputs.resolution) return 'resolution';
+    if (model.inputs.quality) return 'quality';
+    return null;
+  }
+  return i2i ? getQualityFieldForI2IModel(model?.id) : getQualityFieldForModel(model?.id);
+}
+
+function modelDefaultAspect(model, i2i) {
+  return model?.inputs?.aspect_ratio?.default || modelAspectRatios(model, i2i)[0] || '1:1';
+}
+
+function modelDefaultQuality(model, i2i) {
+  return (
+    model?.inputs?.resolution?.default ||
+    model?.inputs?.quality?.default ||
+    modelResolutions(model, i2i)[0] ||
+    null
+  );
+}
+
+function modelEffects(model, i2i) {
+  if (!i2i) return [];
+  if (model?.inputs?.name?.enum) return model.inputs.name.enum;
+  if (model?.inputs) return [];
+  return getEffectsForI2IModel(model?.id);
+}
 
 async function downloadImage(url, filename) {
   try {
@@ -681,7 +727,7 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
                 height="16"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#22d3ee"
+                stroke="var(--primary-color)"
                 strokeWidth="4"
               >
                 <polyline points="20 6 9 17 4 12" />
@@ -722,7 +768,7 @@ function SimpleDropdown({ title, options, selected, onSelect, onClose }) {
                 height="16"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#22d3ee"
+                stroke="var(--primary-color)"
                 strokeWidth="4"
               >
                 <polyline points="20 6 9 17 4 12" />
@@ -743,20 +789,24 @@ export default function ImageStudio({
   historyItems,
   droppedFiles,
   onFilesHandled,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_image_studio_persistent";
+  const t2iModelList = modelsByMode?.t2i?.length ? modelsByMode.t2i : t2iModels;
+  const i2iModelList = modelsByMode?.i2i?.length ? modelsByMode.i2i : i2iModels;
+  const firstTextModel = t2iModelList[0] || t2iModels[0];
+  const firstImageModel = i2iModelList[0] || i2iModels[0];
 
   // ── Model / mode state ──────────────────────────────────────────────────
   const [imageMode, setImageMode] = useState(false); // false=t2i, true=i2i
-  const [selectedModelId, setSelectedModelId] = useState(t2iModels[0].id);
-  const [selectedModelName, setSelectedModelName] = useState(t2iModels[0].name);
+  const [selectedModelId, setSelectedModelId] = useState(firstTextModel.id);
+  const [selectedModelName, setSelectedModelName] = useState(firstTextModel.name);
   const [selectedAr, setSelectedAr] = useState(
-    t2iModels[0].inputs?.aspect_ratio?.default || "1:1",
+    firstTextModel.inputs?.aspect_ratio?.default || "1:1",
   );
-  const [selectedQuality, setSelectedQuality] = useState(() => {
-    const resolutions = getResolutionsForModel(t2iModels[0].id);
-    return resolutions[0] || null;
-  });
+  const [selectedQuality, setSelectedQuality] = useState(() =>
+    modelDefaultQuality(firstTextModel, false),
+  );
   const [selectedEffect, setSelectedEffect] = useState("");
   const [maxImages, setMaxImages] = useState(1);
 
@@ -777,8 +827,12 @@ export default function ImageStudio({
   const [batchSize, setBatchSize] = useState(1);
   const [localHistory, setLocalHistory] = useState([]); // [{id,url,prompt,model,aspect_ratio,timestamp}]
 
-  // Use prop history if provided, otherwise local
-  const history = historyItems ?? localHistory;
+  // Server-persisted generations (cross-device). Active only in a hosted
+  // browser; otherwise the component keeps its legacy localHistory flow.
+  const serverGen = useServerGenerations({ mediaType: "image" });
+
+  // History source priority: explicit prop → server (when active) → local.
+  const history = historyItems ?? (serverGen.active ? serverGen.items : localHistory);
 
   // ── Refs ────────────────────────────────────────────────────────────────
   const textareaRef = useRef(null);
@@ -813,7 +867,7 @@ export default function ImageStudio({
         if (data.prompt) setPrompt(data.prompt);
         if (data.uploadedImageUrls) setUploadedImageUrls(data.uploadedImageUrls);
         if (data.batchSize) setBatchSize(data.batchSize);
-        if (data.localHistory) setLocalHistory(data.localHistory);
+        if (data.localHistory && !serverGen.active) setLocalHistory(data.localHistory);
       }
     } catch (err) {
       console.warn("Failed to load ImageStudio persistence:", err);
@@ -843,7 +897,8 @@ export default function ImageStudio({
           prompt,
           uploadedImageUrls,
           batchSize,
-          localHistory,
+          // Phase 5: results live server-side when active — persist prefs only.
+          localHistory: serverGen.active ? [] : localHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -914,19 +969,27 @@ export default function ImageStudio({
   }, [droppedFiles, onFilesHandled, processDroppedImages]);
 
   // ── Derived: current model lists & helpers ───────────────────────────────
-  const currentModels = imageMode ? i2iModels : t2iModels;
-  const currentAspectRatios = imageMode
-    ? getAspectRatiosForI2IModel(selectedModelId)
-    : getAspectRatiosForModel(selectedModelId);
-  const currentResolutions = imageMode
-    ? getResolutionsForI2IModel(selectedModelId)
-    : getResolutionsForModel(selectedModelId);
-  const currentQualityField = imageMode
-    ? getQualityFieldForI2IModel(selectedModelId)
-    : getQualityFieldForModel(selectedModelId);
+  const currentModels = imageMode ? i2iModelList : t2iModelList;
+  // The concrete selected model object is the source of truth for its inputs
+  // (provider-correct enums), so option lists are derived from it.
+  const selectedModelObj =
+    currentModels.find((model) => model.id === selectedModelId) || null;
+  const currentAspectRatios = modelAspectRatios(selectedModelObj, imageMode);
+  const currentResolutions = modelResolutions(selectedModelObj, imageMode);
+  const currentQualityField = modelQualityField(selectedModelObj, imageMode);
   const showQualityBtn = currentResolutions.length > 0;
-  const currentEffects = imageMode ? getEffectsForI2IModel(selectedModelId) : [];
+  const currentEffects = modelEffects(selectedModelObj, imageMode);
   const showEffectBtn = currentEffects.length > 0;
+
+  useEffect(() => {
+    if (currentModels.some((model) => model.id === selectedModelId)) return;
+    const fallback = currentModels[0] || firstTextModel;
+    if (!fallback) return;
+    setSelectedModelId(fallback.id);
+    setSelectedModelName(fallback.name);
+    setSelectedAr(modelDefaultAspect(fallback, imageMode));
+    setSelectedQuality(modelDefaultQuality(fallback, imageMode));
+  }, [currentModels, selectedModelId, imageMode, firstTextModel]);
 
   // ── Textarea auto-resize ─────────────────────────────────────────────────
   const handleTextareaInput = () => {
@@ -944,17 +1007,19 @@ export default function ImageStudio({
       setUploadedImageUrls(newUrls);
 
       if (!imageMode) {
-        const firstI2I = i2iModels[0];
-        const ars = getAspectRatiosForI2IModel(firstI2I.id);
-        const resolutions = getResolutionsForI2IModel(firstI2I.id);
-        const effects = getEffectsForI2IModel(firstI2I.id);
+        const firstI2I = firstImageModel;
+        const effects = modelEffects(firstI2I, true);
         setImageMode(true);
         setSelectedModelId(firstI2I.id);
         setSelectedModelName(firstI2I.name);
-        setSelectedAr(ars[0] || "1:1");
-        setSelectedQuality(resolutions[0] || null);
-        setSelectedEffect(effects.length > 0 ? (getDefaultEffectForI2IModel(firstI2I.id) || effects[0]) : "");
-        setMaxImages(getMaxImagesForI2IModel(firstI2I.id));
+        setSelectedAr(modelDefaultAspect(firstI2I, true));
+        setSelectedQuality(modelDefaultQuality(firstI2I, true));
+        setSelectedEffect(
+          effects.length > 0
+            ? (firstI2I.inputs?.name?.default || getDefaultEffectForI2IModel(firstI2I.id) || effects[0])
+            : "",
+        );
+        setMaxImages(firstI2I.maxImages || getMaxImagesForI2IModel(firstI2I.id));
       }
     },
     [imageMode],
@@ -963,34 +1028,30 @@ export default function ImageStudio({
   const handleUploadClear = useCallback(() => {
     setUploadedImageUrls([]);
     setImageMode(false);
-    const firstT2I = t2iModels[0];
-    const ars = getAspectRatiosForModel(firstT2I.id);
-    const resolutions = getResolutionsForModel(firstT2I.id);
+    const firstT2I = firstTextModel;
     setSelectedModelId(firstT2I.id);
     setSelectedModelName(firstT2I.name);
-    setSelectedAr(ars[0] || "1:1");
-    setSelectedQuality(resolutions[0] || null);
+    setSelectedAr(modelDefaultAspect(firstT2I, false));
+    setSelectedQuality(modelDefaultQuality(firstT2I, false));
     setSelectedEffect("");
     setMaxImages(1);
   }, []);
 
   // ── Model selection ──────────────────────────────────────────────────────
   const handleModelSelect = (m) => {
-    const ars = imageMode
-      ? getAspectRatiosForI2IModel(m.id)
-      : getAspectRatiosForModel(m.id);
-    const resolutions = imageMode
-      ? getResolutionsForI2IModel(m.id)
-      : getResolutionsForModel(m.id);
     setSelectedModelId(m.id);
     setSelectedModelName(m.name);
-    setSelectedAr(ars[0] || "1:1");
-    setSelectedQuality(resolutions[0] || null);
+    setSelectedAr(modelDefaultAspect(m, imageMode));
+    setSelectedQuality(modelDefaultQuality(m, imageMode));
     setSwapImageUrl(null);
     if (imageMode) {
-      setMaxImages(getMaxImagesForI2IModel(m.id));
-      const effects = getEffectsForI2IModel(m.id);
-      setSelectedEffect(effects.length > 0 ? (getDefaultEffectForI2IModel(m.id) || effects[0]) : "");
+      setMaxImages(m.maxImages || getMaxImagesForI2IModel(m.id));
+      const effects = modelEffects(m, true);
+      setSelectedEffect(
+        effects.length > 0
+          ? (m.inputs?.name?.default || getDefaultEffectForI2IModel(m.id) || effects[0])
+          : "",
+      );
     } else {
       setSelectedEffect("");
     }
@@ -1015,16 +1076,58 @@ export default function ImageStudio({
     setPrompt("");
     setUploadedImageUrls([]);
     setImageMode(false);
-    const firstT2I = t2iModels[0];
-    const ars = getAspectRatiosForModel(firstT2I.id);
-    const resolutions = getResolutionsForModel(firstT2I.id);
+    const firstT2I = firstTextModel;
     setSelectedModelId(firstT2I.id);
     setSelectedModelName(firstT2I.name);
-    setSelectedAr(ars[0] || "1:1");
-    setSelectedQuality(resolutions[0] || null);
+    setSelectedAr(modelDefaultAspect(firstT2I, false));
+    setSelectedQuality(modelDefaultQuality(firstT2I, false));
     setSelectedEffect("");
     setMaxImages(1);
   };
+
+  // ── Reuse a past generation's settings back into the form ────────────────
+  const handleReuse = useCallback(
+    (entry) => {
+      const isI2I = entry.mode === "i2i";
+      const list = isI2I ? i2iModelList : t2iModelList;
+      const model =
+        list.find((m) => m.id === entry.model) ||
+        (isI2I ? firstImageModel : firstTextModel);
+      const p = entry.params || {};
+
+      setImageMode(isI2I);
+      setSelectedModelId(model.id);
+      setSelectedModelName(model.name);
+      setPrompt(p.prompt || entry.prompt || "");
+
+      setSelectedAr(p.aspect_ratio || modelDefaultAspect(model, isI2I));
+
+      const qualityField = modelQualityField(model, isI2I);
+      if (qualityField && p[qualityField] != null) {
+        setSelectedQuality(p[qualityField]);
+      } else {
+        setSelectedQuality(modelDefaultQuality(model, isI2I));
+      }
+
+      if (isI2I) {
+        const imgs = p.images_list || (p.image_url ? [p.image_url] : []);
+        setUploadedImageUrls(imgs);
+        setSwapImageUrl(p.swap_url || null);
+        const effects = modelEffects(model, true);
+        setSelectedEffect(p.name || (effects.length > 0 ? effects[0] : ""));
+        setMaxImages(model.maxImages || getMaxImagesForI2IModel(model.id));
+      } else {
+        setUploadedImageUrls([]);
+        setSwapImageUrl(null);
+        setSelectedEffect("");
+        setMaxImages(1);
+      }
+
+      // Bring the prompt bar into focus.
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    },
+    [i2iModelList, t2iModelList, firstImageModel, firstTextModel],
+  );
 
   // ── Generation ───────────────────────────────────────────────────────────
   const handleGenerate = async () => {
@@ -1051,33 +1154,51 @@ export default function ImageStudio({
     setGenerateError(null);
 
     try {
+      // Build generation params once (shared by server + legacy paths).
+      const buildParams = () => {
+        if (imageMode) {
+          const genParams = {
+            images_list: uploadedImageUrls,
+            image_url: uploadedImageUrls[0],
+            aspect_ratio: selectedAr,
+          };
+          if (swapImageUrl) genParams.swap_url = swapImageUrl;
+          if (prompt.trim()) genParams.prompt = prompt.trim();
+          if (currentQualityField && selectedQuality) {
+            genParams[currentQualityField] = selectedQuality;
+          }
+          if (showEffectBtn && selectedEffect) genParams.name = selectedEffect;
+          return genParams;
+        }
+        const genParams = {
+          prompt: prompt.trim(),
+          aspect_ratio: selectedAr,
+        };
+        if (currentQualityField && selectedQuality) {
+          genParams[currentQualityField] = selectedQuality;
+        }
+        return genParams;
+      };
+
+      // ── Server-persisted async path ──────────────────────────────────────
+      if (serverGen.active) {
+        await serverGen.generate({
+          mode: imageMode ? "i2i" : "t2i",
+          model: selectedModelId,
+          params: buildParams(),
+          count: batchSize,
+        });
+        setActiveHistoryIdx(0);
+        return;
+      }
+
+      // ── Legacy synchronous path (Electron / non-hosted) ──────────────────
       const results = await Promise.all(
         Array.from({ length: batchSize }).map(async () => {
-          if (imageMode) {
-            const genParams = {
-              model: selectedModelId,
-              images_list: uploadedImageUrls,
-              image_url: uploadedImageUrls[0],
-              aspect_ratio: selectedAr,
-            };
-            if (swapImageUrl) genParams.swap_url = swapImageUrl;
-            if (prompt.trim()) genParams.prompt = prompt.trim();
-            if (currentQualityField && selectedQuality) {
-              genParams[currentQualityField] = selectedQuality;
-            }
-            if (showEffectBtn && selectedEffect) genParams.name = selectedEffect;
-            return await generateI2I(apiKey, genParams);
-          } else {
-            const genParams = {
-              model: selectedModelId,
-              prompt: prompt.trim(),
-              aspect_ratio: selectedAr,
-            };
-            if (currentQualityField && selectedQuality) {
-              genParams[currentQualityField] = selectedQuality;
-            }
-            return await generateImage(apiKey, genParams);
-          }
+          const genParams = { model: selectedModelId, ...buildParams() };
+          return imageMode
+            ? await generateI2I(apiKey, genParams)
+            : await generateImage(apiKey, genParams);
         })
       );
 
@@ -1134,39 +1255,92 @@ export default function ImageStudio({
                   alt={entry.prompt?.substring(0, 30) || "Generated image"}
                   className="w-full aspect-square object-cover bg-black/40 cursor-pointer hover:opacity-80 transition-opacity"
                   onClick={() => setFullscreenUrl(entry.url)}
+                  style={{ display: entry.url ? "block" : "none" }}
                 />
-                
+
+                {/* Loading / error placeholders for async generations */}
+                {!entry.url && entry.status !== "failed" && (
+                  <div className="w-full aspect-square bg-black/40 flex flex-col items-center justify-center gap-3">
+                    <div className="animate-spin text-primary text-2xl">◌</div>
+                    <span className="text-[11px] text-white/40">Generating…</span>
+                  </div>
+                )}
+                {!entry.url && entry.status === "failed" && (
+                  <div className="w-full aspect-square bg-black/40 flex flex-col items-center justify-center gap-2 px-3 text-center">
+                    <span className="text-red-400 text-xl">⚠</span>
+                    <span className="text-[11px] text-white/50 line-clamp-3">
+                      {entry.error || "Generation failed"}
+                    </span>
+                  </div>
+                )}
+
                 {/* Overlay actions */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    title="Fullscreen"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFullscreenUrl(entry.url);
-                    }}
-                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <polyline points="15 3 21 3 21 9" />
-                      <polyline points="9 21 3 21 3 15" />
-                      <line x1="21" y1="3" x2="14" y2="10" />
-                      <line x1="3" y1="21" x2="10" y2="14" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    title="Download"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      downloadImage(entry.url, `muapi-${entry.id || idx}.jpg`);
-                    }}
-                    className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                    </svg>
-                  </button>
+                  {entry.url && (
+                    <button
+                      type="button"
+                      title="Fullscreen"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFullscreenUrl(entry.url);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="15 3 21 3 21 9" />
+                        <polyline points="9 21 3 21 3 15" />
+                        <line x1="21" y1="3" x2="14" y2="10" />
+                        <line x1="3" y1="21" x2="10" y2="14" />
+                      </svg>
+                    </button>
+                  )}
+                  {entry.url && (
+                    <button
+                      type="button"
+                      title="Download"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadImage(entry.url, `muapi-${entry.id || idx}.jpg`);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                      </svg>
+                    </button>
+                  )}
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Reuse settings"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReuse(entry);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                      </svg>
+                    </button>
+                  )}
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        serverGen.remove(entry.id);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
                 {/* Prompt & Details */}
@@ -1273,10 +1447,10 @@ export default function ImageStudio({
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-4 h-4 bg-[#22d3ee] rounded flex items-center justify-center">
+                  <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center">
                     <span className="text-[9px] font-bold text-black uppercase">G</span>
                   </div>
-                  <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModelName}
                   </span>
                   <svg
@@ -1321,7 +1495,7 @@ export default function ImageStudio({
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 text-white">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                   </svg>
-                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedAr}
                   </span>
                 </button>
@@ -1356,7 +1530,7 @@ export default function ImageStudio({
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 text-white">
                       <path d="M6 2L3 6v15a2 2 0 002 2h14a2 2 0 002-2V6l-3-4H6z" />
                     </svg>
-                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedQuality || currentResolutions[0]}
                     </span>
                   </button>
@@ -1392,7 +1566,7 @@ export default function ImageStudio({
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40 text-white">
                       <path d="M5 3l14 9-14 9V3z" />
                     </svg>
-                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors max-w-[140px] truncate">
+                    <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors max-w-[140px] truncate">
                       {selectedEffect || "Effect"}
                     </span>
                   </button>
@@ -1423,7 +1597,7 @@ export default function ImageStudio({
                     onClick={() => setBatchSize(num)}
                     className={`w-7 h-7 flex items-center justify-center rounded-md text-[10px] font-black transition-all ${
                       batchSize === num
-                        ? "bg-[#22d3ee] text-black shadow-lg shadow-[#22d3ee]/20"
+                        ? "bg-[var(--primary-color)] text-black shadow-lg shadow-[var(--primary-color)]/20"
                         : "text-white/40 hover:text-white/80 hover:bg-white/5"
                     }`}
                   >
@@ -1438,7 +1612,7 @@ export default function ImageStudio({
               type="button"
               onClick={handleGenerate}
               disabled={generating}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed z-10"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed z-10"
             >
               {generating ? (
                 <>

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { processRecast, uploadFile } from "../muapi.js";
+import { useServerGenerations } from "../useServerGenerations.js";
 import {
   recastModels,
-  getRecastModelById,
-  getAspectRatiosForRecastModel,
 } from "../models.js";
 
 // ---------------------------------------------------------------------------
@@ -154,11 +153,11 @@ function Dropdown({ isOpen, items, selectedId, onSelect, onClose, anchorRef }) {
     if (spaceBelow >= ddHeight || spaceBelow >= spaceAbove) {
       top = rect.bottom + 8;
       bottom = "auto";
-      maxHeight = Math.max(150, spaceBelow - 8);
+      maxHeight = Math.min(300, Math.max(150, spaceBelow - 8));
     } else {
       top = "auto";
       bottom = window.innerHeight - rect.top + 8;
-      maxHeight = Math.max(150, spaceAbove - 8);
+      maxHeight = Math.min(300, Math.max(150, spaceAbove - 8));
     }
     const left = Math.min(rect.left, window.innerWidth - 220);
     setStyle({ top, bottom, left, maxHeight });
@@ -189,7 +188,7 @@ function Dropdown({ isOpen, items, selectedId, onSelect, onClose, anchorRef }) {
         overflowY: "auto",
         ...style,
       }}
-      className="bg-[#111] border border-white/10 rounded-lg shadow-3xl p-2 custom-scrollbar w-[calc(100vw-3rem)] max-w-xs"
+      className="bg-[#111] border border-white/10 rounded-lg shadow-3xl p-1.5 custom-scrollbar w-[calc(100vw-3rem)] max-w-[240px]"
     >
       {items.map((item) => (
         <button
@@ -199,16 +198,16 @@ function Dropdown({ isOpen, items, selectedId, onSelect, onClose, anchorRef }) {
             onSelect(item);
             onClose();
           }}
-          className={`w-full text-left px-4 py-2 rounded text-sm transition-all hover:bg-white/10 ${
+          className={`w-full text-left px-3 py-1.5 rounded text-xs transition-all hover:bg-white/10 ${
             item.id === selectedId
               ? "text-primary font-bold bg-primary/5"
               : "text-white font-medium"
           }`}
         >
-          <div>{item.name}</div>
+          <div className="truncate">{item.name}</div>
           {item.description && (
-            <div className="text-xs text-muted mt-0.5">
-              {item.description.slice(0, 60)}...
+            <div className="text-[10px] text-muted mt-0.5 line-clamp-2">
+              {item.description}
             </div>
           )}
         </button>
@@ -264,11 +263,22 @@ export default function RecastStudio({
   historyItems,
   droppedFiles,
   onFilesHandled,
+  modelsByMode,
 }) {
   const PERSIST_KEY = "hg_recast_studio_persistent";
 
+  // ── Provider-aware model catalog ──────────────────────────────────────────
+  // When the active provider is Replicate, the shell passes provider-correct
+  // recast models via `modelsByMode.recast`. Fall back to the bundled MuAPI
+  // catalog only when nothing was supplied, so we never send a MuAPI-only id
+  // (e.g. "kling-v3.0-pro-recast") to Replicate.
+  const effectiveRecastModels = useMemo(
+    () => (modelsByMode?.recast?.length ? modelsByMode.recast : recastModels),
+    [modelsByMode],
+  );
+
   // ── Model state ───────────────────────────────────────────────────────────
-  const firstModel = recastModels[0];
+  const firstModel = effectiveRecastModels[0];
   const [selectedModelId, setSelectedModelId] = useState(firstModel?.id ?? "");
   const [selectedAspectRatio, setSelectedAspectRatio] = useState(
     firstModel?.inputs?.aspect_ratio?.default ?? "16:9",
@@ -295,7 +305,8 @@ export default function RecastStudio({
 
   // ── History ───────────────────────────────────────────────────────────────
   const [internalHistory, setInternalHistory] = useState([]);
-  const history = historyItems ?? internalHistory;
+  const serverGen = useServerGenerations({ mediaType: "video", mode: "recast" });
+  const history = historyItems ?? (serverGen.active ? serverGen.items : internalHistory);
 
   // ── Dropdown state ────────────────────────────────────────────────────────
   const [openDropdown, setOpenDropdown] = useState(null); // 'model' | 'aspect' | null
@@ -322,7 +333,7 @@ export default function RecastStudio({
         if (data.videoName) setVideoName(data.videoName);
         if (data.imageName) setImageName(data.imageName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.internalHistory) setInternalHistory(data.internalHistory);
+        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
       }
     } catch (err) {
       console.warn("Failed to load RecastStudio persistence:", err);
@@ -345,7 +356,8 @@ export default function RecastStudio({
             imageUrl,
             imageName,
             prompt,
-            internalHistory,
+            // Phase 5: results live server-side when active — persist prefs only.
+            internalHistory: serverGen.active ? [] : internalHistory,
           }),
         );
       } catch (err) {
@@ -365,10 +377,22 @@ export default function RecastStudio({
   ]);
 
   // ── Derived model info ──────────────────────────────────────────────────────
-  const selectedModel = getRecastModelById(selectedModelId);
-  const aspectOptions = getAspectRatiosForRecastModel(selectedModelId);
+  const selectedModel = effectiveRecastModels.find((m) => m.id === selectedModelId);
+  const aspectOptions = selectedModel?.inputs?.aspect_ratio?.enum || [];
   const showAspect = aspectOptions.length > 0;
   const showPrompt = !!selectedModel?.hasPrompt;
+
+  // ── Keep the selection valid for the active provider ──────────────────────
+  // A stale id can come from localStorage or from switching providers (e.g. a
+  // MuAPI-only "kling-v3.0-pro-recast" id while Replicate is active). If the
+  // catalog doesn't contain it, fall back to the first available model.
+  useEffect(() => {
+    if (!effectiveRecastModels.length) return;
+    if (effectiveRecastModels.some((m) => m.id === selectedModelId)) return;
+    const first = effectiveRecastModels[0];
+    setSelectedModelId(first.id);
+    setSelectedAspectRatio(first.inputs?.aspect_ratio?.default ?? "16:9");
+  }, [effectiveRecastModels, selectedModelId]);
 
   // ── Upload handlers ─────────────────────────────────────────────────────────
   const handleVideoPick = useCallback(
@@ -431,7 +455,7 @@ export default function RecastStudio({
   // ── Model selection ─────────────────────────────────────────────────────────
   const handleModelSelect = (model) => {
     setSelectedModelId(model.id);
-    const ratios = getAspectRatiosForRecastModel(model.id);
+    const ratios = model.inputs?.aspect_ratio?.enum || [];
     if (ratios.length > 0) {
       setSelectedAspectRatio(model.inputs?.aspect_ratio?.default ?? ratios[0]);
     }
@@ -460,6 +484,16 @@ export default function RecastStudio({
   };
 
   // ── Generation ──────────────────────────────────────────────────────────────
+  // Reuse a past generation's settings back into the form.
+  const handleReuse = (entry) => {
+    const p = entry.params || {};
+    if (entry.model) setSelectedModelId(entry.model);
+    if (p.video_url) setVideoUrl(p.video_url);
+    if (p.image_url) setImageUrl(p.image_url);
+    if (p.aspect_ratio) setSelectedAspectRatio(p.aspect_ratio);
+    setPrompt(p.prompt || entry.prompt || "");
+  };
+
   const handleGenerate = async () => {
     if (!videoUrl) {
       alert("Please upload a source video first.");
@@ -481,6 +515,13 @@ export default function RecastStudio({
       };
       if (showAspect) params.aspect_ratio = selectedAspectRatio;
       if (prompt && selectedModel?.hasPrompt) params.prompt = prompt;
+
+      // ── Server-persisted async path ──────────────────────────────────────
+      if (serverGen.active) {
+        const { model, ...serverParams } = params;
+        await serverGen.generate({ mode: "recast", model: selectedModelId, params: serverParams });
+        return;
+      }
 
       const res = await processRecast(apiKey, params);
 
@@ -543,7 +584,23 @@ export default function RecastStudio({
                     e.target.pause();
                     e.target.currentTime = 0;
                   }}
+                  style={{ display: entry.url ? "block" : "none" }}
                 />
+
+                {!entry.url && entry.status !== "failed" && (
+                  <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-3">
+                    <div className="animate-spin text-primary text-2xl">◌</div>
+                    <span className="text-[11px] text-white/40">Generating…</span>
+                  </div>
+                )}
+                {!entry.url && entry.status === "failed" && (
+                  <div className="w-full aspect-video bg-black/40 flex flex-col items-center justify-center gap-2 px-3 text-center">
+                    <span className="text-red-400 text-xl">⚠</span>
+                    <span className="text-[11px] text-white/50 line-clamp-3">
+                      {entry.error || "Generation failed"}
+                    </span>
+                  </div>
+                )}
 
                 {/* Overlay actions */}
                 <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -576,6 +633,38 @@ export default function RecastStudio({
                       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
                     </svg>
                   </button>
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Reuse settings"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReuse(entry);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-primary hover:text-black transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                      </svg>
+                    </button>
+                  )}
+                  {serverGen.active && entry.id && (
+                    <button
+                      type="button"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        serverGen.remove(entry.id);
+                      }}
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
                 {/* Details */}
@@ -694,10 +783,10 @@ export default function RecastStudio({
                   }}
                   className="flex items-center gap-2 px-2 py-1.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-3.5 h-3.5 bg-[#22d3ee] rounded-sm flex items-center justify-center">
+                  <div className="w-3.5 h-3.5 bg-[var(--primary-color)] rounded-sm flex items-center justify-center">
                     <span className="text-[9px] font-black text-black">R</span>
                   </div>
-                  <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModel?.name ?? "Select model"}
                   </span>
                   <svg
@@ -714,7 +803,7 @@ export default function RecastStudio({
                 </button>
                 <Dropdown
                   isOpen={openDropdown === "model"}
-                  items={recastModels}
+                  items={effectiveRecastModels}
                   selectedId={selectedModelId}
                   onSelect={handleModelSelect}
                   onClose={() => setOpenDropdown(null)}
@@ -734,7 +823,7 @@ export default function RecastStudio({
                     }}
                     className="flex items-center gap-2 px-2 py-1.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                   >
-                    <span className="text-xs font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                    <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                       {selectedAspectRatio}
                     </span>
                   </button>
@@ -755,7 +844,7 @@ export default function RecastStudio({
               type="button"
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? (
                 <>

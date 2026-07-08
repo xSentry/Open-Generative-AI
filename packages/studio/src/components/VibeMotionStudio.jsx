@@ -26,7 +26,7 @@ const formatTime = (s) =>
 
 // ── icons ─────────────────────────────────────────────────────────────────────
 const CheckSvg = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="4">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="4">
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
@@ -239,7 +239,7 @@ export default function VibeMotionStudio({ apiKey }) {
             <div className="flex flex-col items-center gap-4 py-16">
               <div className="relative w-20 h-20">
                 <div className="absolute inset-0 rounded-full border-2 border-violet-500/20 animate-ping" />
-                <div className="absolute inset-2 rounded-full border-2 border-[#22d3ee]/30 animate-spin" />
+                <div className="absolute inset-2 rounded-full border-2 border-[var(--primary-color)]/30 animate-spin" />
                 <div className="absolute inset-4 rounded-full border-2 border-violet-400/50 animate-[spin_1.5s_linear_infinite_reverse]" />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-400 animate-pulse">
@@ -287,7 +287,7 @@ export default function VibeMotionStudio({ apiKey }) {
                 {/* ── Mode tag (top-left) ── */}
                 <div className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm border ${
                   entry.mode === "edit"
-                    ? "bg-[#22d3ee]/20 text-[#22d3ee] border-[#22d3ee]/30"
+                    ? "bg-[var(--primary-color)]/20 text-[var(--primary-color)] border-[var(--primary-color)]/30"
                     : "bg-violet-600/30 text-violet-300 border-violet-500/30"
                 }`}>
                   {entry.mode === "edit" ? "✏ Edit" : "✦ Generated"}
@@ -329,7 +329,7 @@ export default function VibeMotionStudio({ apiKey }) {
                         setPrompt("");
                         setTimeout(() => textareaRef.current?.focus(), 50);
                       }}
-                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[#22d3ee] hover:text-black transition-all border border-white/10"
+                      className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-[var(--primary-color)] hover:text-black transition-all border border-white/10"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -404,7 +404,7 @@ export default function VibeMotionStudio({ apiKey }) {
 
           {/* ── Edit mode banner ── */}
           {editMode && (
-            <div className="flex items-center gap-2 px-3 py-1.5 mx-0 bg-[#22d3ee]/5 border border-[#22d3ee]/10 rounded text-[10px] text-[#22d3ee]/80 font-medium tracking-tight">
+            <div className="flex items-center gap-2 px-3 py-1.5 mx-0 bg-[var(--primary-color)]/5 border border-[var(--primary-color)]/10 rounded text-[10px] text-[var(--primary-color)]/80 font-medium tracking-tight">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -416,7 +416,7 @@ export default function VibeMotionStudio({ apiKey }) {
               </span>
               <button
                 onClick={() => { setEditMode(false); setEditSourceId(null); setPrompt(""); }}
-                className="ml-auto text-[#22d3ee]/40 hover:text-[#22d3ee] transition-colors text-base leading-none"
+                className="ml-auto text-[var(--primary-color)]/40 hover:text-[var(--primary-color)] transition-colors text-base leading-none"
               >×</button>
             </div>
           )}
@@ -429,7 +429,7 @@ export default function VibeMotionStudio({ apiKey }) {
                 type="button"
                 onClick={() => { setEditMode(false); setEditSourceId(null); }}
                 className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all ${
-                  !editMode ? "bg-[#22d3ee] text-black shadow" : "text-white/40 hover:text-white/70"
+                  !editMode ? "bg-[var(--primary-color)] text-black shadow" : "text-white/40 hover:text-white/70"
                 }`}
               >
                 Generate
@@ -439,7 +439,7 @@ export default function VibeMotionStudio({ apiKey }) {
                 onClick={() => setEditMode(true)}
                 disabled={editSources.length === 0}
                 className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                  editMode ? "bg-[#22d3ee] text-black shadow" : "text-white/40 hover:text-white/70"
+                  editMode ? "bg-[var(--primary-color)] text-black shadow" : "text-white/40 hover:text-white/70"
                 }`}
               >
                 Edit
@@ -483,10 +483,10 @@ export default function VibeMotionStudio({ apiKey }) {
                   onClick={toggleDropdown("ar")}
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-4 h-4 bg-[#22d3ee] rounded flex items-center justify-center shadow-lg shadow-[#22d3ee]/10">
+                  <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center shadow-lg shadow-[var(--primary-color)]/10">
                     <span className="text-[9px] font-bold text-black uppercase">A</span>
                   </div>
-                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {aspectRatio}
                   </span>
                   <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-20 group-hover:opacity-100 transition-opacity ml-1">
@@ -519,10 +519,10 @@ export default function VibeMotionStudio({ apiKey }) {
                   onClick={toggleDropdown("dur")}
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-4 h-4 bg-[#22d3ee] rounded flex items-center justify-center shadow-lg shadow-[#22d3ee]/10">
+                  <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center shadow-lg shadow-[var(--primary-color)]/10">
                     <span className="text-[9px] font-bold text-black uppercase">T</span>
                   </div>
-                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[#22d3ee] transition-colors">
+                  <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {duration}s
                   </span>
                   <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-20 group-hover:opacity-100 transition-opacity ml-1">
@@ -554,15 +554,15 @@ export default function VibeMotionStudio({ apiKey }) {
                   <button
                     type="button"
                     onClick={toggleDropdown("source")}
-                    className="flex items-center gap-2 px-3 py-2 bg-[#22d3ee]/[0.04] hover:bg-[#22d3ee]/[0.08] rounded-md transition-all border border-[#22d3ee]/[0.08] group whitespace-nowrap"
+                    className="flex items-center gap-2 px-3 py-2 bg-[var(--primary-color)]/[0.04] hover:bg-[var(--primary-color)]/[0.08] rounded-md transition-all border border-[var(--primary-color)]/[0.08] group whitespace-nowrap"
                   >
-                    <div className="w-4 h-4 bg-[#22d3ee]/20 rounded flex items-center justify-center border border-[#22d3ee]/30">
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <div className="w-4 h-4 bg-[var(--primary-color)]/20 rounded flex items-center justify-center border border-[var(--primary-color)]/30">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                       </svg>
                     </div>
-                    <span className="text-xs font-semibold text-[#22d3ee]/70 group-hover:text-[#22d3ee] transition-colors max-w-[120px] truncate">
+                    <span className="text-xs font-semibold text-[var(--primary-color)]/70 group-hover:text-[var(--primary-color)] transition-colors max-w-[120px] truncate">
                       {sourceEntry ? `Source: ${sourceEntry.prompt?.slice(0, 20)}…` : "Pick source…"}
                     </span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="opacity-30 flex-shrink-0">
@@ -603,7 +603,7 @@ export default function VibeMotionStudio({ apiKey }) {
               type="button"
               onClick={handleGenerate}
               disabled={generating || !prompt.trim() || (editMode && !editSourceId)}
-              className="bg-[#22d3ee] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[#22d3ee]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-[var(--primary-color)] text-black px-4 py-2 rounded-md font-medium text-sm hover:bg-[var(--primary-light-color)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-[var(--primary-color)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? (
                 <>
