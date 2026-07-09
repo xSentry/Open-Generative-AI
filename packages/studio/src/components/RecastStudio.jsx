@@ -313,6 +313,7 @@ export default function RecastStudio({
   const modelBtnRef = useRef(null);
   const aspectBtnRef = useRef(null);
   const hasRestored = useRef(false);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // ── Persistence: Load ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -393,6 +394,16 @@ export default function RecastStudio({
     setSelectedModelId(first.id);
     setSelectedAspectRatio(first.inputs?.aspect_ratio?.default ?? "16:9");
   }, [effectiveRecastModels, selectedModelId]);
+
+  useEffect(() => {
+    if (!modelsByMode?.recast?.length) return;
+    const first = modelsByMode.recast[0];
+    const key = `recast:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+    setSelectedAspectRatio(first.inputs?.aspect_ratio?.default ?? "16:9");
+  }, [modelsByMode?.recast]);
 
   // ── Upload handlers ─────────────────────────────────────────────────────────
   const handleVideoPick = useCallback(

@@ -726,6 +726,7 @@ export default function AudioStudio({
   const [params, setParams] = useState({});
   const [openDropdown, setOpenDropdown] = useState(false);
   const modelBtnRef = useRef(null);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // ── Generation state ──────────────────────────────────────────────────
   const [isGenerating, setIsGenerating] = useState(false);
@@ -781,6 +782,15 @@ export default function AudioStudio({
   }, []);
 
   // ── Persistence: Save ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!modelsByMode?.audio?.length) return;
+    const first = modelsByMode.audio[0];
+    const key = `audio:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+  }, [modelsByMode?.audio]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       try {

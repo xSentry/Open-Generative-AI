@@ -327,6 +327,7 @@ export default function VideoStudio({
   const videoFileInputRef = useRef(null);
   const resultVideoRef = useRef(null);
   const hasRestored = useRef(false);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // ── derived data ──
   const serverGen = useServerGenerations({ mediaType: "video", mode: ["t2v", "i2v", "v2v"] });
@@ -336,6 +337,12 @@ export default function VideoStudio({
     if (v2vMode) return v2vModelList;
     return imageMode ? i2vModelList : t2vModelList;
   }, [imageMode, v2vMode, t2vModelList, i2vModelList, v2vModelList]);
+
+  const currentProviderModels = v2vMode
+    ? modelsByMode?.v2v
+    : imageMode
+      ? modelsByMode?.i2v
+      : modelsByMode?.t2v;
 
   const getCurrentAspectRatios = useCallback(
     (id) =>
@@ -1237,6 +1244,18 @@ export default function VideoStudio({
     setSelectedModelName(fallback.name);
     applyControlsForModel(fallback.id, imageMode, v2vMode);
   }, [currentModelObj, getCurrentModels, defaultModel, applyControlsForModel, imageMode, v2vMode]);
+
+  useEffect(() => {
+    if (!currentProviderModels?.length) return;
+    const first = currentProviderModels[0];
+    const modeKey = v2vMode ? "v2v" : imageMode ? "i2v" : "t2v";
+    const key = `${modeKey}:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModel(first.id);
+    setSelectedModelName(first.name);
+    applyControlsForModel(first.id, imageMode, v2vMode);
+  }, [currentProviderModels, imageMode, v2vMode, applyControlsForModel]);
 
   const promptPlaceholder = v2vMode
     ? currentModelObj?.imageField

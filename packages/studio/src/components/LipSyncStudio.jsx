@@ -394,6 +394,7 @@ export default function LipSyncStudio({
   // ── Video ref for result ────────────────────────────────────────────────
   const resultVideoRef = useRef(null);
   const hasRestored = useRef(false);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
@@ -494,6 +495,16 @@ export default function LipSyncStudio({
     setSelectedModelId(first.id);
     setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
   }, [currentModels, selectedModelId]);
+
+  useEffect(() => {
+    if (!modelsByMode?.lipsync?.length || !currentModels.length) return;
+    const first = currentModels[0];
+    const key = `${inputMode}:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+    setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
+  }, [modelsByMode?.lipsync, currentModels, inputMode]);
 
   // ── Upload handlers ─────────────────────────────────────────────────────
   const handleImageUpload = useCallback(

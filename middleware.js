@@ -30,11 +30,12 @@ function addSecurityHeaders(response) {
     response.headers.set('X-XSS-Protection', '1; mode=block');
     // Referrer policy
     response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    // connect-src allows HTTPS storage/provider endpoints used by MuAPI and
-    // self-hosted Replicate flows for uploads, polling, and generated assets.
+    // Allow local MinIO during self-hosted development while keeping arbitrary
+    // non-HTTPS origins blocked. Production S3/CDN URLs should remain HTTPS.
+    const localS3Sources = 'http://localhost:9000 http://127.0.0.1:9000';
     response.headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https:; font-src 'self' data:;"
+        `default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: ${localS3Sources}; media-src 'self' data: blob: https: ${localS3Sources}; connect-src 'self' https: ${localS3Sources}; font-src 'self' data:;`
     );
     return response;
 }

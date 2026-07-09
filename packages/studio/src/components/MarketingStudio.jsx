@@ -315,6 +315,7 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
   const [fullscreenUrl, setFullscreenUrl] = useState(null);
 
   const textareaRef = useRef(null);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // ── Provider-aware model selection + server-persisted generations ──────────
   const marketingModels = useMemo(
@@ -339,6 +340,15 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
       prev && marketingModels.some((m) => m.id === prev) ? prev : marketingModels[0].id,
     );
   }, [marketingModels]);
+
+  useEffect(() => {
+    if (!modelsByMode?.marketing?.length) return;
+    const first = modelsByMode.marketing[0];
+    const key = `marketing:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+  }, [modelsByMode?.marketing]);
   const selectedModel = marketingModels.find((m) => m.id === selectedModelId) || null;
 
   // Derive control options from the selected model's input enums (Replicate and

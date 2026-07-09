@@ -611,6 +611,7 @@ export default function CinemaStudio({
   const arBtnRef = useRef(null);
   const resBtnRef = useRef(null);
   const modelBtnRef = useRef(null);
+  const appliedProviderDefaultRef = useRef(new Set());
 
   // Default the model selection to the first cinema-capable model, and keep it
   // valid when the provider/catalog changes.
@@ -623,6 +624,15 @@ export default function CinemaStudio({
       prev && cinemaModels.some((m) => m.id === prev) ? prev : cinemaModels[0].id,
     );
   }, [isReplicate, cinemaModels]);
+
+  useEffect(() => {
+    if (!isReplicate || !modelsByMode?.cinema?.length) return;
+    const first = modelsByMode.cinema[0];
+    const key = `cinema:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+  }, [isReplicate, modelsByMode?.cinema]);
 
   const selectedModel = cinemaModels.find((m) => m.id === selectedModelId) || null;
 

@@ -909,6 +909,7 @@ export default function ImageStudio({
   // ── Refs ────────────────────────────────────────────────────────────────
   const textareaRef = useRef(null);
   const dropdownRef = useRef(null);
+  const appliedProviderDefaultRef = useRef(new Set());
   const uploadPickerResetRef = useRef(null); // not used directly — managed via key
 
   // ── Close dropdown on outside click ─────────────────────────────────────
@@ -1042,6 +1043,7 @@ export default function ImageStudio({
 
   // ── Derived: current model lists & helpers ───────────────────────────────
   const currentModels = imageMode ? i2iModelList : t2iModelList;
+  const currentProviderModels = imageMode ? modelsByMode?.i2i : modelsByMode?.t2i;
   // The concrete selected model object is the source of truth for its inputs
   // (provider-correct enums), so option lists are derived from it.
   const selectedModelObj =
@@ -1062,6 +1064,20 @@ export default function ImageStudio({
     setSelectedAr(modelDefaultAspect(fallback, imageMode));
     setSelectedQuality(modelDefaultQuality(fallback, imageMode));
   }, [currentModels, selectedModelId, imageMode, firstTextModel]);
+
+  useEffect(() => {
+    if (!currentProviderModels?.length) return;
+    const first = currentProviderModels[0];
+    const key = `${imageMode ? "i2i" : "t2i"}:${first.provider || "muapi"}:${first.id}`;
+    if (appliedProviderDefaultRef.current.has(key)) return;
+    appliedProviderDefaultRef.current.add(key);
+    setSelectedModelId(first.id);
+    setSelectedModelName(first.name);
+    setSelectedAr(modelDefaultAspect(first, imageMode));
+    setSelectedQuality(modelDefaultQuality(first, imageMode));
+    setSelectedEffect("");
+    setMaxImages(imageMode ? (first.maxImages || getMaxImagesForI2IModel(first.id)) : 1);
+  }, [currentProviderModels, imageMode]);
 
   // ── Textarea auto-resize ─────────────────────────────────────────────────
   const handleTextareaInput = () => {
