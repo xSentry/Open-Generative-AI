@@ -21,6 +21,8 @@
 
 > 🎬 **Seedance 2.5 prompts & API guide:** [awesome-seedance-2.5-api-prompts](https://github.com/Anil-matcha/awesome-seedance-2.5-api-prompts) — Curated prompt templates, camera control vocabulary, MuAPI reference, and cinematic examples for Seedance 2.5 video generation.
 
+> 🎥 **Seedance 2.5 Python SDK:** [Seedance-2.5-API](https://github.com/SamurAIGPT/Seedance-2.5-API) — Python wrapper for ByteDance's Seedance 2.5 API — text-to-video, image-to-video, realistic human faces, character consistency.
+
 > 🍌 **Claude Fable 5 use cases + 20% off on MuAPI:** [awesome-claude-fable-5](https://github.com/Anil-matcha/awesome-claude-fable-5) — 60 curated real-world use cases, prompts, and benchmarks for Claude Fable 5, with **20% off Fable 5 access** via [MuAPI](https://muapi.ai/pricing?utm_source=github&utm_medium=readme&utm_campaign=open-generative-ai).
 
 - [Vadoo](https://vadoo.tv) — Unrestricted AI image & video generation → auto-publish as YouTube Shorts and TikToks & earn

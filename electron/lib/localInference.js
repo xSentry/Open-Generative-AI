@@ -20,19 +20,26 @@ const {
 } = require('./localInferencePaths');
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
-const {
-    dataDir: DATA_DIR,
-    binDir: BIN_DIR,
-    modelsDir: MODELS_DIR,
-    tmpDir: TMP_DIR,
-} = resolveLocalAiPaths({ userDataPath: app.getPath('userData') });
+// Resolved lazily (from register(), after app.whenReady()) so a failure here
+// never crashes the process before a window exists — see #232.
+let DATA_DIR, BIN_DIR, MODELS_DIR, TMP_DIR;
 
-for (const dir of [BIN_DIR, MODELS_DIR, TMP_DIR]) {
-    fs.mkdirSync(dir, { recursive: true });
+function ensureLocalAiPaths() {
+    if (BIN_DIR) return;
+    const resolved = resolveLocalAiPaths({ userDataPath: app.getPath('userData') });
+    DATA_DIR = resolved.dataDir;
+    BIN_DIR = resolved.binDir;
+    MODELS_DIR = resolved.modelsDir;
+    TMP_DIR = resolved.tmpDir;
+    BINARY_PATH = path.join(BIN_DIR, BINARY_NAME);
+
+    for (const dir of [BIN_DIR, MODELS_DIR, TMP_DIR]) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
 }
 
 const BINARY_NAME = process.platform === 'win32' ? 'sd-cli.exe' : 'sd-cli';
-const BINARY_PATH = path.join(BIN_DIR, BINARY_NAME);
+let BINARY_PATH;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let activeProcess = null;
@@ -579,6 +586,7 @@ function getMainWindow() {
 }
 
 function register() {
+    ensureLocalAiPaths();
     ipcMain.handle('local-ai:binary-status', () => getBinaryStatus());
     ipcMain.handle('local-ai:download-binary', () => downloadBinary(getMainWindow()));
     ipcMain.handle('local-ai:list-models', () => listModels());

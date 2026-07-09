@@ -1,7 +1,16 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, dialog } = require('electron');
 const path = require('path');
 const { register: registerLocalInference } = require('./lib/localInference');
 const { register: registerWan2gp } = require('./lib/wan2gpProvider');
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
+    try {
+        dialog.showErrorBox('Open Generative AI — Unexpected Error', err && err.stack ? err.stack : String(err));
+    } catch (_) {
+        // dialog unavailable this early; the console log above is the fallback
+    }
+});
 
 // Ubuntu 24.04+ sets kernel.apparmor_restrict_unprivileged_userns=1 which
 // blocks Chromium's user namespace sandbox. The .deb package ships an AppArmor
@@ -23,7 +32,7 @@ function createWindow() {
         minWidth: 1024,
         minHeight: 640,
         webPreferences: {
-            webSecurity: false,
+            webSecurity: true,
             contextIsolation: true,
             nodeIntegration: false,
             preload: path.join(__dirname, 'preload.js'),
@@ -60,8 +69,17 @@ function createWindow() {
 
 app.whenReady().then(() => {
     createWindow();
-    registerLocalInference();
-    registerWan2gp();
+
+    try {
+        registerLocalInference();
+        registerWan2gp();
+    } catch (err) {
+        console.error('Failed to register local-ai/wan2gp handlers:', err);
+        dialog.showErrorBox(
+            'Local AI features unavailable',
+            `Open Generative AI started, but local model support failed to initialize:\n\n${err.message}`
+        );
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

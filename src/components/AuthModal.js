@@ -5,9 +5,14 @@ export function AuthModal(onSuccess) {
     overlay.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-6';
 
     const modal = document.createElement('div');
-    modal.className = 'w-full max-w-md bg-panel-bg border border-white/10 rounded-3xl p-8 shadow-3xl animate-fade-in-up';
+    modal.className = 'relative w-full max-w-md bg-panel-bg border border-white/10 rounded-3xl p-8 shadow-3xl animate-fade-in-up';
 
     modal.innerHTML = `
+        <button id="auth-modal-close-btn" type="button" aria-label="Close" class="absolute top-4 right-4 w-8 h-8 rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-colors flex items-center justify-center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+        </button>
         <div class="flex flex-col items-center text-center mb-8">
             <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20 shadow-glow mb-6">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2">
@@ -46,12 +51,28 @@ export function AuthModal(onSuccess) {
 
     const input = modal.querySelector('#muapi-key-input');
     const btn = modal.querySelector('#save-key-btn');
+    const closeBtn = modal.querySelector('#auth-modal-close-btn');
+
+    const close = () => {
+        document.removeEventListener('keydown', onKeydown);
+        if (overlay.parentNode) document.body.removeChild(overlay);
+    };
+
+    const onKeydown = (e) => {
+        if (e.key === 'Escape') close();
+    };
+    document.addEventListener('keydown', onKeydown);
+
+    closeBtn.onclick = close;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) close();
+    });
 
     btn.onclick = () => {
         const key = input.value.trim();
         if (key) {
             localStorage.setItem('muapi_key', key);
-            document.body.removeChild(overlay);
+            close();
             if (onSuccess) onSuccess();
         } else {
             input.classList.add('border-red-500/50');

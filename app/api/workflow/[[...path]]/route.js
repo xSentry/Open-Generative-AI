@@ -33,32 +33,32 @@ const executionDeps = {
   },
 };
 
-// Single switch point (see docs/workflow-self-hosting-plan.md §0/§2):
+// Single switch point (see docs/workflow-self-hosting-plan.md section 0/2):
 //   provider === 'muapi' -> unchanged MuAPI proxy behaviour
 //   otherwise            -> our own self-hosted workflow engine
 async function dispatch(request, ctx, method) {
-    let active;
-    try {
-        active = await getActiveProviderKey(request);
-    } catch (error) {
-        const { body, status } = errorResponse(error);
-        return NextResponse.json(body, { status });
-    }
+  let active;
+  try {
+    active = await getActiveProviderKey(request);
+  } catch (error) {
+    const { body, status } = errorResponse(error);
+    return NextResponse.json(body, { status });
+  }
 
-    const { user, provider, apiKey } = active;
+  const { user, provider, apiKey } = active;
 
-    if (provider === 'muapi') {
-        return proxyToMuapi(request, ctx, method, apiKey);
-    }
+  if (provider === 'muapi') {
+    return proxyToMuapi(request, ctx, method, apiKey);
+  }
 
-    if (!apiKey) {
-        return NextResponse.json(
-            { error: getProviderMissingKeyMessage(provider) },
-            { status: 401 }
-        );
-    }
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: getProviderMissingKeyMessage(provider) },
+      { status: 401 }
+    );
+  }
 
-    return handleLocalWorkflow(request, ctx, method, { user, provider, apiKey }, executionDeps);
+  return handleLocalWorkflow(request, ctx, method, { user, provider, apiKey }, executionDeps);
 }
 
 export const GET = (request, ctx) => dispatch(request, ctx, 'GET');

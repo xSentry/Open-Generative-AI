@@ -14,8 +14,8 @@ const MUAPI_BASE = 'https://api.muapi.ai';
 function getApiKey(request) {
     const headerKey = request.headers.get('x-api-key');
     if (headerKey) return headerKey;
-    const cookieKey = request.cookies.get('muapi_key')?.value;
-    return cookieKey;
+    // Cookie-based auth removed for security (CWE-522)
+    return null;
 }
 
 function cleanHeaders(request) {
@@ -38,7 +38,8 @@ export async function GET(request, { params }) {
 
     const headers = cleanHeaders(request);
     const apiKey = getApiKey(request);
-    
+
+    // NOTE: credential logging removed for security (CWE-200)
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {

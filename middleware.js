@@ -21,6 +21,24 @@ function isPublicPath(pathname) {
     );
 }
 
+function addSecurityHeaders(response) {
+    // Prevent MIME type sniffing (CWE-693)
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    // Prevent clickjacking (CWE-1021)
+    response.headers.set('X-Frame-Options', 'DENY');
+    // Enable XSS filter in legacy browsers
+    response.headers.set('X-XSS-Protection', '1; mode=block');
+    // Referrer policy
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // connect-src allows HTTPS storage/provider endpoints used by MuAPI and
+    // self-hosted Replicate flows for uploads, polling, and generated assets.
+    response.headers.set(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https:; font-src 'self' data:;"
+    );
+    return response;
+}
+
 export function middleware(request) {
     const url = request.nextUrl;
     const pathname = url.pathname;
@@ -32,39 +50,34 @@ export function middleware(request) {
     if (!isPublicPath(pathname) && isProtectedPage && !hasSessionCookie(request)) {
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('next', pathname + url.search);
-        return NextResponse.redirect(loginUrl);
+        return addSecurityHeaders(NextResponse.redirect(loginUrl));
     }
-    
+
     // Catch requests to /api/workflow, /api/app, and /api/v1
-    const isMuApi = pathname.startsWith('/api/workflow') || 
-                    pathname.startsWith('/api/app') || 
+    const isMuApi = pathname.startsWith('/api/workflow') ||
+                    pathname.startsWith('/api/app') ||
                     pathname.startsWith('/api/v1');
 
     if (isMuApi) {
         // Exclude paths that have their own dedicated route handlers with custom logic
-        const isHandledByRoute = pathname.startsWith('/api/v1/creative-agent') || 
+        const isHandledByRoute = pathname.startsWith('/api/v1/creative-agent') ||
                                 pathname.startsWith('/api/v1/get_upload_url') ||
                                 pathname.startsWith('/api/v1/upload-binary');
 
         if (pathname.startsWith('/api/v1') && !isHandledByRoute) {
             const targetUrl = new URL(pathname + url.search, 'https://api.muapi.ai');
-            return NextResponse.rewrite(targetUrl);
+            return addSecurityHeaders(NextResponse.rewrite(targetUrl));
         }
     }
 
-    return NextResponse.next();
+    // Add security headers to all responses
+    return addSecurityHeaders(NextResponse.next());
 }
 
-// Match the paths we want to proxy
+// Match all pages/API routes for security headers. Exclude Next.js internals.
 export const config = {
     matcher: [
-        '/studio/:path*',
-        '/workflow/:path*',
-        '/agents/:path*',
-        '/assistant/:path*',
-        '/settings/:path*',
-        '/api/workflow/:path*', 
-        '/api/app/:path*',
-        '/api/v1/:path*'
+        '/api/:path*',
+        '/((?!_next/static|_next/image|favicon.ico|__nextjs_original-stack-frame).*)',
     ],
 };
