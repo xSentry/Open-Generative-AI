@@ -66,6 +66,38 @@ function modelEffects(model, i2i) {
   return getEffectsForI2IModel(model?.id);
 }
 
+function modelAcceptsImageInput(model) {
+  if (!model) return false;
+  if (model.imageField || model.swapField) return true;
+  if (model.inputs) {
+    return Object.values(model.inputs).some((input) => input?.mediaKind === "image" || input?.field === "images_list");
+  }
+  return true;
+}
+
+function imageArrayInputs(model) {
+  if (!model?.inputs) return [];
+  return Object.values(model.inputs).filter(
+    (input) => input?.type === "array" && (input.mediaKind === "image" || input.field === "images_list"),
+  );
+}
+
+function maxImagesForImageModel(model) {
+  if (!model) return 1;
+  if (Number(model.maxImages) > 0) return Number(model.maxImages);
+
+  const arrayInputs = imageArrayInputs(model);
+  if (arrayInputs.length > 0) {
+    const maxItems = arrayInputs
+      .map((input) => Number(input.maxItems))
+      .filter((value) => Number.isFinite(value) && value > 1);
+    if (maxItems.length > 0) return Math.max(...maxItems);
+    return 10;
+  }
+
+  return getMaxImagesForI2IModel(model.id) || 1;
+}
+
 async function downloadImage(url, filename) {
   try {
     const response = await fetch(url);
@@ -114,24 +146,27 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
 
   // Sync initialUrls from parent (e.g. restored from localStorage)
   useEffect(() => {
-    if (initialUrls && initialUrls.length > 0) {
-      // Avoid infinite loops by only updating if URLs actually changed
-      const currentUrls = selectedEntries.map(e => e.url);
-      const isSame = initialUrls.length === currentUrls.length && initialUrls.every(u => currentUrls.includes(u));
-      if (isSame) return;
+    const urls = initialUrls || [];
+    const currentUrls = selectedEntries.map(e => e.url);
+    const isSame = urls.length === currentUrls.length && urls.every(u => currentUrls.includes(u));
+    if (isSame) return;
 
-      const newEntries = initialUrls.map(url => ({ url }));
-      setSelectedEntries(newEntries);
-
-      // Also ensure they are in the history panel
-      setUploadHistory(prev => {
-        const existingUrls = prev.map(h => h.url);
-        const missing = initialUrls
-          .filter(u => !existingUrls.includes(u))
-          .map(u => ({ id: `restored-${u}`, name: "Restored Image", url: u, progress: 100 }));
-        return [...missing, ...prev];
-      });
+    if (urls.length === 0) {
+      setSelectedEntries([]);
+      return;
     }
+
+    const newEntries = urls.map(url => ({ url }));
+    setSelectedEntries(newEntries);
+
+    // Also ensure they are in the history panel
+    setUploadHistory(prev => {
+      const existingUrls = prev.map(h => h.url);
+      const missing = urls
+        .filter(u => !existingUrls.includes(u))
+        .map(u => ({ id: `restored-${u}`, name: "Restored Image", url: u, progress: 100 }));
+      return [...missing, ...prev];
+    });
   }, [initialUrls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When maxImages changes, trim excess selections
@@ -140,6 +175,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
       const trimmed = selectedEntries.slice(0, maxImages);
       setSelectedEntries(trimmed);
       if (trimmed.length === 0) onClear?.();
+      else fireOnSelect(trimmed);
     }
     if (fileInputRef.current) {
       fileInputRef.current.multiple = maxImages > 1;
@@ -176,7 +212,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
           ? files.slice(0, 1)
           : files.slice(0, maxImages - selectedEntries.length || 1);
 
-      await Promise.all(
+      const uploadedEntries = await Promise.all(
         toUpload.map(async (file) => {
           const id = Date.now().toString() + Math.random();
 
@@ -202,16 +238,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
               }),
             );
 
-            // Auto-select if there's room
-            if (selectedEntries.length < maxImages) {
-              const newEntry = { url: uploadedUrl };
-              setSelectedEntries((prev) => [...prev, newEntry]);
-
-              if (maxImages === 1) {
-                fireOnSelect([newEntry]);
-                setPanelOpen(false);
-              }
-            }
+            return { url: uploadedUrl };
           } catch (err) {
             console.error("[UploadButton] Upload failed for", file.name, err);
             setUploadHistory((prev) => prev.filter((h) => h.id !== id));
@@ -219,6 +246,14 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
           }
         }),
       );
+
+      const next =
+        maxImages === 1
+          ? uploadedEntries.slice(0, 1)
+          : [...selectedEntries, ...uploadedEntries].slice(0, maxImages);
+      setSelectedEntries(next);
+      fireOnSelect(next);
+      if (maxImages === 1) setPanelOpen(false);
     } catch (err) {
       alert(`Image upload failed: ${err.message}`);
     } finally {
@@ -251,6 +286,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
         ];
       }
       setSelectedEntries(next);
+      if (next.length > 0) fireOnSelect(next);
     }
   };
 
@@ -263,6 +299,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
     if (next.length !== selectedEntries.length) {
       setSelectedEntries(next);
       if (next.length === 0) onClear?.();
+      else fireOnSelect(next);
     }
   };
 
@@ -318,6 +355,15 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
       <img src={selectedEntries[0].url} alt="" className="w-full h-full object-cover" />
     ) : (
       <span className="text-[10px] font-bold text-white/50">Face</span>
+    )
+  ) : hasSelection ? (
+    isMulti ? (
+      <div className="flex flex-col items-center justify-center leading-none">
+        <span className="text-sm font-black text-[#22d3ee]">{count}</span>
+        <span className="mt-0.5 text-[8px] font-bold text-white/45">/{maxImages}</span>
+      </div>
+    ) : (
+      <img src={selectedEntries[0].url} alt="" className="w-full h-full object-cover" />
     )
   ) : (
     <svg
@@ -384,13 +430,11 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
           <div className="flex items-center justify-between px-1 pb-3 mb-2 border-b border-white/5">
             <div className="flex flex-col gap-0.5">
               <span className="text-xs font-bold text-secondary">
-                Reference Images
+                {label || defaultLabel}
               </span>
-              {isMulti && (
-                <span className="text-[9px] text-muted">
-                  Select up to {maxImages} images
-                </span>
-              )}
+              <span className="text-[9px] text-muted">
+                {isMulti ? `Select up to ${maxImages} images` : "Select one image"}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               {isMulti && hasSelection && (
@@ -399,7 +443,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
                   onClick={handleDone}
                   className="flex items-center gap-1 px-3 py-1.5 bg-primary text-black rounded-xl text-xs font-black transition-all hover:scale-105"
                 >
-                  ✓ Done ({count})
+                  Close ({count})
                 </button>
               )}
               <button
@@ -544,7 +588,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
                 onClick={handleDone}
                 className="px-4 py-1.5 bg-primary text-black rounded-xl text-xs font-black transition-all hover:scale-105"
               >
-                Use Selected
+                Close
               </button>
             </div>
           )}
@@ -1002,6 +1046,11 @@ export default function ImageStudio({
   ]);
 
   const processDroppedImages = async (files) => {
+    if (!canUploadImages || uploadMaxImages < 1) {
+      alert("The selected model does not accept reference images.");
+      return;
+    }
+
     const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
     const tooLarge = files.filter((f) => f.size > MAX_IMAGE_SIZE);
     if (tooLarge.length > 0) {
@@ -1014,7 +1063,7 @@ export default function ImageStudio({
     setGenerating(true); // Show as generating/busy
     try {
       const toUpload =
-        maxImages === 1 ? files.slice(0, 1) : files.slice(0, maxImages);
+        uploadMaxImages === 1 ? files.slice(0, 1) : files.slice(0, uploadMaxImages);
       const urls = await Promise.all(
         toUpload.map(async (file) => {
           try {
@@ -1056,6 +1105,14 @@ export default function ImageStudio({
   // (provider-correct enums), so option lists are derived from it.
   const selectedModelObj =
     currentModels.find((model) => model.id === selectedModelId) || null;
+  const matchingImageModel =
+    i2iModelList.find((model) => model.id === selectedModelId) ||
+    (selectedModelObj?.family ? i2iModelList.find((model) => model.family === selectedModelObj.family) : null) ||
+    null;
+  const uploadTargetModel = imageMode ? selectedModelObj : matchingImageModel;
+  const canUploadImages = modelAcceptsImageInput(uploadTargetModel);
+  const uploadMaxImages = canUploadImages ? maxImagesForImageModel(uploadTargetModel) : 0;
+  const uploadLabel = uploadMaxImages > 1 ? `Reference images (${uploadMaxImages} max)` : "Reference image";
   const currentAspectRatios = modelAspectRatios(selectedModelObj, imageMode);
   const currentResolutions = modelResolutions(selectedModelObj, imageMode);
   const currentQualityField = modelQualityField(selectedModelObj, imageMode);
@@ -1103,31 +1160,45 @@ export default function ImageStudio({
   // ── Upload picker callbacks ──────────────────────────────────────────────
   const handleUploadSelect = useCallback(
     ({ url, urls }) => {
-      const newUrls = urls || [url];
+      const targetModel = imageMode
+        ? i2iModelList.find((model) => model.id === selectedModelId)
+        : (() => {
+            const currentT2I = t2iModelList.find((model) => model.id === selectedModelId);
+            return (
+              i2iModelList.find((model) => model.id === selectedModelId) ||
+              (currentT2I?.family ? i2iModelList.find((model) => model.family === currentT2I.family) : null) ||
+              null
+            );
+          })();
+
+      if (!modelAcceptsImageInput(targetModel)) {
+        setUploadedImageUrls([]);
+        return;
+      }
+
+      const targetMaxImages = maxImagesForImageModel(targetModel);
+      const newUrls = (urls || [url]).filter(Boolean).slice(0, targetMaxImages);
       setUploadedImageUrls(newUrls);
 
       if (!imageMode) {
-        const currentT2I = t2iModelList.find((model) => model.id === selectedModelId);
-        const firstI2I =
-          i2iModelList.find((model) => model.id === selectedModelId) ||
-          (currentT2I?.family ? i2iModelList.find((model) => model.family === currentT2I.family) : null) ||
-          firstImageModel;
-        const effects = modelEffects(firstI2I, true);
+        const effects = modelEffects(targetModel, true);
         suppressProviderDefaultRef.current = true;
         setImageMode(true);
-        setSelectedModelId(firstI2I.id);
-        setSelectedModelName(firstI2I.name);
-        setSelectedAr(modelDefaultAspect(firstI2I, true));
-        setSelectedQuality(modelDefaultQuality(firstI2I, true));
+        setSelectedModelId(targetModel.id);
+        setSelectedModelName(targetModel.name);
+        setSelectedAr(modelDefaultAspect(targetModel, true));
+        setSelectedQuality(modelDefaultQuality(targetModel, true));
         setSelectedEffect(
           effects.length > 0
-            ? (firstI2I.inputs?.name?.default || getDefaultEffectForI2IModel(firstI2I.id) || effects[0])
+            ? (targetModel.inputs?.name?.default || getDefaultEffectForI2IModel(targetModel.id) || effects[0])
             : "",
         );
-        setMaxImages(firstI2I.maxImages || getMaxImagesForI2IModel(firstI2I.id));
+        setMaxImages(targetMaxImages);
+      } else {
+        setMaxImages(targetMaxImages);
       }
     },
-    [imageMode, selectedModelId, t2iModelList, i2iModelList, firstImageModel],
+    [imageMode, selectedModelId, t2iModelList, i2iModelList],
   );
 
   const handleUploadClear = useCallback(() => {
@@ -1248,7 +1319,7 @@ export default function ImageStudio({
         alert("Please upload a reference image first.");
         return;
       }
-      const modelInfo = getI2IModelById(selectedModelId);
+      const modelInfo = selectedModelObj || getI2IModelById(selectedModelId);
       if (modelInfo?.swapField && !swapImageUrl) {
         alert("Please upload a swap face image.");
         return;
@@ -1543,18 +1614,19 @@ export default function ImageStudio({
               ))}
 
               {/* Main Upload Trigger */}
-              {uploadedImageUrls.length < maxImages && (
+              {canUploadImages && uploadedImageUrls.length < uploadMaxImages && (
                 <UploadButton
                   apiKey={apiKey}
-                  maxImages={maxImages}
+                  maxImages={uploadMaxImages}
                   onSelect={handleUploadSelect}
                   onClear={handleUploadClear}
                   initialUrls={uploadedImageUrls}
+                  label={uploadLabel}
                 />
               )}
 
               {/* Swap Image Upload Trigger */}
-              {imageMode && getI2IModelById(selectedModelId)?.swapField && (
+              {imageMode && selectedModelObj?.swapField && (
                 <UploadButton
                   apiKey={apiKey}
                   maxImages={1}

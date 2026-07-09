@@ -26,6 +26,38 @@ function getQualitiesForModel(modelList, modelId) {
   return model?.inputs?.quality?.enum || [];
 }
 
+function modelAcceptsImageInput(model) {
+  if (!model) return false;
+  if (model.imageField || model.swapField) return true;
+  if (model.inputs) {
+    return Object.values(model.inputs).some((input) => input?.mediaKind === "image" || input?.field === "images_list");
+  }
+  return true;
+}
+
+function imageArrayInputs(model) {
+  if (!model?.inputs) return [];
+  return Object.values(model.inputs).filter(
+    (input) => input?.type === "array" && (input.mediaKind === "image" || input.field === "images_list"),
+  );
+}
+
+function maxImagesForI2VModel(model) {
+  if (!model) return 1;
+  if (Number(model.maxImages) > 0) return Number(model.maxImages);
+
+  const arrayInputs = imageArrayInputs(model);
+  if (arrayInputs.length > 0) {
+    const maxItems = arrayInputs
+      .map((input) => Number(input.maxItems))
+      .filter((value) => Number.isFinite(value) && value > 1);
+    if (maxItems.length > 0) return Math.max(...maxItems);
+    return 10;
+  }
+
+  return getMaxImagesForI2VModel(model.id) || 1;
+}
+
 async function downloadFile(url, filename) {
   try {
     const response = await fetch(url);
@@ -379,6 +411,20 @@ export default function VideoStudio({
     [getCurrentModels, selectedModel],
   );
 
+  const getImageUploadTargetModel = useCallback(
+    (modelId = selectedModel, isImageMode = imageMode, isV2vMode = v2vMode) => {
+      if (isV2vMode) return v2vModelList.find((m) => m.id === modelId) || null;
+      if (isImageMode) return i2vModelList.find((m) => m.id === modelId) || null;
+      const currentT2V = t2vModelList.find((m) => m.id === modelId);
+      return (
+        i2vModelList.find((m) => m.id === modelId) ||
+        (currentT2V?.family ? i2vModelList.find((m) => m.family === currentT2V.family) : null) ||
+        null
+      );
+    },
+    [selectedModel, imageMode, v2vMode, v2vModelList, i2vModelList, t2vModelList],
+  );
+
   const isMotionControlSelection = useCallback(
     (modelId, isV2v) => {
       if (!isV2v) return false;
@@ -505,6 +551,16 @@ export default function VideoStudio({
     }
   }, [applyControlsForModel, defaultModel.id]);
 
+  useEffect(() => {
+    if (uploadedImageUrls.length === 0) {
+      if (uploadedImageUrl) setUploadedImageUrl(null);
+      return;
+    }
+    if (uploadedImageUrl !== uploadedImageUrls[0]) {
+      setUploadedImageUrl(uploadedImageUrls[0]);
+    }
+  }, [uploadedImageUrls, uploadedImageUrl]);
+
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -568,55 +624,70 @@ export default function VideoStudio({
 
   // ── Derived UI values ────────────────────────────────────────────────────
 
-  const processDroppedImage = async (file) => {
-    if (file.size > 10 * 1024 * 1024) {
+  const processImageFiles = useCallback(async (filesInput) => {
+    const files = Array.from(filesInput || []).filter(Boolean);
+    if (files.length === 0) return;
+
+    const tooLarge = files.filter((file) => file.size > 10 * 1024 * 1024);
+    if (tooLarge.length > 0) {
       alert("Image exceeds 10MB limit.");
       return;
     }
+
+    const targetModel = getImageUploadTargetModel();
+    if (!modelAcceptsImageInput(targetModel)) {
+      alert("The selected model does not accept reference images.");
+      return;
+    }
+    const maxImgs = maxImagesForI2VModel(targetModel);
+    const toUpload = files.slice(0, Math.max(1, maxImgs - uploadedImageUrls.length));
+
     setImageUploading(true);
     setImageProgress(0);
     try {
-      const url = await uploadFile(apiKey, file, (pct) => {
-        setImageProgress(pct);
-      });
-      setUploadedImageUrl(url);
-      setUploadedVideoUrl(null);
-      setUploadedVideoName(null);
-      setV2vMode(false);
+      const urls = await Promise.all(
+        toUpload.map((file) => uploadFile(apiKey, file, (pct) => setImageProgress(pct))),
+      );
 
-      let targetModelId = selectedModel;
-      if (!imageMode) {
-        const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
-        const exact = i2vModelList.find((m) => m.id === selectedModel);
-        const sibling = currentT2V?.family
-          ? i2vModelList.find((m) => m.family === currentT2V.family)
-          : null;
-        const target = exact || sibling || i2vModelList[0] || i2vModels[0];
-        targetModelId = target.id;
-        suppressProviderDefaultRef.current = true;
-        setImageMode(true);
-        setSelectedModel(target.id);
-        setSelectedModelName(target.name);
-        applyControlsForModel(target.id, true, false);
-      }
-
-      const maxImgs = getMaxImagesForI2VModel(targetModelId);
-      if (maxImgs > 2) {
-        setUploadedImageUrls((prev) => {
-          if (prev.includes(url)) return prev;
-          return [...prev, url].slice(0, maxImgs);
-        });
+      if (isMotionControlSelection(selectedModel, v2vMode)) {
+        const nextUrls = [...uploadedImageUrls, ...urls].slice(0, maxImgs);
+        setUploadedImageUrl(nextUrls[0] || null);
+        setUploadedImageUrls(nextUrls);
+        setPromptDisabled(false);
       } else {
-        setUploadedImageUrls([url]);
+        setUploadedVideoUrl(null);
+        setUploadedVideoName(null);
+        setV2vMode(false);
+
+        if (!imageMode) {
+          suppressProviderDefaultRef.current = true;
+          setImageMode(true);
+          setSelectedModel(targetModel.id);
+          setSelectedModelName(targetModel.name);
+          applyControlsForModel(targetModel.id, true, false);
+        }
+
+        const nextUrls = maxImgs > 1 ? [...uploadedImageUrls, ...urls].slice(0, maxImgs) : [urls[0]];
+        setUploadedImageUrl(nextUrls[0] || null);
+        setUploadedImageUrls(nextUrls);
+        setPromptDisabled(false);
       }
-      setPromptDisabled(false);
     } catch (err) {
       alert(`Image upload failed: ${err.message}`);
     } finally {
       setImageUploading(false);
       setImageProgress(0);
     }
-  };
+  }, [
+    apiKey,
+    getImageUploadTargetModel,
+    uploadedImageUrls,
+    selectedModel,
+    v2vMode,
+    imageMode,
+    isMotionControlSelection,
+    applyControlsForModel,
+  ]);
 
   const processDroppedVideo = async (file) => {
     if (file.size > 50 * 1024 * 1024) {
@@ -633,6 +704,7 @@ export default function VideoStudio({
       setUploadedVideoName(file.name);
       if (imageMode) {
         setUploadedImageUrl(null);
+        setUploadedImageUrls([]);
         suppressProviderDefaultRef.current = true;
         setImageMode(false);
       }
@@ -662,11 +734,11 @@ export default function VideoStudio({
       if (videoFiles.length > 0) {
         processDroppedVideo(videoFiles[0]);
       } else if (imageFiles.length > 0) {
-        processDroppedImage(imageFiles[0]);
+        processImageFiles(imageFiles);
       }
       onFilesHandled?.();
     }
-  }, [droppedFiles, onFilesHandled, processDroppedImage, processDroppedVideo]);
+  }, [droppedFiles, onFilesHandled, processImageFiles, processDroppedVideo]);
 
   // Initialise controls for default model on mount
   useEffect(() => {
@@ -698,66 +770,8 @@ export default function VideoStudio({
 
   // ── image upload ─────────────────────────────────────────────────────────
   const handleImageFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Image exceeds 10MB limit.");
-      return;
-    }
-    setImageUploading(true);
-    setImageProgress(0);
-
-    try {
-      const url = await uploadFile(apiKey, file, (pct) => {
-        setImageProgress(pct);
-      });
-      setUploadedImageUrl(url);
-
-      // Motion-control v2v: image is a second input, not a mode switch
-      if (isMotionControlSelection(selectedModel, v2vMode)) {
-        setPromptDisabled(false);
-        setUploadedImageUrls([url]);
-      } else {
-        // Clear v2v if active
-        setUploadedVideoUrl(null);
-        setUploadedVideoName(null);
-        setV2vMode(false);
-
-        let targetModelId = selectedModel;
-        if (!imageMode) {
-          const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
-          const exact = i2vModelList.find((m) => m.id === selectedModel);
-          const sibling = currentT2V?.family
-            ? i2vModelList.find((m) => m.family === currentT2V.family)
-            : null;
-          const target = exact || sibling || i2vModelList[0] || i2vModels[0];
-          targetModelId = target.id;
-          suppressProviderDefaultRef.current = true;
-          setImageMode(true);
-          setSelectedModel(target.id);
-          setSelectedModelName(target.name);
-          applyControlsForModel(target.id, true, false);
-        }
-
-        const maxImgs = getMaxImagesForI2VModel(targetModelId);
-        if (maxImgs > 2) {
-          setUploadedImageUrls((prev) => {
-            if (prev.includes(url)) return prev;
-            return [...prev, url].slice(0, maxImgs);
-          });
-        } else {
-          setUploadedImageUrls([url]);
-        }
-        setPromptDisabled(false);
-      }
-    } catch (err) {
-      console.error("[VideoStudio] Image upload failed:", err);
-      alert(`Image upload failed: ${err.message}`);
-    } finally {
-      setImageUploading(false);
-      setImageProgress(0);
-      if (imageFileInputRef.current) imageFileInputRef.current.value = "";
-    }
+    await processImageFiles(e.target.files);
+    if (imageFileInputRef.current) imageFileInputRef.current.value = "";
   };
 
   const clearImageUpload = () => {
@@ -854,6 +868,7 @@ export default function VideoStudio({
         // Default v2v flow (e.g. watermark remover) — auto-pick the first v2v model
         if (imageMode) {
           setUploadedImageUrl(null);
+          setUploadedImageUrls([]);
           suppressProviderDefaultRef.current = true;
           setImageMode(false);
         }
@@ -904,6 +919,7 @@ export default function VideoStudio({
         if (!isMC) {
           // Single-input v2v (watermark remover etc.) — drop any image
           setUploadedImageUrl(null);
+          setUploadedImageUrls([]);
         }
         setSelectedModel(m.id);
         setSelectedModelName(m.name);
@@ -1001,8 +1017,8 @@ export default function VideoStudio({
         return;
       }
     } else if (imageMode) {
-      const maxImgs = getMaxImagesForI2VModel(selectedModel);
-      if (maxImgs > 2) {
+      const maxImgs = maxImagesForI2VModel(currentModel);
+      if (maxImgs > 1) {
         if (uploadedImageUrls.length === 0) {
           alert("Please upload at least one reference image first.");
           return;
@@ -1035,8 +1051,8 @@ export default function VideoStudio({
           if (currentModel?.imageField && uploadedImageUrl) params.image_url = uploadedImageUrl;
           if (currentModel?.hasPrompt && trimmedPrompt) params.prompt = trimmedPrompt;
         } else if (imageMode) {
-          const maxImgs = getMaxImagesForI2VModel(selectedModel);
-          if (maxImgs > 2) params.images_list = uploadedImageUrls;
+          const maxImgs = maxImagesForI2VModel(currentModel);
+          if (maxImgs > 1) params.images_list = uploadedImageUrls;
           else params.image_url = uploadedImageUrl;
           if (trimmedPrompt) params.prompt = trimmedPrompt;
           params.aspect_ratio = selectedAr;
@@ -1098,9 +1114,9 @@ export default function VideoStudio({
             type: "video",
           });
       } else if (imageMode) {
-        const maxImgs = getMaxImagesForI2VModel(selectedModel);
+        const maxImgs = maxImagesForI2VModel(currentModel);
         const i2vParams = { model: selectedModel };
-        if (maxImgs > 2) {
+        if (maxImgs > 1) {
           i2vParams.images_list = uploadedImageUrls;
         } else {
           i2vParams.image_url = uploadedImageUrl;
@@ -1271,6 +1287,10 @@ export default function VideoStudio({
     canvasModel === "seedance-v2.0-t2v" || canvasModel === "seedance-v2.0-i2v";
   const currentModelObj = getCurrentModel();
   const isExtendMode = currentModelObj?.requiresRequestId;
+  const imageUploadTargetModel = getImageUploadTargetModel();
+  const canUploadImages = modelAcceptsImageInput(imageUploadTargetModel);
+  const imageUploadMaxImages = canUploadImages ? maxImagesForI2VModel(imageUploadTargetModel) : 0;
+  const isMultiImageUpload = imageUploadMaxImages > 1;
 
   useEffect(() => {
     if (currentModelObj) return;
@@ -1497,7 +1517,7 @@ export default function VideoStudio({
         <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-md border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
           <div className="flex items-center gap-2 px-1">
             {/* Image upload button / thumbnails */}
-            {imageMode && getMaxImagesForI2VModel(selectedModel) > 2 ? (
+            {canUploadImages && imageMode && isMultiImageUpload ? (
               <div className="flex items-center gap-2 flex-wrap">
                 {uploadedImageUrls.map((url, idx) => (
                   <div key={idx} className="relative w-10 h-10 shrink-0 rounded-full border border-primary/60 bg-primary/5 overflow-hidden group">
@@ -1515,12 +1535,13 @@ export default function VideoStudio({
                     </span>
                   </div>
                 ))}
-                {uploadedImageUrls.length < getMaxImagesForI2VModel(selectedModel) && (
+                {uploadedImageUrls.length < imageUploadMaxImages && (
                   <div className="relative">
                     <input
                       ref={imageFileInputRef}
                       type="file"
                       accept="image/*"
+                      multiple={isMultiImageUpload}
                       className="hidden"
                       onChange={handleImageFileChange}
                     />
@@ -1548,6 +1569,11 @@ export default function VideoStudio({
                           </svg>
                           <span className="absolute text-[9px] font-black text-primary leading-none">{imageProgress}%</span>
                         </div>
+                      ) : uploadedImageUrls.length > 0 ? (
+                        <div className="flex flex-col items-center justify-center leading-none">
+                          <span className="text-xs font-black text-primary">{uploadedImageUrls.length}</span>
+                          <span className="mt-0.5 text-[8px] font-bold text-white/45">/{imageUploadMaxImages}</span>
+                        </div>
                       ) : (
                         <span className="text-lg font-bold text-white/40 group-hover:text-primary transition-colors">+</span>
                       )}
@@ -1555,12 +1581,13 @@ export default function VideoStudio({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : canUploadImages ? (
               <div className="relative">
                 <input
                   ref={imageFileInputRef}
                   type="file"
                   accept="image/*"
+                  multiple={isMultiImageUpload}
                   className="hidden"
                   onChange={handleImageFileChange}
                 />
@@ -1640,7 +1667,7 @@ export default function VideoStudio({
                   )}
                 </button>
               </div>
-            )}
+            ) : null}
 
             {/* End-frame upload button (FLF i2v models only) */}
             {imageMode && (i2vModelList.find((m) => m.id === selectedModel) || i2vModels.find((m) => m.id === selectedModel))?.lastImageField && (
