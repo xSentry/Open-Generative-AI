@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { generateImage, generateI2I, uploadFile } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import DrawModal from "./DrawModal.jsx";
+import ModelProviderMark from "./ModelProviderMark.jsx";
 import {
   t2iModels,
   i2iModels,
@@ -630,13 +631,6 @@ const PROVIDER_LOGOS = {
 
 const invertLogos = ['openai', 'blackforest', 'runway', 'ideogram', 'lightricks', 'grok'];
 
-const ModelGlyph = ({ className = "w-4 h-4" }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3l7.5 4.25v8.5L12 20l-7.5-4.25v-8.5L12 3z" />
-    <path d="M12 8v8M8.5 10.25l7 4M15.5 10.25l-7 4" />
-  </svg>
-);
-
 function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
   const [search, setSearch] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("all");
@@ -713,7 +707,7 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
         <button
           type="button"
           onClick={() => setSelectedProvider("all")}
-          className={`w-8.5 h-8.5 rounded-full flex items-center justify-center border transition-all flex-shrink-0 cursor-pointer ${
+          className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all flex-shrink-0 cursor-pointer ${
             selectedProvider === "all"
               ? "bg-white/10 text-yellow-400 border-yellow-500/30 shadow-md scale-105"
               : "bg-white/[0.02] text-white/50 border-white/[0.03] hover:bg-white/5 hover:text-white"
@@ -733,7 +727,7 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
               key={p.id}
               type="button"
               onClick={() => setSelectedProvider(p.id)}
-              className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center font-black text-[10px] border transition-all flex-shrink-0 cursor-pointer overflow-hidden ${
+              className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center font-black text-[9px] border transition-all cursor-pointer overflow-hidden ${
                 isSelected
                   ? `${style.bg} border-white/25 scale-105 shadow-md`
                   : "bg-white/[0.02] text-white/40 border-white/[0.02] hover:bg-white/5 hover:text-white/80"
@@ -741,11 +735,13 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
               title={p.name}
             >
               {PROVIDER_LOGOS[p.id] ? (
-                <img
-                  src={PROVIDER_LOGOS[p.id]}
-                  alt={p.name}
-                  className={`w-full h-full rounded-full object-contain ${invertLogos.includes(p.id) ? "invert" : ""}`}
-                />
+                <span className="w-full h-full flex items-center justify-center overflow-hidden p-[22%]">
+                  <img
+                    src={PROVIDER_LOGOS[p.id]}
+                    alt={p.name}
+                    className={`block max-w-full max-h-full object-contain ${invertLogos.includes(p.id) ? "invert" : ""}`}
+                  />
+                </span>
               ) : (
                 style.text
               )}
@@ -808,28 +804,18 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
                   selectedModel === m.id ? "bg-white/5 border-white/5" : ""
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  {PROVIDER_LOGOS[m.provider] ? (
-                    <div className="w-8 h-8 rounded-full border border-white/5 overflow-hidden shrink-0 flex items-center justify-center bg-white/[0.02]">
-                      <img
-                        src={PROVIDER_LOGOS[m.provider]}
-                        alt={m.provider_name}
-                        className={`w-full h-full object-contain p-1 ${invertLogos.includes(m.provider) ? "invert" : ""}`}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className={`w-8.5 h-8.5 ${
-                        m.family === "kontext"
-                          ? "bg-blue-500/10 text-blue-400 border-blue-500/10"
-                          : m.family === "effects"
-                            ? "bg-purple-500/10 text-purple-400 border-purple-500/10"
-                            : "bg-primary/10 text-primary border-primary/10"
-                      } border rounded-full flex items-center justify-center font-bold text-xs shadow-inner uppercase`}
-                    >
-                      <ModelGlyph />
-                    </div>
-                  )}
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`w-8 h-8 ${
+                      m.family === "kontext"
+                        ? "bg-blue-500/10 text-blue-400"
+                        : m.family === "effects"
+                          ? "bg-purple-500/10 text-purple-400"
+                          : "bg-primary/10 text-primary"
+                    } border border-white/5 rounded-lg flex items-center justify-center font-black text-xs shadow-inner uppercase overflow-hidden shrink-0`}
+                  >
+                    <ModelProviderMark model={m} glyphClassName="w-4 h-4" />
+                  </div>
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="text-xs font-bold text-white tracking-tight truncate">
                       {m.name}
@@ -1662,22 +1648,13 @@ export default function ImageStudio({
                     e.stopPropagation();
                     setDropdownOpen((o) => (o === "model" ? null : "model"));
                   }}
-                  className="h-[34px] flex items-center gap-2 px-3.5 bg-[#16161a]/60 hover:bg-[#202026]/80 rounded-md transition-all border border-white/[0.06] group whitespace-nowrap shadow-inner"
+                  className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
-                  <div className="w-4 h-4 rounded overflow-hidden shrink-0 flex items-center justify-center bg-white/5">
-                    {(() => {
-                      const selectedModelObj = currentModels.find(m => m.id === selectedModelId);
-                      const selectedModelProvider = selectedModelObj?.provider || 'muapi';
-                      return PROVIDER_LOGOS[selectedModelProvider] ? (
-                        <img
-                          src={PROVIDER_LOGOS[selectedModelProvider]}
-                          alt=""
-                          className={`w-full h-full object-contain ${invertLogos.includes(selectedModelProvider) ? "invert" : ""}`}
-                        />
-                      ) : (
-                        <ModelGlyph className="w-3 h-3 text-white/70" />
-                      );
-                    })()}
+                  <div className="w-5 h-5 shrink-0 rounded-md bg-white/[0.04] text-white/70 border border-white/[0.06] flex items-center justify-center overflow-hidden shadow-inner">
+                    <ModelProviderMark
+                      model={selectedModelObj}
+                      glyphClassName="w-3.5 h-3.5"
+                    />
                   </div>
                   <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModelName}

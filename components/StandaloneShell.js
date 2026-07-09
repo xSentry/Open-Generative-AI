@@ -29,7 +29,7 @@ const TABS = [
 ];
 
 // Tabs/features that are only available when MuAPI is the selected provider.
-const MUAPI_ONLY_TABS = new Set(['clipping', 'vibe-motion', 'apps']);
+const MUAPI_ONLY_TABS = new Set(['clipping', 'vibe-motion', 'apps', 'ai-influencer']);
 
 const STORAGE_KEY = 'muapi_key';
 
