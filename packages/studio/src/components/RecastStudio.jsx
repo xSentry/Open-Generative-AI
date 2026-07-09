@@ -16,6 +16,13 @@ const UPLOAD_STATE = {
   READY: "ready",
 };
 
+const ModelGlyph = ({ className = "w-3 h-3" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l7.5 4.25v8.5L12 20l-7.5-4.25v-8.5L12 3z" />
+    <path d="M12 8v8M8.5 10.25l7 4M15.5 10.25l-7 4" />
+  </svg>
+);
+
 function MediaPickerButton({
   accept,
   label,
@@ -795,7 +802,7 @@ export default function RecastStudio({
                   className="flex items-center gap-2 px-2 py-1.5 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
                   <div className="w-3.5 h-3.5 bg-[var(--primary-color)] rounded-sm flex items-center justify-center">
-                    <span className="text-[9px] font-black text-black">R</span>
+                    <ModelGlyph className="w-2.5 h-2.5 text-black" />
                   </div>
                   <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModel?.name ?? "Select model"}

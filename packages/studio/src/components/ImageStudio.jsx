@@ -586,6 +586,13 @@ const PROVIDER_LOGOS = {
 
 const invertLogos = ['openai', 'blackforest', 'runway', 'ideogram', 'lightricks', 'grok'];
 
+const ModelGlyph = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l7.5 4.25v8.5L12 20l-7.5-4.25v-8.5L12 3z" />
+    <path d="M12 8v8M8.5 10.25l7 4M15.5 10.25l-7 4" />
+  </svg>
+);
+
 function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
   const [search, setSearch] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("all");
@@ -776,7 +783,7 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
                             : "bg-primary/10 text-primary border-primary/10"
                       } border rounded-full flex items-center justify-center font-bold text-xs shadow-inner uppercase`}
                     >
-                      {m.name.charAt(0)}
+                      <ModelGlyph />
                     </div>
                   )}
                   <div className="flex flex-col gap-0.5 min-w-0">
@@ -910,6 +917,7 @@ export default function ImageStudio({
   const textareaRef = useRef(null);
   const dropdownRef = useRef(null);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
   const uploadPickerResetRef = useRef(null); // not used directly — managed via key
 
   // ── Close dropdown on outside click ─────────────────────────────────────
@@ -1067,6 +1075,10 @@ export default function ImageStudio({
 
   useEffect(() => {
     if (!currentProviderModels?.length) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     const first = currentProviderModels[0];
     const key = `${imageMode ? "i2i" : "t2i"}:${first.provider || "muapi"}:${first.id}`;
     if (appliedProviderDefaultRef.current.has(key)) return;
@@ -1095,8 +1107,13 @@ export default function ImageStudio({
       setUploadedImageUrls(newUrls);
 
       if (!imageMode) {
-        const firstI2I = firstImageModel;
+        const currentT2I = t2iModelList.find((model) => model.id === selectedModelId);
+        const firstI2I =
+          i2iModelList.find((model) => model.id === selectedModelId) ||
+          (currentT2I?.family ? i2iModelList.find((model) => model.family === currentT2I.family) : null) ||
+          firstImageModel;
         const effects = modelEffects(firstI2I, true);
+        suppressProviderDefaultRef.current = true;
         setImageMode(true);
         setSelectedModelId(firstI2I.id);
         setSelectedModelName(firstI2I.name);
@@ -1110,20 +1127,25 @@ export default function ImageStudio({
         setMaxImages(firstI2I.maxImages || getMaxImagesForI2IModel(firstI2I.id));
       }
     },
-    [imageMode],
+    [imageMode, selectedModelId, t2iModelList, i2iModelList, firstImageModel],
   );
 
   const handleUploadClear = useCallback(() => {
     setUploadedImageUrls([]);
+    const currentI2I = i2iModelList.find((model) => model.id === selectedModelId);
+    const target =
+      t2iModelList.find((model) => model.id === selectedModelId) ||
+      (currentI2I?.family ? t2iModelList.find((model) => model.family === currentI2I.family) : null) ||
+      firstTextModel;
+    suppressProviderDefaultRef.current = true;
     setImageMode(false);
-    const firstT2I = firstTextModel;
-    setSelectedModelId(firstT2I.id);
-    setSelectedModelName(firstT2I.name);
-    setSelectedAr(modelDefaultAspect(firstT2I, false));
-    setSelectedQuality(modelDefaultQuality(firstT2I, false));
+    setSelectedModelId(target.id);
+    setSelectedModelName(target.name);
+    setSelectedAr(modelDefaultAspect(target, false));
+    setSelectedQuality(modelDefaultQuality(target, false));
     setSelectedEffect("");
     setMaxImages(1);
-  }, []);
+  }, [selectedModelId, i2iModelList, t2iModelList, firstTextModel]);
 
   // ── Model selection ──────────────────────────────────────────────────────
   const handleModelSelect = (m) => {
@@ -1581,7 +1603,7 @@ export default function ImageStudio({
                           className={`w-full h-full object-contain ${invertLogos.includes(selectedModelProvider) ? "invert" : ""}`}
                         />
                       ) : (
-                        <span className="text-[9px] font-bold text-black uppercase">G</span>
+                        <ModelGlyph className="w-3 h-3 text-white/70" />
                       );
                     })()}
                   </div>

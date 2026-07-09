@@ -89,6 +89,13 @@ const VideoReadySvg = () => (
   </svg>
 );
 
+const ModelGlyph = ({ className = "w-5 h-5" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l7.5 4.25v8.5L12 20l-7.5-4.25v-8.5L12 3z" />
+    <path d="M12 8v8M8.5 10.25l7 4M15.5 10.25l-7 4" />
+  </svg>
+);
+
 // ── Dropdown components ───────────────────────────────────────────────────────
 
 function DropdownItem({ label, selected, onClick }) {
@@ -143,7 +150,7 @@ function ModelDropdown({ imageMode, selectedModel, onSelect, onClose, modelsByMo
         <div
           className={`w-10 h-10 ${getIconColor(m, isV2V)} border border-white/5 rounded-xl flex items-center justify-center font-black text-sm shadow-inner uppercase`}
         >
-          {m.name.charAt(0)}
+          <ModelGlyph />
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-xs font-bold text-white tracking-tight">
@@ -328,6 +335,7 @@ export default function VideoStudio({
   const resultVideoRef = useRef(null);
   const hasRestored = useRef(false);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
 
   // ── derived data ──
   const serverGen = useServerGenerations({ mediaType: "video", mode: ["t2v", "i2v", "v2v"] });
@@ -579,11 +587,13 @@ export default function VideoStudio({
       let targetModelId = selectedModel;
       if (!imageMode) {
         const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
+        const exact = i2vModelList.find((m) => m.id === selectedModel);
         const sibling = currentT2V?.family
           ? i2vModelList.find((m) => m.family === currentT2V.family)
           : null;
-        const target = sibling || i2vModelList[0] || i2vModels[0];
+        const target = exact || sibling || i2vModelList[0] || i2vModels[0];
         targetModelId = target.id;
+        suppressProviderDefaultRef.current = true;
         setImageMode(true);
         setSelectedModel(target.id);
         setSelectedModelName(target.name);
@@ -623,13 +633,16 @@ export default function VideoStudio({
       setUploadedVideoName(file.name);
       if (imageMode) {
         setUploadedImageUrl(null);
+        suppressProviderDefaultRef.current = true;
         setImageMode(false);
       }
+      suppressProviderDefaultRef.current = true;
       setV2vMode(true);
-      const firstV2V = v2vModelList[0] || v2vModels[0];
-      setSelectedModel(firstV2V.id);
-      setSelectedModelName(firstV2V.name);
-      applyControlsForModel(firstV2V.id, false, true);
+      const selectedV2V = v2vModelList.find((m) => m.id === selectedModel);
+      const target = selectedV2V || v2vModelList[0] || v2vModels[0];
+      setSelectedModel(target.id);
+      setSelectedModelName(target.name);
+      applyControlsForModel(target.id, false, true);
       setPrompt("");
       setPromptDisabled(true);
     } catch (err) {
@@ -713,11 +726,13 @@ export default function VideoStudio({
         let targetModelId = selectedModel;
         if (!imageMode) {
           const currentT2V = t2vModelList.find((m) => m.id === selectedModel);
+          const exact = i2vModelList.find((m) => m.id === selectedModel);
           const sibling = currentT2V?.family
             ? i2vModelList.find((m) => m.family === currentT2V.family)
             : null;
-          const target = sibling || i2vModelList[0] || i2vModels[0];
+          const target = exact || sibling || i2vModelList[0] || i2vModels[0];
           targetModelId = target.id;
+          suppressProviderDefaultRef.current = true;
           setImageMode(true);
           setSelectedModel(target.id);
           setSelectedModelName(target.name);
@@ -751,11 +766,17 @@ export default function VideoStudio({
     setUploadedEndImageUrl(null);
     // Motion-control v2v: keep model and video; just drop the image
     if (isMotionControlSelection(selectedModel, v2vMode)) return;
+    const currentI2V = i2vModelList.find((m) => m.id === selectedModel);
+    const target =
+      t2vModelList.find((m) => m.id === selectedModel) ||
+      (currentI2V?.family ? t2vModelList.find((m) => m.family === currentI2V.family) : null) ||
+      t2vModelList[0] ||
+      t2vModels[0];
+    suppressProviderDefaultRef.current = true;
     setImageMode(false);
-    const first = t2vModelList[0] || t2vModels[0];
-    setSelectedModel(first.id);
-    setSelectedModelName(first.name);
-    applyControlsForModel(first.id, false, false);
+    setSelectedModel(target.id);
+    setSelectedModelName(target.name);
+    applyControlsForModel(target.id, false, false);
     setPromptDisabled(false);
   };
 
@@ -766,11 +787,17 @@ export default function VideoStudio({
       setUploadedImageUrl(null);
       // Reset to text-to-video if empty list
       if (isMotionControlSelection(selectedModel, v2vMode)) return;
+      const currentI2V = i2vModelList.find((m) => m.id === selectedModel);
+      const target =
+        t2vModelList.find((m) => m.id === selectedModel) ||
+        (currentI2V?.family ? t2vModelList.find((m) => m.family === currentI2V.family) : null) ||
+        t2vModelList[0] ||
+        t2vModels[0];
+      suppressProviderDefaultRef.current = true;
       setImageMode(false);
-      const first = t2vModelList[0] || t2vModels[0];
-      setSelectedModel(first.id);
-      setSelectedModelName(first.name);
-      applyControlsForModel(first.id, false, false);
+      setSelectedModel(target.id);
+      setSelectedModelName(target.name);
+      applyControlsForModel(target.id, false, false);
       setPromptDisabled(false);
     } else {
       setUploadedImageUrl(nextUrls[0]);
@@ -827,13 +854,16 @@ export default function VideoStudio({
         // Default v2v flow (e.g. watermark remover) — auto-pick the first v2v model
         if (imageMode) {
           setUploadedImageUrl(null);
+          suppressProviderDefaultRef.current = true;
           setImageMode(false);
         }
+        suppressProviderDefaultRef.current = true;
         setV2vMode(true);
-        const firstV2V = v2vModelList[0] || v2vModels[0];
-        setSelectedModel(firstV2V.id);
-        setSelectedModelName(firstV2V.name);
-        applyControlsForModel(firstV2V.id, false, true);
+        const selectedV2V = v2vModelList.find((m) => m.id === selectedModel);
+        const target = selectedV2V || v2vModelList[0] || v2vModels[0];
+        setSelectedModel(target.id);
+        setSelectedModelName(target.name);
+        applyControlsForModel(target.id, false, true);
         setPrompt("");
         setPromptDisabled(true);
       }
@@ -850,11 +880,17 @@ export default function VideoStudio({
   const clearVideoUpload = () => {
     setUploadedVideoUrl(null);
     setUploadedVideoName(null);
+    const currentV2V = v2vModelList.find((m) => m.id === selectedModel);
+    const target =
+      t2vModelList.find((m) => m.id === selectedModel) ||
+      (currentV2V?.family ? t2vModelList.find((m) => m.family === currentV2V.family) : null) ||
+      t2vModelList[0] ||
+      t2vModels[0];
+    suppressProviderDefaultRef.current = true;
     setV2vMode(false);
-    const first = t2vModelList[0] || t2vModels[0];
-    setSelectedModel(first.id);
-    setSelectedModelName(first.name);
-    applyControlsForModel(first.id, false, false);
+    setSelectedModel(target.id);
+    setSelectedModelName(target.name);
+    applyControlsForModel(target.id, false, false);
     setPromptDisabled(false);
   };
 
@@ -1247,6 +1283,10 @@ export default function VideoStudio({
 
   useEffect(() => {
     if (!currentProviderModels?.length) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     const first = currentProviderModels[0];
     const modeKey = v2vMode ? "v2v" : imageMode ? "i2v" : "t2v";
     const key = `${modeKey}:${first.provider || "muapi"}:${first.id}`;
@@ -1771,9 +1811,7 @@ export default function VideoStudio({
                   className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap"
                 >
                   <div className="w-4 h-4 bg-[var(--primary-color)] rounded flex items-center justify-center shadow-lg shadow-[var(--primary-color)]/10">
-                    <span className="text-[9px] font-bold text-black uppercase">
-                      V
-                    </span>
+                    <ModelGlyph className="w-3 h-3 text-black" />
                   </div>
                   <span className="text-xs font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors">
                     {selectedModelName}
