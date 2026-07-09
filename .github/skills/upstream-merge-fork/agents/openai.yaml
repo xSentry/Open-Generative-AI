@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upstream Merge Fork"
+  short_description: "Resolve upstream merges while preserving fork customizations."
+  default_prompt: "Run the upstream pull workflow, resolve conflicts with the fork's Replicate provider/auth/db/S3/worker changes in mind, validate, and commit the merge."
