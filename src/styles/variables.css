@@ -1,7 +1,7 @@
 :root,
 html {
-  font-family: 'Open Sans', sans-serif;
-  --font-family: 'Open Sans', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-seri;
+  --font-family: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Surfaces */
   --surface-background: oklch(0.198 0 192);
