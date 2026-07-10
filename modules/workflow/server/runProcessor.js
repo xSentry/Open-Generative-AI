@@ -8,7 +8,7 @@
 // resolution (mirrors modules/studio/server/processGeneration.js).
 import { executeGraph, executeSingleNode, latestResultsFromRuns } from './engine.js';
 import { executeNode as defaultExecuteNode } from './nodeExecutors.js';
-import { storeNodeOutputs } from './outputStorage.js';
+import { storeNodeOutputs, signResultOutputs } from './outputStorage.js';
 
 export async function createDefaultRunDeps() {
   const [
@@ -88,6 +88,14 @@ export async function runClaimedRun(run, injectedDeps) {
       deps,
     });
 
+  const signStoredOutputs = (outputs) => {
+    if (!deps.createPresignedGetUrl) return outputs;
+    return signResultOutputs(
+      { outputs },
+      { config, createPresignedGetUrl: deps.createPresignedGetUrl }
+    ).outputs;
+  };
+
   // ---- Single-node run ----
   if (run.targetNodeId) {
     const node = nodes.find((n) => n.id === run.targetNodeId);
@@ -98,7 +106,10 @@ export async function runClaimedRun(run, injectedDeps) {
     }
     // Upstream values come from whatever this workflow generated before, plus the
     // params the client stored on the seeded node-run.
-    const resultsByNodeId = await deps.latestResultsForWorkflow(workflow.id);
+    const previousResults = await deps.latestResultsForWorkflow(workflow.id);
+    const resultsByNodeId = Object.fromEntries(
+      Object.entries(previousResults).map(([nodeId, outputs]) => [nodeId, signStoredOutputs(outputs)])
+    );
     return deps.executeSingleNode({
       node: { ...node, model: nodeRun.model || node.model, params: nodeRun.params || node.params || {} },
       nodeRunId: nodeRun.id,
@@ -141,4 +152,3 @@ export async function processRun(runId, injectedDeps) {
   if (!run) return null; // already claimed / not pending
   return runClaimedRun(run, deps);
 }
-

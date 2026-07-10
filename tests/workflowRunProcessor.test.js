@@ -324,6 +324,32 @@ test('runClaimedRun runs a single targeted node using prior workflow results', a
   assert.deepEqual(captured.resultsByNodeId, { a: [{ type: 'text', value: 'from-a' }] });
 });
 
+test('runClaimedRun re-signs prior stored media before targeted node execution', async () => {
+  let captured = null;
+  const deps = baseRunDeps({
+    getWorkflowById: async () => ({
+      id: 'wf',
+      provider: 'replicate',
+      nodes: [{ id: 'video' }, { id: 'frame', model: 'video-frame-extractor' }],
+      edges: [{ source: 'video', target: 'frame' }],
+    }),
+    listNodeRuns: async () => [{ id: 'nrFrame', nodeId: 'frame', model: 'video-frame-extractor', params: { video_url: '{{ video.outputs[0].value }}' } }],
+    latestResultsForWorkflow: async () => ({
+      video: [{ type: 'video_url', value: 'https://stale/video.mp4?old=1', key: 'workflow-outputs/u/w/video.mp4' }],
+    }),
+    createPresignedGetUrl: ({ key }) => `https://fresh/${key}?sig=new`,
+    executeSingleNode: async (args) => { captured = args; return { status: 'succeeded' }; },
+  });
+  const run = { id: 'run-frame', userId: 'u1', workflowId: 'wf', provider: 'replicate', targetNodeId: 'frame' };
+
+  await runClaimedRun(run, deps);
+
+  assert.equal(
+    captured.resultsByNodeId.video[0].value,
+    'https://fresh/workflow-outputs/u/w/video.mp4?sig=new'
+  );
+});
+
 test('runClaimedRun fails the run when no provider key is available', async () => {
   const updates = [];
   const deps = baseRunDeps({

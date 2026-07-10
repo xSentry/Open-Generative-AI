@@ -9,6 +9,7 @@ const NodeOptionsMenu = ({
   nodeId, 
   onDuplicate, 
   onDelete, 
+  onDeleteOutput,
   downloadUrl, 
   onSetThumbnail, 
   showThumbnailOption 
@@ -87,6 +88,22 @@ const NodeOptionsMenu = ({
             >
               <HiOutlinePhotograph size={14} className="text-purple-400" />
               <span>Set Thumbnail</span>
+            </button>
+          )}
+
+          {onDeleteOutput && downloadUrl && (
+            <button
+              type="button"
+              suppressHydrationWarning={true}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteOutput();
+                setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] font-medium text-red-300 hover:bg-red-500/10 hover:text-red-500 transition-colors border-b border-white/5"
+            >
+              <IoTrashOutline size={14} />
+              <span>Delete Output</span>
             </button>
           )}
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { toast } from "react-hot-toast";
+import axios from "axios";
 import { FaToolbox } from "react-icons/fa6";
 import { IoImageOutline, IoVideocamOutline } from "react-icons/io5";
 import { AiOutlineAudio } from "react-icons/ai";
@@ -127,6 +128,11 @@ const UtilityNode = ({ id, data, selected }) => {
   const edges = useStore((state) => state.edges);
   const lastAutoRunSignature = useRef(null);
 
+  const deleteNodeRuns = async (runs = []) => {
+    const ids = runs.map((run) => run?.node_run_id).filter(Boolean);
+    await Promise.all(ids.map((nodeRunId) => axios.delete(`/api/workflow/node-run/${nodeRunId}`)));
+  };
+
   useEffect(() => {
     const defaults = initializeFormData(properties);
     const validKeys = Object.keys(properties);
@@ -154,11 +160,17 @@ const UtilityNode = ({ id, data, selected }) => {
     });
   }, [edges, id, properties]);
 
-  const handleDeleteNode = () => {
+  const handleDeleteNode = async () => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
-      setNodes((nds) => nds.filter((n) => n.id !== id));
-      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.success(`Deleted node ${id}`);
+      try {
+        await deleteNodeRuns(data.outputHistory || []);
+        setNodes((nds) => nds.filter((n) => n.id !== id));
+        setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+        toast.success(`Deleted node ${id}`);
+      } catch (error) {
+        toast.error(error.response?.data?.detail || error.response?.data?.error || "Failed to delete node outputs");
+        console.error(error);
+      }
     }
   };
 
@@ -168,10 +180,35 @@ const UtilityNode = ({ id, data, selected }) => {
   const visibleConfigEntries = Object.entries(properties || {})
     .filter(([, meta]) => isFieldVisible(meta, formValues));
   const currentOutput = outputValue(data);
+  const outputHistory = data.outputHistory || [];
+  const currentOutputRun = outputHistory[outputHistory.length - 1];
   const placeholder = outputPlaceholder(outputType);
+
+  const handleDeleteOutput = async () => {
+    if (!currentOutputRun?.node_run_id) return;
+    try {
+      await deleteNodeRuns([currentOutputRun]);
+      data.onDataChange?.(id, {
+        outputs: [],
+        resultUrl: null,
+        viewingOutput: null,
+        outputHistory: [],
+        errorMsg: null,
+      });
+      toast.success("Deleted output");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.response?.data?.error || "Failed to delete output");
+      console.error(error);
+    }
+  };
 
   useEffect(() => {
     if (!data?.runNodeFromFlow || !data?.onDataChange || requiredInputEntries.length === 0) return;
+    const connectionsHydrated = requiredInputEntries.every(([fieldName]) =>
+      Object.prototype.hasOwnProperty.call(connectedInputs, fieldName)
+    );
+    if (!connectionsHydrated) return;
+
     const signature = JSON.stringify(
       visibleConfigEntries.map(([fieldName]) => [fieldName, formValues[fieldName] ?? null])
     );
@@ -190,6 +227,11 @@ const UtilityNode = ({ id, data, selected }) => {
           isLoading: false,
         });
       }
+      return;
+    }
+
+    if (currentOutput && lastAutoRunSignature.current === null) {
+      lastAutoRunSignature.current = signature;
       return;
     }
 
@@ -228,7 +270,13 @@ const UtilityNode = ({ id, data, selected }) => {
             {selectedModel.name || selectedModel.id || "Utility Node"}
           </h3>
         </div>
-        <NodeOptionsMenu nodeId={id} onDuplicate={data.duplicateNode} onDelete={handleDeleteNode} />
+        <NodeOptionsMenu
+          nodeId={id}
+          onDuplicate={data.duplicateNode}
+          onDelete={handleDeleteNode}
+          downloadUrl={currentOutput}
+          onDeleteOutput={handleDeleteOutput}
+        />
       </div>
       <div className="relative flex items-center justify-center w-full h-full min-h-[180px] overflow-hidden rounded-b-2xl bg-zinc-950">
         {data.isLoading ? (

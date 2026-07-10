@@ -208,6 +208,20 @@ const getUtilityOutputColor = (nodeSchemas, modelId) => {
   return outputColorForType(outputType);
 };
 
+const getNodeOutputValue = (node) => {
+  if (!node) return null;
+  if (node.data?.viewingOutput !== undefined) return node.data.viewingOutput;
+  return node.data?.resultUrl || node.data?.outputs?.[0]?.value || null;
+};
+
+const appendUniqueValue = (values, value) => {
+  const list = Array.isArray(values) ? [...values] : [];
+  if (typeof value === "string" && value.trim() !== "" && !list.includes(value)) {
+    list.push(value);
+  }
+  return list;
+};
+
 // Reduce a node's persisted run history (all node-runs, any status) into the
 // current UI state: the succeeded-only entries used for the image/output
 // navigation, plus the latest error / in-progress flag so a reopened workflow
@@ -330,6 +344,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const connectionMadeRef = useRef(false);
   const onConnectRef = useRef(null);
   const runWatcherRef = useRef(null);
+  const staleUtilityDeleteIdsRef = useRef(new Set());
   const [interactionMode, setInteractionMode] = useState(initialState?.metadata?.interactionMode || false);
   const [publishWorkflow, setPublishWorkflow] = useState(initialState?.metadata?.publishWorkflow || false);
   const [template, setTemplate] = useState(initialState?.metadata?.template || {
@@ -429,6 +444,74 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const getModelObj = useCallback((category, modelId) => {
     return getModelObjStatic(category, modelId, nodeSchemas);
   }, [nodeSchemas]);
+
+  const getConnectedFormValues = useCallback((node) => {
+    if (!node) return {};
+    const connectedEdges = edges.filter((edge) => edge.target === node.id);
+    if (!connectedEdges.length) return node.data?.formValues || {};
+
+    const nextValues = { ...(node.data?.formValues || {}) };
+    const connectedImageRefs = [];
+    const utilitySchema = node.type === "utilityNode"
+      ? getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)
+      : {};
+
+    for (const edge of connectedEdges) {
+      const sourceNode = nodes.find((n) => n.id === edge.source);
+      const resultValue = getNodeOutputValue(sourceNode);
+      const sourceValue = sourceNode?.type === "concatNode"
+        ? sourceNode?.data?.formValues?.prompt
+        : resultValue;
+      if (!sourceValue) continue;
+
+      const targetHandle = edge.targetHandle;
+      if (["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"].includes(targetHandle)) {
+        nextValues.prompt = sourceValue;
+      } else if (targetHandle === "textInput4") {
+        nextValues.system_prompt = sourceValue;
+      } else if (["textInput2", "videoInput2", "imageInput3", "audioInput3", "apiInput3"].includes(targetHandle)) {
+        connectedImageRefs.push(sourceValue);
+      } else if (["textInput3", "imageInput2", "videoInput6", "apiInput2"].includes(targetHandle)) {
+        connectedImageRefs.push(sourceValue);
+      } else if (targetHandle === "videoInput3") {
+        nextValues.last_image = sourceValue;
+      } else if (["videoInput4", "audioInput4"].includes(targetHandle)) {
+        nextValues.video_url = sourceValue;
+      } else if (targetHandle === "videoInput7") {
+        const key = nextValues.video_files ? "video_files" : "videos_list";
+        nextValues[key] = appendUniqueValue(nextValues[key], sourceValue);
+      } else if (targetHandle === "videoInput8") {
+        const key = nextValues.audio_files ? "audio_files" : "audios_list";
+        nextValues[key] = appendUniqueValue(nextValues[key], sourceValue);
+      } else if (["videoInput5", "audioInput"].includes(targetHandle)) {
+        nextValues.audio_url = sourceValue;
+      } else if (node.type === "utilityNode" && targetHandle in utilitySchema) {
+        const meta = utilitySchema[targetHandle] || {};
+        nextValues[targetHandle] = meta.type === "array"
+          ? appendUniqueValue(nextValues[targetHandle], sourceValue)
+          : sourceValue;
+      } else if (node.type === "apiNode" && targetHandle) {
+        const isList = ["images", "image_urls", "images_list"].includes(targetHandle)
+          || node.data?.taskData?.[targetHandle]?.type === "array";
+        nextValues[targetHandle] = isList
+          ? appendUniqueValue(nextValues[targetHandle], sourceValue)
+          : sourceValue;
+      }
+    }
+
+    if (connectedImageRefs.length === 1) {
+      nextValues.image_url = connectedImageRefs[0];
+      nextValues.image = connectedImageRefs[0];
+    } else if (connectedImageRefs.length >= 2) {
+      nextValues.image_url = "";
+      nextValues.image = "";
+      nextValues.images_list = connectedImageRefs;
+      nextValues.images = connectedImageRefs;
+      nextValues.image_urls = connectedImageRefs;
+    }
+
+    return nextValues;
+  }, [edges, nodes, nodeSchemas]);
 
   const restoreWorkflow = useCallback((workflowData) => {
     const workflow = workflowData?.data;
@@ -1593,10 +1676,28 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
           if (["textNode", "imageNode", "videoNode", "audioNode", "concatNode", "apiNode", "vidConcatNode", "utilityNode"].includes(node.type)) {
             const currentHistory = node.data.outputHistory || [];
-            const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
-            const newHistory = isAlreadyInHistory
-              ? currentHistory.map(h => h.result?.id === result.id ? latestRun : h)
-              : [...currentHistory, latestRun];
+            let newHistory;
+
+            if (node.type === "utilityNode") {
+              const staleRuns = currentHistory.filter((h) =>
+                h.node_run_id && h.node_run_id !== latestRun.node_run_id
+              );
+              staleRuns.forEach((h) => {
+                if (staleUtilityDeleteIdsRef.current.has(h.node_run_id)) return;
+                staleUtilityDeleteIdsRef.current.add(h.node_run_id);
+                axios.delete(`/api/workflow/node-run/${h.node_run_id}`).catch((error) => {
+                  console.error("Failed to delete stale utility output", error);
+                }).finally(() => {
+                  staleUtilityDeleteIdsRef.current.delete(h.node_run_id);
+                });
+              });
+              newHistory = [latestRun];
+            } else {
+              const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
+              newHistory = isAlreadyInHistory
+                ? currentHistory.map(h => h.result?.id === result.id ? latestRun : h)
+                : [...currentHistory, latestRun];
+            }
 
             return {
               ...node,
@@ -1828,7 +1929,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     }
   };
 
-  const runUtilityNodeFromFlow = async (node) => {
+  const runNodeFromFlow = async (nodeId) => {
+    const node = nodes.find((n) => n.id === nodeId);
     if (!node) return;
     try {
       setNodes((nds) =>
@@ -1839,6 +1941,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         )
       );
 
+      const workflowPayload = buildWorkflowPayload();
+      const payloadNode = workflowPayload.data.nodes.find((n) => n.id === node.id);
+
       const workflow_id = await handleSaveWorkFlow();
       if (!workflow_id) {
         toast.error("Failed to save workflow before running node");
@@ -1848,8 +1953,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
       const response = await axios.post(`/api/workflow/${workflow_id}/node/${node.id}/run`, {
         run_id: runId,
-        model: node.data?.selectedModel?.id,
-        params: node.data?.formValues || {},
+        model: payloadNode?.model || node.data?.selectedModel?.id,
+        params: payloadNode?.params || node.data?.formValues || {},
+        cost: node.data?.cost,
         node_id: node.id,
       });
 
@@ -1865,24 +1971,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     } catch (error) {
       console.error(error);
       setNodes((nds) => nds.map((n) => n.id === node.id ? { ...n, data: { ...n.data, isLoading: false } } : n));
-      toast.error(error.response?.data?.detail || error.response?.data?.error || "Error running utility node");
+      toast.error(error.response?.data?.detail || error.response?.data?.error || "Error running node");
     }
-  };
-
-  const runNodeFromFlow = (nodeId) => {
-    const node = nodes.find((n) => n.id === nodeId);
-    if (node?.type === "utilityNode") {
-      runUtilityNodeFromFlow(node);
-      return;
-    }
-
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === nodeId
-          ? { ...n, data: { ...n.data, triggerRun: true } }
-          : n
-      )
-    );
   };
 
   const runNodeInputsFromFlow = (nodeId) => {
@@ -2341,7 +2431,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
   const selectedNodes = nodes.filter(node => node.selected);
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
-  const { generationCost, isRefreshingCost } = useGenerationCost(selectedNode?.data?.selectedModel, selectedNode?.data?.formValues);
+  const selectedFormValues = selectedNode ? getConnectedFormValues(selectedNode) : {};
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedNode?.data?.selectedModel, selectedFormValues);
 
   const isEmptyInputValue = (value) => (
     value == null ||
@@ -2910,7 +3001,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                               fieldName={key}
                               meta={meta}
                               idx={idx}
-                              formValues={selectedNode?.data?.formValues || {}}
+                              formValues={selectedFormValues}
                               setFormValues={(newValues) => {
                                 setNodes((nds) =>
                                   nds.map((node) => {
@@ -2987,7 +3078,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                             fieldName={key}
                             meta={meta}
                             idx={idx}
-                            formValues={selectedNode?.data?.formValues || {}}
+                            formValues={selectedFormValues}
                             setFormValues={(newValues) => {
                               setNodes((nds) =>
                                 nds.map((node) => {
@@ -3033,7 +3124,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                   <input
                     type="checkbox"
                     className="sr-only peer"
-                    checked={selectedNode?.data?.formValues?.make_output === true}
+                    checked={selectedFormValues?.make_output === true}
                     onChange={(e) => {
                       const checked = e.target.checked;
                       setNodes((nds) =>

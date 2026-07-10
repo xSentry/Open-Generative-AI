@@ -113,7 +113,9 @@ Generic utility UI expectations:
 - Required connectable inputs (`required: true`) gate auto-run. If they are missing or disconnected, the node output resets to the placeholder.
 - Generic utility nodes preview their output in the node body by output type (`text`, `image_url`, `video_url`, `audio_url`), not their config.
 - Utility nodes should auto-run when connected input values or visible config values change.
+- Utility nodes must not auto-run just because a workflow page was loaded/restored. If a node initializes with connected required inputs and an existing output, seed the auto-run signature from the restored state and keep the output. Wait until connection state is hydrated before deciding required inputs are missing, or restored outputs can be cleared during the initial render.
 - Removing an edge must reset the corresponding utility input. Clearing a utility input in the config panel must remove the corresponding edge.
+- The selected-node `Generate` / `Run` action must use the same schema-resolved payload path as `Run All` (`buildWorkflowPayload()` in `NodeFlow.jsx`), not raw local `formValues`. This keeps connected upstream inputs, image lists, and template refs consistent for single-node runs.
 
 Handle colors are inferred from field names and `field` metadata:
 
@@ -125,6 +127,8 @@ Handle colors are inferred from field names and `field` metadata:
 ## Output Storage Rules
 
 For media outputs, return `type: "image_url"`, `"video_url"`, or `"audio_url"`. `storeNodeOutputs()` uploads the output and rewrites `value` to a signed S3 URL with a persisted `key`.
+
+Single-node utility runs often consume media produced by older runs. Before executing a targeted node, `runProcessor.js` must re-sign prior stored outputs from their persisted S3 `key`; do not pass stale saved presigned URLs to local tools like ffmpeg.
 
 Supported media `value` shapes:
 
@@ -148,6 +152,8 @@ Text outputs are not uploaded:
 ```js
 { type: 'text', value: 'transformed text', id: newId() }
 ```
+
+Utility media outputs are replacement-style in the generic UI. When a utility rerun succeeds, delete stale prior node-run rows via `DELETE /api/workflow/node-run/{nodeRunId}` so their S3 `output_keys` are purged. Dedupe these deletes because SSE/polling can deliver duplicate terminal events. Deleting a utility node or its current output should use the same node-run delete route, not just remove the React node.
 
 ## Example Node
 

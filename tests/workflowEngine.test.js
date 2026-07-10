@@ -5,6 +5,7 @@ import {
   resolveValue,
   resolveParams,
   executeGraph,
+  executeSingleNode,
   latestResultsFromRuns,
   collectTerminalOutputs,
 } from '../modules/workflow/server/engine.js';
@@ -168,6 +169,43 @@ test('executeGraph applies api-execute input overrides', async () => {
   });
 
   assert.equal(seen.prompt, 'overridden');
+});
+
+test('executeSingleNode resolves connected params from prior workflow results', async () => {
+  const repo = makeRepo();
+  let seenParams = null;
+  const executeNode = async ({ node }) => {
+    seenParams = node.params;
+    return { id: 'r-single', outputs: [{ type: 'image_url', value: 'out.png', id: 'o' }] };
+  };
+
+  const result = await executeSingleNode({
+    node: {
+      id: 'image-3',
+      category: 'image',
+      model: 'flux-kontext',
+      params: {
+        prompt: 'combine',
+        images_list: [
+          '{{ image-1.outputs[0].value }}',
+          '{{ image-2.outputs[0].value }}',
+        ],
+      },
+    },
+    nodeRunId: 'nr-single',
+    runId: 'run-single',
+    resultsByNodeId: {
+      'image-1': [{ type: 'image_url', value: 'https://cdn/one.png', id: 'o1' }],
+      'image-2': [{ type: 'image_url', value: 'https://cdn/two.png', id: 'o2' }],
+    },
+    repo,
+    executeNode,
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(seenParams.images_list, ['https://cdn/one.png', 'https://cdn/two.png']);
+  assert.equal(repo.runs.get('run-single').status, 'completed');
+  assert.equal(repo.nodeRuns.get('nr-single').status, 'succeeded');
 });
 
 test('latestResultsFromRuns keeps only succeeded node outputs', () => {
