@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import { createObjectKey } from '@/modules/storage/server/s3';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +30,25 @@ export async function GET(request, { params }) {
     const effectivePath = path === 'get_upload_file' ? 'get_file_upload_url' : path;
     
     const { search } = new URL(request.url);
+
+    if (effectivePath === 'get_file_upload_url') {
+        try {
+            const active = await getActiveProviderKey(request);
+            if (active.provider !== 'muapi') {
+                const url = new URL(request.url);
+                const filename = url.searchParams.get('filename') || 'upload';
+                const key = createObjectKey({ userId: active.user.id, filename });
+                return NextResponse.json({
+                    url: '/api/v1/upload-binary',
+                    fields: { key, public_url: null },
+                    key,
+                });
+            }
+        } catch {
+            // Legacy MuAPI-key mode falls through to the MuAPI proxy.
+        }
+    }
+
     const targetUrl = `${MUAPI_BASE}/app/${effectivePath}${search}`;
 
     const headers = cleanHeaders(request);

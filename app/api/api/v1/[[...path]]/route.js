@@ -8,6 +8,7 @@ import { proxyMuapiV1Request } from '@/modules/providers/muapi/server/run';
 import { handleMuapiV1PostRequest } from '@/modules/studio/server/apiHandlers';
 import { findReplicateModelByEndpoint } from '@/modules/providers/replicate/server/catalog';
 import { runReplicatePrediction } from '@/modules/providers/replicate/server/run';
+import { getChatJob } from '@/modules/agents/server/repo';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
@@ -32,6 +33,33 @@ export async function GET(request, { params }) {
     const slug = await params;
     const pathSegments = slug.path || [];
     const path = pathSegments.join('/');
+
+    if (pathSegments.length === 3 && pathSegments[0] === 'predictions' && pathSegments[2] === 'result') {
+        try {
+            const active = await getActiveProviderKey(request);
+            if (active.provider !== 'muapi') {
+                const job = await getChatJob(pathSegments[1], {
+                    userId: active.user.id,
+                    provider: active.provider,
+                });
+                if (!job) {
+                    return NextResponse.json({ error: 'Prediction not found.' }, { status: 404 });
+                }
+                if (job.result) {
+                    return NextResponse.json(job.result, { status: 200 });
+                }
+                return NextResponse.json({
+                    status: job.status,
+                    is_complete: job.status === 'failed',
+                    error: job.error || null,
+                    messages: job.error ? [{ role: 'assistant', content: job.error }] : [],
+                    suggestions: [],
+                }, { status: 200 });
+            }
+        } catch {
+            // Legacy unauthenticated/MuAPI-key mode falls through to the MuAPI proxy.
+        }
+    }
     
     const { search } = new URL(request.url);
     const targetUrl = `${MUAPI_BASE}/api/v1/${path}${search}`;
