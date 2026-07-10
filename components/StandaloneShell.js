@@ -415,18 +415,18 @@ export default function StandaloneShell() {
 
       {/* Studio Content */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
-        {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'clipping' && isMuapiProvider && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'vibe-motion' && isMuapiProvider && <VibeMotionStudio apiKey={apiKey} />}
-        {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'body-swap' && <RecastStudio apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'body-swap' && <RecastStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} />}
-        {activeTab === 'audio'   && <AudioStudio   apiKey={apiKey} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'audio'   && <AudioStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'marketing' && <MarketingStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} provider={preferredProvider} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'agents' && <AgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
-        {activeTab === 'design-agent' && <DesignAgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
+        {activeTab === 'design-agent' && <DesignAgentStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'apps' && isMuapiProvider && <AppsStudio apiKey={apiKey} />}
         {activeTab === 'ai-influencer' && <AiInfluencerStudio apiKey={apiKey} />}
       </div>

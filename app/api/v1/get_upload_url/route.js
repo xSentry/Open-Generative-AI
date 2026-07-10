@@ -1,4 +1,12 @@
 import { NextResponse } from 'next/server';
+import { errorResponse } from '@/modules/auth/server/errors';
+import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import {
+    assertS3Config,
+    createObjectKey,
+    createPresignedGetUrl,
+    getS3Config,
+} from '@/modules/storage/server/s3';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
@@ -19,6 +27,33 @@ function cleanHeaders(request) {
 
 export async function GET(request) {
     const { search } = new URL(request.url);
+
+    try {
+        const active = await getActiveProviderKey(request);
+        if (active.provider !== 'muapi') {
+            const url = new URL(request.url);
+            const filename = url.searchParams.get('filename') || 'upload';
+            const config = getS3Config();
+            assertS3Config(config);
+            const key = createObjectKey({ userId: active.user.id, filename });
+            const publicUrl = createPresignedGetUrl({ config, key });
+
+            return NextResponse.json({
+                url: '/api/v1/upload-binary',
+                fields: {
+                    key,
+                    public_url: publicUrl,
+                    provider: active.provider,
+                },
+                public_url: publicUrl,
+            });
+        }
+    } catch (error) {
+        const { body, status } = errorResponse(error);
+        if (status !== 500) return NextResponse.json(body, { status });
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
     const targetUrl = `${MUAPI_BASE}/app/get_file_upload_url${search}`;
 
     const headers = cleanHeaders(request);
