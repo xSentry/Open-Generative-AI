@@ -12,6 +12,7 @@ const MODE_MEDIA_TYPES = {
   lipsync: 'video',
   recast: 'video',
   audio: 'audio',
+  t2t: 'text',
 };
 
 export function mediaTypeForMode(mode) {
@@ -26,6 +27,7 @@ const EXT_BY_MEDIA_TYPE = {
   image: 'png',
   video: 'mp4',
   audio: 'mp3',
+  text: 'txt',
 };
 
 const CONTENT_TYPE_BY_EXT = {
@@ -40,6 +42,7 @@ const CONTENT_TYPE_BY_EXT = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
   ogg: 'audio/ogg',
+  txt: 'text/plain',
 };
 
 // Derive a file extension from a URL and/or content-type header, falling back

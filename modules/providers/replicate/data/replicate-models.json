@@ -1159,6 +1159,440 @@
     ]
   },
   {
+    "id": "claude-3-5-haiku",
+    "name": "claude-3.5-haiku",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-3.5-haiku",
+      "owner": "anthropic",
+      "model": "claude-3.5-haiku",
+      "version": "291420afd83024055bcabca323fdfeaacdd74a4e4fdce6dc29d3454deb729406",
+      "url": "https://replicate.com/anthropic/claude-3.5-haiku",
+      "createdAt": "2025-02-11T13:41:54.505214Z",
+      "versionCreatedAt": "2025-02-12T10:44:02.936818Z"
+    },
+    "description": "Anthropic's fastest, most cost-effective model, with a 200K token context window (claude-3-5-haiku-20241022)",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1,
+        "maxValue": 8192
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "claude-3-7-sonnet",
+    "name": "claude-3.7-sonnet",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-3.7-sonnet",
+      "owner": "anthropic",
+      "model": "claude-3.7-sonnet",
+      "version": "81a891bd00c339f3565bda15b255b372eb8bf6c669fe996b66eea5d677454a46",
+      "url": "https://replicate.com/anthropic/claude-3.7-sonnet",
+      "createdAt": "2025-02-25T15:21:57.270034Z",
+      "versionCreatedAt": "2025-02-25T17:00:21.887168Z"
+    },
+    "description": "The most intelligent Claude model and the first hybrid reasoning model on the market (claude-3-7-sonnet-20250219)",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Optional input image. Images are priced as (width px * height px)/750 input tokens",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1024,
+        "maxValue": 64000
+      },
+      "max_image_resolution": {
+        "type": "number",
+        "title": "Max Image Resolution",
+        "name": "max_image_resolution",
+        "description": "Maximum image resolution in megapixels. Scales down image before sending it to Claude, to save time and money.",
+        "default": 0.5,
+        "minValue": 0.001,
+        "maxValue": 2
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "claude-4-sonnet",
+    "name": "claude-4-sonnet",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-4-sonnet",
+      "owner": "anthropic",
+      "model": "claude-4-sonnet",
+      "version": "3380fe4ca9cac053c89d1df86a5ba850e61cbef1d474a24abded9516e5a73a04",
+      "url": "https://replicate.com/anthropic/claude-4-sonnet",
+      "createdAt": "2025-05-22T20:42:44.724405Z",
+      "versionCreatedAt": "2025-06-13T19:42:14.293392Z"
+    },
+    "description": "Claude Sonnet 4 is a significant upgrade to 3.7, delivering superior coding and reasoning while responding more precisely to your instructions",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Optional input image. Images are priced as (width px * height px)/750 input tokens",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1024,
+        "maxValue": 64000
+      },
+      "max_image_resolution": {
+        "type": "number",
+        "title": "Max Image Resolution",
+        "name": "max_image_resolution",
+        "description": "Maximum image resolution in megapixels. Scales down image before sending it to Claude, to save time and money.",
+        "default": 0.5,
+        "minValue": 0.001,
+        "maxValue": 2
+      },
+      "extended_thinking": {
+        "type": "boolean",
+        "title": "Extended Thinking",
+        "name": "extended_thinking",
+        "description": "Whether to enable extended thinking mode (only supported for Sonnet 3.7 and Sonnet 4)",
+        "default": false
+      },
+      "thinking_budget_tokens": {
+        "type": "int",
+        "title": "Thinking Budget Tokens",
+        "name": "thinking_budget_tokens",
+        "description": "Maximum number of tokens to use for extended thinking when enabled (only supported for Sonnet 3.7 and Sonnet 4)",
+        "default": 1024,
+        "minValue": 1024,
+        "maxValue": 64000
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "claude-4-5-haiku",
+    "name": "claude-4.5-haiku",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-4.5-haiku",
+      "owner": "anthropic",
+      "model": "claude-4.5-haiku",
+      "version": "1ad171f62532e2099a3ed7d8d80327911f5f8d332e83cf4c8959da0be9a8bf3e",
+      "url": "https://replicate.com/anthropic/claude-4.5-haiku",
+      "createdAt": "2025-10-15T23:38:47.231855Z",
+      "versionCreatedAt": "2025-10-16T00:02:32.336295Z"
+    },
+    "description": "Claude Haiku 4.5 gives you similar levels of coding performance but at one-third the cost and more than twice the speed",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1,
+        "maxValue": 8192
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "claude-4-5-sonnet",
+    "name": "claude-4.5-sonnet",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-4.5-sonnet",
+      "owner": "anthropic",
+      "model": "claude-4.5-sonnet",
+      "version": "459655107e29a683cb6deb73a9640cf9aeae39ea7c87803a2ae81c311f6ef44f",
+      "url": "https://replicate.com/anthropic/claude-4.5-sonnet",
+      "createdAt": "2025-09-29T20:46:51.550751Z",
+      "versionCreatedAt": "2025-09-29T20:51:47.153908Z"
+    },
+    "description": "Claude Sonnet 4.5 is the best coding model to date, with significant improvements across the entire development lifecycle",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Optional input image. Images are priced as (width px * height px)/750 input tokens",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1024,
+        "maxValue": 64000
+      },
+      "max_image_resolution": {
+        "type": "number",
+        "title": "Max Image Resolution",
+        "name": "max_image_resolution",
+        "description": "Maximum image resolution in megapixels. Scales down image before sending it to Claude, to save time and money.",
+        "default": 0.5,
+        "minValue": 0.001,
+        "maxValue": 2
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "claude-opus-4-6",
+    "name": "claude-opus-4.6",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "anthropic/claude-opus-4.6",
+      "owner": "anthropic",
+      "model": "claude-opus-4.6",
+      "version": "5a2f72c8a00f561d217e4b5d1f1f96727d6a86a73b6caf444545d67b26bdca46",
+      "url": "https://replicate.com/anthropic/claude-opus-4.6",
+      "createdAt": "2026-02-05T18:03:37.021038Z",
+      "versionCreatedAt": "2026-02-05T18:30:56.791939Z"
+    },
+    "description": "Anthropic's most intelligent model with state-of-the-art coding, reasoning, and agentic capabilities",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input prompt"
+      },
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Optional input image. Images are priced as (width px * height px)/750 input tokens",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of output tokens",
+        "default": 8192,
+        "minValue": 1024,
+        "maxValue": 128000
+      },
+      "max_image_resolution": {
+        "type": "number",
+        "title": "Max Image Resolution",
+        "name": "max_image_resolution",
+        "description": "Maximum image resolution in megapixels. Scales down image before sending it to Claude, to save time and money.",
+        "default": 0.5,
+        "minValue": 0.001,
+        "maxValue": 2
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "deoldify-video",
     "name": "deoldify_video",
     "provider": "replicate",
@@ -8467,6 +8901,242 @@
     ]
   },
   {
+    "id": "deepseek-r1",
+    "name": "deepseek-r1",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "deepseek-ai/deepseek-r1",
+      "owner": "deepseek-ai",
+      "model": "deepseek-r1",
+      "version": "b09db80a5a7faf2240a045aecaaa4c1a4d43ec9dea46fcaa22d07a4641793572",
+      "url": "https://replicate.com/deepseek-ai/deepseek-r1",
+      "createdAt": "2025-01-29T02:46:11.806773Z",
+      "versionCreatedAt": "2026-05-05T20:11:42.317318Z"
+    },
+    "description": "A reasoning model trained with reinforcement learning, on par with OpenAI o1",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 2048
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "deepseek-v3",
+    "name": "deepseek-v3",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "deepseek-ai/deepseek-v3",
+      "owner": "deepseek-ai",
+      "model": "deepseek-v3",
+      "version": "af57f26244e9f2262d55b93e57c7d93a81eb9c01df29d547623264d0ac7f891d",
+      "url": "https://replicate.com/deepseek-ai/deepseek-v3",
+      "createdAt": "2025-03-25T20:54:06.267598Z",
+      "versionCreatedAt": "2026-05-05T20:09:07.696937Z"
+    },
+    "description": "DeepSeek-V3-0324 is the leading non-reasoning model, a milestone for open source",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 2048
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "deepseek-v3-1",
+    "name": "deepseek-v3.1",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "deepseek-ai/deepseek-v3.1",
+      "owner": "deepseek-ai",
+      "model": "deepseek-v3.1",
+      "version": "133b8e778c13da0bee796a1d100f0dd74df8f65c60fae3f3cd85d1cc39de40ea",
+      "url": "https://replicate.com/deepseek-ai/deepseek-v3.1",
+      "createdAt": "2025-08-25T18:41:12.219732Z",
+      "versionCreatedAt": "2026-05-05T20:06:34.660993Z"
+    },
+    "description": "Latest hybrid thinking model from Deepseek",
+    "inputs": {
+      "thinking": {
+        "type": "string",
+        "title": "thinking",
+        "name": "thinking",
+        "description": "Reasoning effort level for DeepSeek models. Use 'medium' for enhanced reasoning or leave as None for default behavior.",
+        "default": "None",
+        "enum": [
+          "medium",
+          "None"
+        ]
+      },
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": "Why are you better than Deepseek v3?"
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 1024
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "ai-avatars",
     "name": "ai-avatars",
     "provider": "replicate",
@@ -12660,6 +13330,357 @@
     ]
   },
   {
+    "id": "gemma-2b-it",
+    "name": "gemma-2b-it",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "google-deepmind/gemma-2b-it",
+      "owner": "google-deepmind",
+      "model": "gemma-2b-it",
+      "version": "dff94eaf770e1fc211e425a50b51baa8e4cac6c39ef074681f9e39d778773626",
+      "url": "https://replicate.com/google-deepmind/gemma-2b-it",
+      "createdAt": "2024-02-21T20:34:56.093884Z",
+      "versionCreatedAt": "2024-02-21T20:40:38.156939Z"
+    },
+    "description": "2B instruct version of Google’s Gemma model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt to send to the model.",
+        "default": "Write me a poem about Machine Learning."
+      },
+      "max_new_tokens": {
+        "type": "int",
+        "title": "Max New Tokens",
+        "name": "max_new_tokens",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 200,
+        "minValue": 1
+      },
+      "min_new_tokens": {
+        "type": "int",
+        "title": "Min New Tokens",
+        "name": "min_new_tokens",
+        "description": "Minimum number of tokens to generate. To disable, set to -1. A word is generally 2-3 tokens.",
+        "default": -1,
+        "minValue": -1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic, 0.75 is a good starting value.",
+        "default": 0.7,
+        "minValue": 0.01,
+        "maxValue": 5
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 0.95,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "When decoding text, samples from the top k most likely tokens; lower to ignore less likely tokens",
+        "default": 50
+      },
+      "repetition_penalty": {
+        "type": "number",
+        "title": "Repetition Penalty",
+        "name": "repetition_penalty",
+        "description": "A parameter that controls how repetitive text can be. Lower means more repetitive, while higher means less repetitive. Set to 1.0 to disable.",
+        "default": 1.15,
+        "minValue": 0
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gemini-2-5-flash",
+    "name": "gemini-2.5-flash",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "google/gemini-2.5-flash",
+      "owner": "google",
+      "model": "gemini-2.5-flash",
+      "version": "11b52c687ed2a1bb2e688414abc533981b03d3419fad39baa1129e7cde5ceadd",
+      "url": "https://replicate.com/google/gemini-2.5-flash",
+      "createdAt": "2025-10-03T20:33:26.026273Z",
+      "versionCreatedAt": "2026-06-19T17:31:42.269487Z"
+    },
+    "description": "Google’s hybrid “thinking” AI model optimized for speed and cost-efficiency",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The text prompt to send to the model"
+      },
+      "images": {
+        "type": "array",
+        "title": "Images",
+        "name": "images",
+        "description": "Input images to send with the prompt (max 10 images, each up to 7MB)",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "maxItems": 7,
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "videos": {
+        "type": "array",
+        "title": "Videos",
+        "name": "videos",
+        "description": "Input videos to send with the prompt (max 10 videos, each up to 45 minutes)",
+        "default": [],
+        "format": "uri",
+        "field": "videos_list",
+        "maxItems": 45,
+        "mediaKind": "video",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "system_instruction": {
+        "type": "string",
+        "title": "System Instruction",
+        "name": "system_instruction",
+        "description": "System instruction to guide the model's behavior",
+        "default": null
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass",
+        "default": 0.95,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "max_output_tokens": {
+        "type": "int",
+        "title": "Max Output Tokens",
+        "name": "max_output_tokens",
+        "description": "Maximum number of tokens to generate",
+        "default": 65535,
+        "minValue": 1,
+        "maxValue": 65535
+      },
+      "thinking_budget": {
+        "type": "int",
+        "title": "Thinking Budget",
+        "name": "thinking_budget",
+        "description": "Thinking budget for reasoning (0 to disable thinking, higher values allow more reasoning)",
+        "default": null,
+        "minValue": 0,
+        "maxValue": 24576
+      },
+      "dynamic_thinking": {
+        "type": "boolean",
+        "title": "Dynamic Thinking",
+        "name": "dynamic_thinking",
+        "description": "Enable dynamic thinking - the model will adjust the thinking budget based on the complexity of the request (overrides thinking_budget parameter)",
+        "default": false
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "images",
+    "videoField": "videos",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gemini-3-pro",
+    "name": "gemini-3-pro",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "google/gemini-3-pro",
+      "owner": "google",
+      "model": "gemini-3-pro",
+      "version": "f643f4be1635546a523e4cedf4497efbab541eb831df678a89f4bff9400a541a",
+      "url": "https://replicate.com/google/gemini-3-pro",
+      "createdAt": "2025-11-18T17:15:58.365236Z",
+      "versionCreatedAt": "2026-06-19T17:32:17.019892Z"
+    },
+    "description": "Google's most advanced reasoning Gemini model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The text prompt to send to the model"
+      },
+      "images": {
+        "type": "array",
+        "title": "Images",
+        "name": "images",
+        "description": "Input images to send with the prompt (max 10 images, each up to 7MB)",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "maxItems": 7,
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "videos": {
+        "type": "array",
+        "title": "Videos",
+        "name": "videos",
+        "description": "Input videos to send with the prompt (max 10 videos, each up to 45 minutes)",
+        "default": [],
+        "format": "uri",
+        "field": "videos_list",
+        "maxItems": 45,
+        "mediaKind": "video",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "video_fps": {
+        "type": "number",
+        "title": "Video Fps",
+        "name": "video_fps",
+        "description": "Frame rate (frames per second) at which to sample input videos. Higher values give the model more frames to reason over (useful for fast-moving footage) but consume more tokens. Omit to use the default sampling rate (1 fps).",
+        "default": null,
+        "minValue": 0.1,
+        "maxValue": 60
+      },
+      "audio": {
+        "type": "string",
+        "title": "Audio",
+        "name": "audio",
+        "description": "Input audio to send with the prompt (max 1 audio file, up to 8.4 hours)",
+        "default": null,
+        "format": "uri",
+        "field": "audio",
+        "mediaKind": "audio"
+      },
+      "system_instruction": {
+        "type": "string",
+        "title": "System Instruction",
+        "name": "system_instruction",
+        "description": "System instruction to guide the model's behavior",
+        "default": null
+      },
+      "thinking_level": {
+        "type": "string",
+        "title": "thinking_level",
+        "name": "thinking_level",
+        "description": "Thinking level for reasoning (low or high). Replaces thinking_budget for Gemini 3 models.",
+        "default": "none",
+        "enum": [
+          "none",
+          "low",
+          "high"
+        ]
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass",
+        "default": 0.95,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "max_output_tokens": {
+        "type": "int",
+        "title": "Max Output Tokens",
+        "name": "max_output_tokens",
+        "description": "Maximum number of tokens to generate",
+        "default": 65535,
+        "minValue": 1,
+        "maxValue": 65535
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "images",
+    "videoField": "videos",
+    "audioField": "audio",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "gemini-3-1-flash-tts",
     "name": "gemini-3.1-flash-tts",
     "provider": "replicate",
@@ -12836,6 +13857,145 @@
     },
     "modes": [
       "audio"
+    ]
+  },
+  {
+    "id": "gemini-3-1-pro",
+    "name": "gemini-3.1-pro",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "google/gemini-3.1-pro",
+      "owner": "google",
+      "model": "gemini-3.1-pro",
+      "version": "377ef8ade8e8ba8d4f7f40dff65de9d74e6638c2144d975539e854b6476a575e",
+      "url": "https://replicate.com/google/gemini-3.1-pro",
+      "createdAt": "2026-02-19T18:11:33.307638Z",
+      "versionCreatedAt": "2026-06-19T17:32:28.189197Z"
+    },
+    "description": "Google's most intelligent model, with improved reasoning and a new medium thinking level",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The text prompt to send to the model"
+      },
+      "images": {
+        "type": "array",
+        "title": "Images",
+        "name": "images",
+        "description": "Input images to send with the prompt (max 10 images, each up to 7MB)",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "maxItems": 7,
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "videos": {
+        "type": "array",
+        "title": "Videos",
+        "name": "videos",
+        "description": "Input videos to send with the prompt (max 10 videos, each up to 45 minutes)",
+        "default": [],
+        "format": "uri",
+        "field": "videos_list",
+        "maxItems": 45,
+        "mediaKind": "video",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "video_fps": {
+        "type": "number",
+        "title": "Video Fps",
+        "name": "video_fps",
+        "description": "Frame rate (frames per second) at which to sample input videos. Higher values give the model more frames to reason over (useful for fast-moving footage) but consume more tokens. Omit to use the default sampling rate (1 fps).",
+        "default": null,
+        "minValue": 0.1,
+        "maxValue": 60
+      },
+      "audio": {
+        "type": "string",
+        "title": "Audio",
+        "name": "audio",
+        "description": "Input audio to send with the prompt (max 1 audio file, up to 8.4 hours)",
+        "default": null,
+        "format": "uri",
+        "field": "audio",
+        "mediaKind": "audio"
+      },
+      "system_instruction": {
+        "type": "string",
+        "title": "System Instruction",
+        "name": "system_instruction",
+        "description": "System instruction to guide the model's behavior",
+        "default": null
+      },
+      "thinking_level": {
+        "type": "string",
+        "title": "thinking_level",
+        "name": "thinking_level",
+        "description": "Thinking level for reasoning. Controls the maximum depth of the model's internal reasoning process.",
+        "default": "high",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass",
+        "default": 0.95,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "max_output_tokens": {
+        "type": "int",
+        "title": "Max Output Tokens",
+        "name": "max_output_tokens",
+        "description": "Maximum number of tokens to generate",
+        "default": 65535,
+        "minValue": 1,
+        "maxValue": 65535
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "images",
+    "videoField": "videos",
+    "audioField": "audio",
+    "modes": [
+      "t2t"
     ]
   },
   {
@@ -15039,6 +16199,353 @@
     },
     "modes": [
       "t2v"
+    ]
+  },
+  {
+    "id": "granite-3-3-8b-instruct",
+    "name": "granite-3.3-8b-instruct",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "ibm-granite/granite-3.3-8b-instruct",
+      "owner": "ibm-granite",
+      "model": "granite-3.3-8b-instruct",
+      "version": "618ecbe80773609e96ea19d8c96e708f6f2b368bb89be8fad509983194466bf8",
+      "url": "https://replicate.com/ibm-granite/granite-3.3-8b-instruct",
+      "createdAt": "2025-04-15T16:18:31.175340Z",
+      "versionCreatedAt": "2025-09-19T15:47:52.994761Z"
+    },
+    "description": "Granite-3.3-8B-Instruct is a 8-billion parameter 128K context length language model fine-tuned for improved reasoning and instruction-following capabilities.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Completion API user prompt."
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "Chat completion API messages.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "documents": {
+        "type": "array",
+        "title": "Documents",
+        "name": "documents",
+        "description": "Documents for request. Passed to the chat template.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "tools": {
+        "type": "array",
+        "title": "Tools",
+        "name": "tools",
+        "description": "Tools for request. Passed to the chat template.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "tool_choice": {
+        "type": "string",
+        "title": "Tool Choice",
+        "name": "tool_choice",
+        "description": "Tool choice for request. If the choice is a specific function, this should be specified as a JSON string."
+      },
+      "response_format": {
+        "type": "object",
+        "title": "Response Format",
+        "name": "response_format",
+        "description": "An object specifying the format that the model must output."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "Completion API system prompt. The chat template provides a good default."
+      },
+      "chat_template": {
+        "type": "string",
+        "title": "Chat Template",
+        "name": "chat_template",
+        "description": "A template to format the prompt with. If not specified, the chat template provided by the model will be used."
+      },
+      "add_generation_prompt": {
+        "type": "boolean",
+        "title": "Add Generation Prompt",
+        "name": "add_generation_prompt",
+        "description": "Add generation prompt. Passed to the chat template. Defaults to True.",
+        "default": true
+      },
+      "chat_template_kwargs": {
+        "type": "object",
+        "title": "Chat Template Kwargs",
+        "name": "chat_template_kwargs",
+        "description": "Additional arguments to be passed to the chat template.",
+        "default": {}
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "max_tokens is deprecated in favor of the max_completion_tokens field."
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens."
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.6
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
+        "default": 0.9
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering).",
+        "default": 50
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      },
+      "stop": {
+        "type": "array",
+        "title": "Stop",
+        "name": "stop",
+        "description": "A list of sequences to stop generation at. For example, [\"<end>\",\"<stop>\"] will stop generation at the first instance of \"<end>\" or \"<stop>\".",
+        "default": [],
+        "items": {
+          "type": "string"
+        }
+      },
+      "seed": {
+        "type": "int",
+        "title": "Seed",
+        "name": "seed",
+        "description": "Random seed. Leave unspecified to randomize the seed."
+      },
+      "stream": {
+        "type": "boolean",
+        "title": "Stream",
+        "name": "stream",
+        "description": "Request streaming response. Defaults to False.",
+        "default": false
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "granite-speech-4-1-2b",
+    "name": "granite-speech-4.1-2b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "ibm-granite/granite-speech-4.1-2b",
+      "owner": "ibm-granite",
+      "model": "granite-speech-4.1-2b",
+      "version": "25d7a190df066d4623579c05619cafb1eeff766ee0bdce4d8b7c82726ca93e58",
+      "url": "https://replicate.com/ibm-granite/granite-speech-4.1-2b",
+      "createdAt": "2026-04-27T23:27:27.812096Z",
+      "versionCreatedAt": "2026-05-26T19:32:04.007138Z"
+    },
+    "description": "Granite Speech 4.1 2B is a compact and efficient speech-language model, specifically designed for multilingual automatic speech recognition (ASR) and bidirectional automatic speech translation (AST) for English, French, German, Spanish, Portuguese and Jap",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Completion API user prompt."
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "Chat completion API messages.",
+        "items": {
+          "type": "object"
+        }
+      },
+      "audio": {
+        "type": "array",
+        "title": "Audio",
+        "name": "audio",
+        "description": "Completion API Audio input.",
+        "format": "uri",
+        "field": "audios_list",
+        "mediaKind": "audio",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "Completion API system prompt. The chat template provides a good default."
+      },
+      "chat_template": {
+        "type": "string",
+        "title": "Chat Template",
+        "name": "chat_template",
+        "description": "A template to format the prompt with. If not specified, the chat template provided by the model will be used."
+      },
+      "add_generation_prompt": {
+        "type": "boolean",
+        "title": "Add Generation Prompt",
+        "name": "add_generation_prompt",
+        "description": "Add generation prompt. Passed to the chat template. Defaults to True.",
+        "default": true
+      },
+      "chat_template_kwargs": {
+        "type": "object",
+        "title": "Chat Template Kwargs",
+        "name": "chat_template_kwargs",
+        "description": "Additional arguments to be passed to the chat template."
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "max_tokens is deprecated in favor of the max_completion_tokens field."
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens."
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities."
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)."
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering)."
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty"
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty"
+      },
+      "repetition_penalty": {
+        "type": "number",
+        "title": "Repetition Penalty",
+        "name": "repetition_penalty",
+        "description": "Repetition penalty"
+      },
+      "stop": {
+        "type": "array",
+        "title": "Stop",
+        "name": "stop",
+        "description": "A list of sequences to stop generation at. For example, [\"<end>\",\"<stop>\"] will stop generation at the first instance of \"<end>\" or \"<stop>\".",
+        "items": {
+          "type": "string"
+        }
+      },
+      "seed": {
+        "type": "int",
+        "title": "Seed",
+        "name": "seed",
+        "description": "Random seed. Leave unspecified to randomize the seed."
+      },
+      "stream": {
+        "type": "boolean",
+        "title": "Stream",
+        "name": "stream",
+        "description": "Request streaming response."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "audioField": "audio",
+    "modes": [
+      "t2t"
     ]
   },
   {
@@ -23954,6 +25461,390 @@
     ]
   },
   {
+    "id": "meta-llama-3-70b",
+    "name": "meta-llama-3-70b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "meta/meta-llama-3-70b",
+      "owner": "meta",
+      "model": "meta-llama-3-70b",
+      "version": "83c5bdea9941e83be68480bd06ad792f3f295612a24e4678baed34083083a87f",
+      "url": "https://replicate.com/meta/meta-llama-3-70b",
+      "createdAt": "2024-04-17T18:05:18.044746Z",
+      "versionCreatedAt": "2024-04-18T05:07:35.169353Z"
+    },
+    "description": "Base version of Llama 3, a 70 billion parameter language model from Meta.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 512
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.6
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
+        "default": 0.9
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering).",
+        "default": 50
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 1.15
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0.2
+      },
+      "prompt_template": {
+        "type": "string",
+        "title": "Prompt Template",
+        "name": "prompt_template",
+        "description": "Prompt template. The string `{prompt}` will be substituted for the input prompt. If you want to generate dialog output, use this template as a starting point and construct the prompt string manually, leaving `prompt_template={prompt}`.",
+        "default": "{prompt}"
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "meta-llama-3-70b-instruct",
+    "name": "meta-llama-3-70b-instruct",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "meta/meta-llama-3-70b-instruct",
+      "owner": "meta",
+      "model": "meta-llama-3-70b-instruct",
+      "version": "fbfb20b472b2f3bdd101412a9f70a0ed4fc0ced78a77ff00970ee7a2383c575d",
+      "url": "https://replicate.com/meta/meta-llama-3-70b-instruct",
+      "createdAt": "2024-04-17T21:44:13.482460Z",
+      "versionCreatedAt": "2024-04-17T21:58:54.806446Z"
+    },
+    "description": "A 70 billion parameter language model from Meta, fine tuned for chat completions",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 512
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.6
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
+        "default": 0.9
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering).",
+        "default": 50
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 1.15
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0.2
+      },
+      "prompt_template": {
+        "type": "string",
+        "title": "Prompt Template",
+        "name": "prompt_template",
+        "description": "Prompt template. The string `{prompt}` will be substituted for the input prompt. If you want to generate dialog output, use this template as a starting point and construct the prompt string manually, leaving `prompt_template={prompt}`.",
+        "default": "{prompt}"
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "meta-llama-3-8b",
+    "name": "meta-llama-3-8b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "meta/meta-llama-3-8b",
+      "owner": "meta",
+      "model": "meta-llama-3-8b",
+      "version": "9a9e68fc8695f5847ce944a5cecf9967fd7c64d0fb8c8af1d5bdcc71f03c5e47",
+      "url": "https://replicate.com/meta/meta-llama-3-8b",
+      "createdAt": "2024-04-17T18:04:26.049832Z",
+      "versionCreatedAt": "2024-04-17T21:58:00.007392Z"
+    },
+    "description": "Base version of Llama 3, an 8 billion parameter language model from Meta.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 512
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.6
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
+        "default": 0.9
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering).",
+        "default": 50
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 1.15
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0.2
+      },
+      "prompt_template": {
+        "type": "string",
+        "title": "Prompt Template",
+        "name": "prompt_template",
+        "description": "Prompt template. The string `{prompt}` will be substituted for the input prompt. If you want to generate dialog output, use this template as a starting point and construct the prompt string manually, leaving `prompt_template={prompt}`.",
+        "default": "{prompt}"
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "meta-llama-3-8b-instruct",
+    "name": "meta-llama-3-8b-instruct",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "meta/meta-llama-3-8b-instruct",
+      "owner": "meta",
+      "model": "meta-llama-3-8b-instruct",
+      "version": "5a6809ca6288247d06daf6365557e5e429063f32a21146b2a807c682652136b8",
+      "url": "https://replicate.com/meta/meta-llama-3-8b-instruct",
+      "createdAt": "2024-04-17T21:44:58.480057Z",
+      "versionCreatedAt": "2024-04-17T21:58:45.726276Z"
+    },
+    "description": "An 8 billion parameter language model from Meta, fine tuned for chat completions",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "min_tokens": {
+        "type": "int",
+        "title": "Min Tokens",
+        "name": "min_tokens",
+        "description": "The minimum number of tokens the model should generate as output.",
+        "default": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 512
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.6
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "A probability threshold for generating the output. If < 1.0, only keep the top tokens with cumulative probability >= top_p (nucleus filtering). Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
+        "default": 0.9
+      },
+      "top_k": {
+        "type": "int",
+        "title": "Top K",
+        "name": "top_k",
+        "description": "The number of highest probability tokens to consider for generating the output. If > 0, only keep the top k tokens with highest probability (top-k filtering).",
+        "default": 50
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 1.15
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0.2
+      },
+      "prompt_template": {
+        "type": "string",
+        "title": "Prompt Template",
+        "name": "prompt_template",
+        "description": "Prompt template. The string `{prompt}` will be substituted for the input prompt. If you want to generate dialog output, use this template as a starting point and construct the prompt string manually, leaving `prompt_template={prompt}`.",
+        "default": "{prompt}"
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "musicgen",
     "name": "musicgen",
     "provider": "replicate",
@@ -26522,6 +28413,101 @@
     ]
   },
   {
+    "id": "kimi-k2-5",
+    "name": "kimi-k2.5",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "moonshotai/kimi-k2.5",
+      "owner": "moonshotai",
+      "model": "kimi-k2.5",
+      "version": "b4d8427a98a2de294f719d281c5218daebd44895b308ace34792d0746f6670ba",
+      "url": "https://replicate.com/moonshotai/kimi-k2.5",
+      "createdAt": "2026-01-27T17:29:38.568271Z",
+      "versionCreatedAt": "2026-01-27T17:41:47.107386Z"
+    },
+    "description": "Moonshot AI's latest open model. It unifies vision and text, thinking and non-thinking modes, and single-agent and multi-agent execution into one model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Text prompt",
+        "default": ""
+      },
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Image file to analyze (optional). Will be resized if larger than 1024px.",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of tokens to generate.",
+        "default": 1024,
+        "minValue": 1,
+        "maxValue": 131072
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature.",
+        "default": 0.1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "swin2sr",
     "name": "swin2sr",
     "provider": "replicate",
@@ -27039,6 +29025,1282 @@
     ]
   },
   {
+    "id": "gpt-4-1",
+    "name": "gpt-4.1",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-4.1",
+      "owner": "openai",
+      "model": "gpt-4.1",
+      "version": "f7e65222875892b7893e5c7581bdde9056c78cd77171a315c369b63b8907a619",
+      "url": "https://replicate.com/openai/gpt-4.1",
+      "createdAt": "2025-05-01T04:55:34.442201Z",
+      "versionCreatedAt": "2026-01-22T00:08:08.820727Z"
+    },
+    "description": "OpenAI's Flagship GPT model for complex tasks.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass. (0.1 means only the tokens comprising the top 10% probability mass are considered.)",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty parameter - positive values penalize the repetition of tokens.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty parameter - positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-4-1-mini",
+    "name": "gpt-4.1-mini",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-4.1-mini",
+      "owner": "openai",
+      "model": "gpt-4.1-mini",
+      "version": "aca77ca43d7155cf9480ea2f697adf1c9c008ab5a471050cedb90dadfb5dc4cc",
+      "url": "https://replicate.com/openai/gpt-4.1-mini",
+      "createdAt": "2025-05-01T06:57:43.806670Z",
+      "versionCreatedAt": "2026-01-21T23:14:08.615322Z"
+    },
+    "description": "Fast, affordable version of GPT-4.1",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass. (0.1 means only the tokens comprising the top 10% probability mass are considered.)",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty parameter - positive values penalize the repetition of tokens.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty parameter - positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-4-1-nano",
+    "name": "gpt-4.1-nano",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-4.1-nano",
+      "owner": "openai",
+      "model": "gpt-4.1-nano",
+      "version": "756e9851b24d755bc245572b53d1f40121719eed75663c38ea6628202720a54b",
+      "url": "https://replicate.com/openai/gpt-4.1-nano",
+      "createdAt": "2025-05-01T07:26:10.557033Z",
+      "versionCreatedAt": "2026-01-21T23:41:58.606533Z"
+    },
+    "description": "Fastest, most cost-effective GPT-4.1 model from OpenAI",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass. (0.1 means only the tokens comprising the top 10% probability mass are considered.)",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty parameter - positive values penalize the repetition of tokens.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty parameter - positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-4o",
+    "name": "gpt-4o",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-4o",
+      "owner": "openai",
+      "model": "gpt-4o",
+      "version": "42f4eb858641c70ce390c381605f5aed04eeb37554d299459429e14a33f88933",
+      "url": "https://replicate.com/openai/gpt-4o",
+      "createdAt": "2025-05-15T19:46:39.965430Z",
+      "versionCreatedAt": "2026-01-22T02:16:16.417783Z"
+    },
+    "description": "OpenAI's high-intelligence chat model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass. (0.1 means only the tokens comprising the top 10% probability mass are considered.)",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty parameter - positive values penalize the repetition of tokens.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty parameter - positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-4o-mini",
+    "name": "gpt-4o-mini",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-4o-mini",
+      "owner": "openai",
+      "model": "gpt-4o-mini",
+      "version": "86d7f12d34e3f9b6e149231f42154d0f41081d91484932e3f1ee608fc207f7d9",
+      "url": "https://replicate.com/openai/gpt-4o-mini",
+      "createdAt": "2025-05-15T02:52:44.476045Z",
+      "versionCreatedAt": "2025-08-12T18:22:27.475123Z"
+    },
+    "description": "Low latency, low cost version of OpenAI's GPT-4o model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Sampling temperature between 0 and 2",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Nucleus sampling parameter - the model considers the results of the tokens with top_p probability mass. (0.1 means only the tokens comprising the top 10% probability mass are considered.)",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty parameter - positive values penalize the repetition of tokens.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty parameter - positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics.",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5",
+    "name": "gpt-5",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5",
+      "owner": "openai",
+      "model": "gpt-5",
+      "version": "feacd077889bbeea463bb0314810093c23b2e1b49af8ca6f82975f8c36a2ebd0",
+      "url": "https://replicate.com/openai/gpt-5",
+      "createdAt": "2025-08-07T01:46:29.933808Z",
+      "versionCreatedAt": "2026-01-21T22:47:40.342894Z"
+    },
+    "description": "OpenAI's new model excelling at coding, writing, and reasoning.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for GPT-5 models. Currently supported values are minimal, low, medium, and high. The minimal value gets answers back faster without extensive reasoning first. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "minimal",
+        "enum": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-mini",
+    "name": "gpt-5-mini",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5-mini",
+      "owner": "openai",
+      "model": "gpt-5-mini",
+      "version": "8fd5dbfbc0f88570a4ba7f9d529aa02b10ca1f92d77c4ada0a56e549ffda0bae",
+      "url": "https://replicate.com/openai/gpt-5-mini",
+      "createdAt": "2025-08-07T01:46:38.852666Z",
+      "versionCreatedAt": "2026-01-21T21:58:40.795589Z"
+    },
+    "description": "Faster version of OpenAI's flagship GPT-5 model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for GPT-5 models. Currently supported values are minimal, low, medium, and high. The minimal value gets answers back faster without extensive reasoning first. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "minimal",
+        "enum": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-nano",
+    "name": "gpt-5-nano",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5-nano",
+      "owner": "openai",
+      "model": "gpt-5-nano",
+      "version": "034fc01c1d162ba028187fc496eb079e6c1329c1c8f686d971eba9d01e7ffb96",
+      "url": "https://replicate.com/openai/gpt-5-nano",
+      "createdAt": "2025-08-07T01:46:49.288485Z",
+      "versionCreatedAt": "2026-01-21T22:38:55.082818Z"
+    },
+    "description": "Fastest, most cost-effective GPT-5 model from OpenAI",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for GPT-5 models. Currently supported values are minimal, low, medium, and high. The minimal value gets answers back faster without extensive reasoning first. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "minimal",
+        "enum": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-2",
+    "name": "gpt-5.2",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5.2",
+      "owner": "openai",
+      "model": "gpt-5.2",
+      "version": "e805d0794e42cc941a20b67ef7e57e432a7e4abdd36d61dbc6c842e911a75ec4",
+      "url": "https://replicate.com/openai/gpt-5.2",
+      "createdAt": "2025-12-11T19:19:37.642398Z",
+      "versionCreatedAt": "2025-12-11T19:19:48.297386Z"
+    },
+    "description": "The best model for coding and agentic tasks across industries",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for GPT-5.2 models. Supported values are none, low, medium, high, and xhigh.",
+        "default": "low",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-6-luna",
+    "name": "gpt-5.6-luna",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5.6-luna",
+      "owner": "openai",
+      "model": "gpt-5.6-luna",
+      "version": "53e1dce39544a963d0928b02cf2dc06467f2d740127deb4d2f046dcc8cc011ea",
+      "url": "https://replicate.com/openai/gpt-5.6-luna",
+      "createdAt": "2026-07-09T18:11:45.797536Z",
+      "versionCreatedAt": "2026-07-09T19:32:23.467499Z"
+    },
+    "description": "OpenAI's GPT-5.6 cost-optimized tier, built for fast, high-volume, latency-sensitive workloads.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning. Supported values are none, low, medium, high, and xhigh. The default none provides fast, low-latency responses. Higher reasoning efforts produce more thorough answers but use more tokens and take longer. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "none",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-6-sol",
+    "name": "gpt-5.6-sol",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5.6-sol",
+      "owner": "openai",
+      "model": "gpt-5.6-sol",
+      "version": "574d0b8c77a6de40f6f4d2dfd9712a05545385ce47fbf68d9ae46cdc1e4e1678",
+      "url": "https://replicate.com/openai/gpt-5.6-sol",
+      "createdAt": "2026-07-09T18:11:44.424782Z",
+      "versionCreatedAt": "2026-07-09T18:53:33.108129Z"
+    },
+    "description": "OpenAI's GPT-5.6 flagship tier, built for complex professional work, coding, and deep multi-step reasoning.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning. Supported values are none, low, medium, high, and xhigh. The default none provides fast, low-latency responses. Higher reasoning efforts produce more thorough answers but use more tokens and take longer. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "none",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-5-6-terra",
+    "name": "gpt-5.6-terra",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-5.6-terra",
+      "owner": "openai",
+      "model": "gpt-5.6-terra",
+      "version": "7edfb1b2268f1e5afb1e25902bf2df351f3e8e726dda36b625dc7e4e48d59b07",
+      "url": "https://replicate.com/openai/gpt-5.6-terra",
+      "createdAt": "2026-07-09T18:11:45.089782Z",
+      "versionCreatedAt": "2026-07-09T19:27:29.557297Z"
+    },
+    "description": "OpenAI's GPT-5.6 balanced tier, tuned for everyday production work at roughly half the cost of the flagship.",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning. Supported values are none, low, medium, high, and xhigh. The default none provides fast, low-latency responses. Higher reasoning efforts produce more thorough answers but use more tokens and take longer. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning).",
+        "default": "none",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "verbosity": {
+        "type": "string",
+        "title": "verbosity",
+        "name": "verbosity",
+        "description": "Constrains the verbosity of the model's response. Lower values will result in more concise responses, while higher values will result in more verbose responses. Currently supported values are low, medium, and high. GPT-5 supports this parameter to help control whether answers are short and to the point or long and comprehensive.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate. For higher reasoning efforts you may need to increase your max_completion_tokens to avoid empty responses (where all the tokens are used on reasoning)."
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "gpt-image-1",
     "name": "gpt-image-1",
     "provider": "replicate",
@@ -27508,6 +30770,392 @@
     "modes": [
       "t2i",
       "i2i"
+    ]
+  },
+  {
+    "id": "gpt-oss-120b",
+    "name": "gpt-oss-120b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-oss-120b",
+      "owner": "openai",
+      "model": "gpt-oss-120b",
+      "version": "91e5f07bc61dc46022179fedb39125090557a9d24ca8ae1f7c614a1ee54e76db",
+      "url": "https://replicate.com/openai/gpt-oss-120b",
+      "createdAt": "2025-08-05T18:05:57.381986Z",
+      "versionCreatedAt": "2026-05-05T20:56:38.300764Z"
+    },
+    "description": "120b open-weight language model from OpenAI",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 2048
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "gpt-oss-20b",
+    "name": "gpt-oss-20b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/gpt-oss-20b",
+      "owner": "openai",
+      "model": "gpt-oss-20b",
+      "version": "723f027d19da3b534d8fd22d43ebdf737d3e0bfde47ffa081574f20114c0ba5b",
+      "url": "https://replicate.com/openai/gpt-oss-20b",
+      "createdAt": "2025-08-05T18:41:35.275836Z",
+      "versionCreatedAt": "2026-05-05T23:55:46.518162Z"
+    },
+    "description": "20b open-weight language model from OpenAI",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 2048
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "o1",
+    "name": "o1",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/o1",
+      "owner": "openai",
+      "model": "o1",
+      "version": "729043ff117dccc608d5b114e55ffed41bc849f4d85f9e61cc164d8ddde781df",
+      "url": "https://replicate.com/openai/o1",
+      "createdAt": "2025-05-15T19:47:11.903124Z",
+      "versionCreatedAt": "2026-01-22T01:27:25.185667Z"
+    },
+    "description": "OpenAI's first o-series reasoning model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for reasoning models. Currently supported values are low, medium, and high. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "o1-mini",
+    "name": "o1-mini",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/o1-mini",
+      "owner": "openai",
+      "model": "o1-mini",
+      "version": "afb63ac5dc420133173c4e864bb7c124404281d4dedc6b23776c80dd508213e3",
+      "url": "https://replicate.com/openai/o1-mini",
+      "createdAt": "2025-05-19T02:14:15.886539Z",
+      "versionCreatedAt": "2025-08-12T18:54:07.401092Z"
+    },
+    "description": "A small model alternative to o1",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096,
+        "minValue": 1,
+        "maxValue": 65536
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "o4-mini",
+    "name": "o4-mini",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "openai/o4-mini",
+      "owner": "openai",
+      "model": "o4-mini",
+      "version": "04ce1dc5eea6a7dd3ef53f69c65f7933bd70ce76dedda7e9fbb8cdf316214cf7",
+      "url": "https://replicate.com/openai/o4-mini",
+      "createdAt": "2025-05-01T09:42:42.891006Z",
+      "versionCreatedAt": "2026-01-22T01:43:53.065250Z"
+    },
+    "description": "OpenAI's fast, lightweight reasoning model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "The prompt to send to the model. Do not use if using messages."
+      },
+      "system_prompt": {
+        "type": "string",
+        "title": "System Prompt",
+        "name": "system_prompt",
+        "description": "System prompt to set the assistant's behavior"
+      },
+      "messages": {
+        "type": "array",
+        "title": "Messages",
+        "name": "messages",
+        "description": "A JSON string representing a list of messages. For example: [{\"role\": \"user\", \"content\": \"Hello, how are you?\"}]. If provided, prompt and system_prompt are ignored.",
+        "default": [],
+        "items": {
+          "type": "object"
+        }
+      },
+      "image_input": {
+        "type": "array",
+        "title": "Image Input",
+        "name": "image_input",
+        "description": "List of images to send to the model",
+        "default": [],
+        "format": "uri",
+        "field": "images_list",
+        "mediaKind": "image",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "title": "reasoning_effort",
+        "name": "reasoning_effort",
+        "description": "Constrains effort on reasoning for reasoning models. Currently supported values are low, medium, and high. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.",
+        "default": "medium",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "max_completion_tokens": {
+        "type": "int",
+        "title": "Max Completion Tokens",
+        "name": "max_completion_tokens",
+        "description": "Maximum number of completion tokens to generate",
+        "default": 4096
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image_input",
+    "modes": [
+      "t2t"
     ]
   },
   {
@@ -32030,6 +35678,91 @@
     ]
   },
   {
+    "id": "qwen3-235b-a22b-instruct-2507",
+    "name": "qwen3-235b-a22b-instruct-2507",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "qwen/qwen3-235b-a22b-instruct-2507",
+      "owner": "qwen",
+      "model": "qwen3-235b-a22b-instruct-2507",
+      "version": "c619bc062df6f8e205871a39340fb2a9f73ae3a8dd6435280b6feae65ac52c5c",
+      "url": "https://replicate.com/qwen/qwen3-235b-a22b-instruct-2507",
+      "createdAt": "2025-08-05T20:34:55.894319Z",
+      "versionCreatedAt": "2026-05-05T20:05:38.384090Z"
+    },
+    "description": "Updated Qwen3 model for instruction following",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt",
+        "default": ""
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "The maximum number of tokens the model should generate as output.",
+        "default": 1024,
+        "minValue": 1,
+        "maxValue": 16384
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "The value used to modulate the next token probabilities.",
+        "default": 0.1,
+        "minValue": 0,
+        "maxValue": 2
+      },
+      "presence_penalty": {
+        "type": "number",
+        "title": "Presence Penalty",
+        "name": "presence_penalty",
+        "description": "Presence penalty",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "title": "Frequency Penalty",
+        "name": "frequency_penalty",
+        "description": "Frequency penalty",
+        "default": 0,
+        "minValue": -2,
+        "maxValue": 2
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top-p (nucleus) sampling",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
     "id": "qwen3-tts",
     "name": "qwen3-tts",
     "provider": "replicate",
@@ -33282,6 +37015,146 @@
     },
     "modes": [
       "t2i"
+    ]
+  },
+  {
+    "id": "flan-t5-xl",
+    "name": "flan-t5-xl",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "replicate/flan-t5-xl",
+      "owner": "replicate",
+      "model": "flan-t5-xl",
+      "version": "eec2f71c986dfa3b7a5d842d22e1130550f015720966bec48beaae059b19ef4c",
+      "url": "https://replicate.com/replicate/flan-t5-xl",
+      "createdAt": "2023-03-03T05:57:31.538460Z",
+      "versionCreatedAt": "2023-04-17T00:39:26.172135Z"
+    },
+    "description": "A language model by Google for tasks like classification, summarization, and more",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt to send to FLAN-T5."
+      },
+      "max_length": {
+        "type": "int",
+        "title": "Max Length",
+        "name": "max_length",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 50,
+        "minValue": 1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic, 0.75 is a good starting value.",
+        "default": 0.75,
+        "minValue": 0.01,
+        "maxValue": 5
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 1,
+        "minValue": 0.01,
+        "maxValue": 1
+      },
+      "repetition_penalty": {
+        "type": "number",
+        "title": "Repetition Penalty",
+        "name": "repetition_penalty",
+        "description": "Penalty for repeated words in generated text; 1 is no penalty, values greater than 1 discourage repetition, less than 1 encourage it.",
+        "default": 1,
+        "minValue": 0.01,
+        "maxValue": 5
+      },
+      "debug": {
+        "type": "boolean",
+        "title": "Debug",
+        "name": "debug",
+        "description": "provide debugging output in logs",
+        "default": false
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "llama-7b",
+    "name": "llama-7b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "replicate/llama-7b",
+      "owner": "replicate",
+      "model": "llama-7b",
+      "version": "03d3a482ec4f2ec1809171d0ffbd3be7d2a775a01c6bfb5988f4acf39d64f0ce",
+      "url": "https://replicate.com/replicate/llama-7b",
+      "createdAt": "2023-03-13T23:07:08.373722Z",
+      "versionCreatedAt": "2023-03-14T00:04:28.592119Z"
+    },
+    "description": "Transformers implementation of the LLaMA language model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Text to prefix with 'hello '"
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Top p value",
+        "default": 0.95
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Temperature",
+        "default": 0.8
+      },
+      "max_gen_len": {
+        "type": "int",
+        "title": "Max Gen Len",
+        "name": "max_gen_len",
+        "description": "Max generation length",
+        "default": 256
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "string",
+      "title": "Output"
+    },
+    "modes": [
+      "t2t"
     ]
   },
   {
@@ -36056,6 +39929,76 @@
     "modes": [
       "t2i",
       "i2i"
+    ]
+  },
+  {
+    "id": "stablelm-tuned-alpha-7b",
+    "name": "stablelm-tuned-alpha-7b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "stability-ai/stablelm-tuned-alpha-7b",
+      "owner": "stability-ai",
+      "model": "stablelm-tuned-alpha-7b",
+      "version": "943c4afb4d0273cf1cf17c1070e182c903a9fe6b372df36b5447cf45935c42f2",
+      "url": "https://replicate.com/stability-ai/stablelm-tuned-alpha-7b",
+      "createdAt": "2023-04-19T19:52:36.086491Z",
+      "versionCreatedAt": "2023-04-19T23:19:00.766068Z"
+    },
+    "description": "7 billion parameter version of Stability AI's language model",
+    "inputs": {
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Input Prompt.",
+        "default": "What's your mood today?"
+      },
+      "max_new_tokens": {
+        "type": "int",
+        "title": "Max New Tokens",
+        "name": "max_new_tokens",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 100,
+        "minValue": 1
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "Valid if you choose top_p decoding. When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 1,
+        "minValue": 0.01,
+        "maxValue": 1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic, 0.75 is a good starting value.",
+        "default": 0.75,
+        "minValue": 0.01,
+        "maxValue": 5
+      },
+      "repetition_penalty": {
+        "type": "number",
+        "title": "Repetition Penalty",
+        "name": "repetition_penalty",
+        "description": "Penalty for repeated words in generated text; 1 is no penalty, values greater than 1 discourage repetition, less than 1 encourage it.",
+        "default": 1.2,
+        "minValue": 0.01,
+        "maxValue": 5
+      }
+    },
+    "required": [],
+    "hasPrompt": true,
+    "promptRequired": false,
+    "outputKind": "text",
+    "output": {
+      "type": "string",
+      "title": "Output"
+    },
+    "modes": [
+      "t2t"
     ]
   },
   {
@@ -40828,6 +44771,253 @@
     "imageField": "image",
     "modes": [
       "i2i"
+    ]
+  },
+  {
+    "id": "llava-13b",
+    "name": "llava-13b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "yorickvp/llava-13b",
+      "owner": "yorickvp",
+      "model": "llava-13b",
+      "version": "80537f9eead1a5bfa72d5ac6ea6414379be41d4d4f6679fd776e9535d1eb58bb",
+      "url": "https://replicate.com/yorickvp/llava-13b",
+      "createdAt": "2023-10-09T16:27:51.777748Z",
+      "versionCreatedAt": "2024-07-17T14:00:16.459010Z"
+    },
+    "description": "Visual instruction tuning towards large language and vision models with GPT-4 level capabilities",
+    "inputs": {
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Input image",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt to use for text generation"
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic",
+        "default": 0.2,
+        "minValue": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 1024,
+        "minValue": 0
+      }
+    },
+    "required": [
+      "image",
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "llava-v1-6-mistral-7b",
+    "name": "llava-v1.6-mistral-7b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "yorickvp/llava-v1.6-mistral-7b",
+      "owner": "yorickvp",
+      "model": "llava-v1.6-mistral-7b",
+      "version": "19be067b589d0c46689ffa7cc3ff321447a441986a7694c01225973c2eafc874",
+      "url": "https://replicate.com/yorickvp/llava-v1.6-mistral-7b",
+      "createdAt": "2024-02-01T11:42:00.607356Z",
+      "versionCreatedAt": "2024-02-02T16:42:35.328982Z"
+    },
+    "description": "LLaVA v1.6: Large Language and Vision Assistant (Mistral-7B)",
+    "inputs": {
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Input image",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt to use for text generation"
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic",
+        "default": 0.2,
+        "minValue": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 1024,
+        "minValue": 0
+      },
+      "history": {
+        "type": "array",
+        "title": "History",
+        "name": "history",
+        "description": "List of earlier chat messages, alternating roles, starting with user input. Include <image> to specify which message to attach the image to.",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
+    ]
+  },
+  {
+    "id": "llava-v1-6-vicuna-13b",
+    "name": "llava-v1.6-vicuna-13b",
+    "provider": "replicate",
+    "replicate": {
+      "ref": "yorickvp/llava-v1.6-vicuna-13b",
+      "owner": "yorickvp",
+      "model": "llava-v1.6-vicuna-13b",
+      "version": "0603dec596080fa084e26f0ae6d605fc5788ed2b1a0358cd25010619487eae63",
+      "url": "https://replicate.com/yorickvp/llava-v1.6-vicuna-13b",
+      "createdAt": "2024-02-01T14:34:51.371324Z",
+      "versionCreatedAt": "2024-02-02T16:43:41.053024Z"
+    },
+    "description": "LLaVA v1.6: Large Language and Vision Assistant (Vicuna-13B)",
+    "inputs": {
+      "image": {
+        "type": "string",
+        "title": "Image",
+        "name": "image",
+        "description": "Input image",
+        "format": "uri",
+        "field": "image",
+        "mediaKind": "image"
+      },
+      "prompt": {
+        "type": "string",
+        "title": "Prompt",
+        "name": "prompt",
+        "description": "Prompt to use for text generation"
+      },
+      "top_p": {
+        "type": "number",
+        "title": "Top P",
+        "name": "top_p",
+        "description": "When decoding text, samples from the top p percentage of most likely tokens; lower to ignore less likely tokens",
+        "default": 1,
+        "minValue": 0,
+        "maxValue": 1
+      },
+      "temperature": {
+        "type": "number",
+        "title": "Temperature",
+        "name": "temperature",
+        "description": "Adjusts randomness of outputs, greater than 1 is random and 0 is deterministic",
+        "default": 0.2,
+        "minValue": 0
+      },
+      "max_tokens": {
+        "type": "int",
+        "title": "Max Tokens",
+        "name": "max_tokens",
+        "description": "Maximum number of tokens to generate. A word is generally 2-3 tokens",
+        "default": 1024,
+        "minValue": 0
+      },
+      "history": {
+        "type": "array",
+        "title": "History",
+        "name": "history",
+        "description": "List of earlier chat messages, alternating roles, starting with user input. Include <image> to specify which message to attach the image to.",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "prompt"
+    ],
+    "hasPrompt": true,
+    "promptRequired": true,
+    "outputKind": "text",
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "title": "Output",
+      "x-cog-array-type": "iterator",
+      "x-cog-array-display": "concatenate"
+    },
+    "imageField": "image",
+    "modes": [
+      "t2t"
     ]
   },
   {

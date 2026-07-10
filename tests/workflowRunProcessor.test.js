@@ -5,6 +5,7 @@ import {
   signResultOutputs,
   collectResultKeys,
 } from '../modules/workflow/server/outputStorage.js';
+import { executeNode } from '../modules/workflow/server/nodeExecutors.js';
 import { runClaimedRun, processRun } from '../modules/workflow/server/runProcessor.js';
 import { runWorkerOnce } from '../modules/workflow/server/worker.js';
 
@@ -87,6 +88,18 @@ test('collectResultKeys extracts every stored key', () => {
     collectResultKeys({ outputs: [{ key: 'a' }, { value: 'x' }, { key: 'b' }] }),
     ['a', 'b']
   );
+});
+
+test('executeNode runs real text models and returns text outputs', async () => {
+  const result = await executeNode({
+    provider: 'replicate',
+    apiKey: 'r8_test',
+    node: { category: 'text', model: 'llm', params: { prompt: 'Hello' } },
+    runModel: async () => ({ text: 'Generated text' }),
+  });
+
+  assert.equal(result.outputs[0].type, 'text');
+  assert.equal(result.outputs[0].value, 'Generated text');
 });
 
 // ---------------------------------------------------------------------------
@@ -207,4 +220,3 @@ test('runWorkerOnce returns 0 when there is nothing to claim', async () => {
   });
   assert.equal(count, 0);
 });
-

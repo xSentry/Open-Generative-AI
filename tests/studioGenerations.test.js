@@ -26,6 +26,7 @@ test('mediaTypeForMode maps modes to coarse media types', () => {
   assert.equal(mediaTypeForMode('t2i'), 'image');
   assert.equal(mediaTypeForMode('i2v'), 'video');
   assert.equal(mediaTypeForMode('audio'), 'audio');
+  assert.equal(mediaTypeForMode('t2t'), 'text');
   assert.equal(mediaTypeForMode('unknown'), 'image');
 });
 
@@ -103,7 +104,14 @@ function makeStoreDeps() {
         return created0;
       },
       updateGenerationResult: async (id, patch) => {
-        const row = { id, status: patch.status, outputKey: patch.outputKey, outputType: patch.outputType, inputAssets: patch.inputAssets };
+        const row = {
+          id,
+          status: patch.status,
+          outputKey: patch.outputKey,
+          outputType: patch.outputType,
+          outputMeta: patch.outputMeta,
+          inputAssets: patch.inputAssets,
+        };
         updated.push(row);
         return row;
       },
@@ -153,6 +161,22 @@ test('storeGenerationOutputs marks failed when provider returns no output', asyn
   const result = await storeGenerationOutputs({ generation, providerResult: { outputs: [] }, deps, env: {} });
   assert.equal(result.status, 'failed');
   assert.equal(state.uploaded.length, 0);
+});
+
+test('storeGenerationOutputs stores text output metadata without downloading it', async () => {
+  const { state, deps } = makeStoreDeps();
+  const generation = { id: 'gen-text', userId: 'u', mediaType: 'text', inputAssets: [] };
+  const result = await storeGenerationOutputs({
+    generation,
+    providerResult: { text: 'Hello from t2t', replicateId: 'rep-text' },
+    deps,
+    env: {},
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(state.uploaded.length, 0);
+  assert.equal(state.updated[0].outputType, 'text/plain');
+  assert.deepEqual(state.updated[0].outputMeta, { text: 'Hello from t2t' });
 });
 
 test('cleanupGenerationInputs respects STUDIO_DELETE_INPUTS_AFTER_GENERATION=false', async () => {

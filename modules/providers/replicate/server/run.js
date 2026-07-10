@@ -154,29 +154,52 @@ export function buildInput(model, params = {}) {
   return input;
 }
 
-// Replicate outputs can be a string URL, an array of URLs or objects, or an
-// object with a nested URL. Normalize to { url, outputs }.
+function isHttpUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function stringifyTextOutput(output) {
+  if (output == null) return '';
+  if (typeof output === 'string') return output;
+  if (Array.isArray(output)) {
+    return output
+      .map((item) => (typeof item === 'string' ? item : item?.text || item?.content || ''))
+      .join('');
+  }
+  if (typeof output === 'object') {
+    if (typeof output.text === 'string') return output.text;
+    if (typeof output.content === 'string') return output.content;
+  }
+  return JSON.stringify(output);
+}
+
+// Replicate outputs can be media URLs or text chunks. Normalize to a provider
+// result that keeps URL outputs in `outputs` and text outputs in `text`.
 function normalizeOutput(output) {
-  if (output == null) return { url: null, outputs: [] };
+  if (output == null) return { url: null, outputs: [], text: null };
 
   if (typeof output === 'string') {
-    return { url: output, outputs: [output] };
+    return isHttpUrl(output)
+      ? { url: output, outputs: [output], text: null }
+      : { url: null, outputs: [], text: output };
   }
 
   if (Array.isArray(output)) {
     const outputs = output
-      .map((item) => (typeof item === 'string' ? item : item?.url || null))
+      .map((item) => (isHttpUrl(item) ? item : (isHttpUrl(item?.url) ? item.url : null)))
       .filter(Boolean);
-    return { url: outputs[0] || null, outputs };
+    if (outputs.length > 0) return { url: outputs[0] || null, outputs, text: null };
+    return { url: null, outputs: [], text: stringifyTextOutput(output) };
   }
 
   if (typeof output === 'object') {
-    if (typeof output.url === 'string') return { url: output.url, outputs: [output.url] };
-    const nested = Object.values(output).find((value) => typeof value === 'string' && /^https?:\/\//.test(value));
-    if (nested) return { url: nested, outputs: [nested] };
+    if (isHttpUrl(output.url)) return { url: output.url, outputs: [output.url], text: null };
+    const nested = Object.values(output).find((value) => isHttpUrl(value));
+    if (nested) return { url: nested, outputs: [nested], text: null };
+    return { url: null, outputs: [], text: stringifyTextOutput(output) };
   }
 
-  return { url: null, outputs: [] };
+  return { url: null, outputs: [], text: stringifyTextOutput(output) };
 }
 
 async function replicateJson(url, apiKey, options = {}) {
@@ -225,10 +248,11 @@ export async function runReplicatePrediction({ apiKey, model, params, mode, maxA
     const status = prediction?.status;
 
     if (status === 'succeeded') {
-      const { url, outputs } = normalizeOutput(prediction.output);
+      const { url, outputs, text } = normalizeOutput(prediction.output);
       return {
         url,
         outputs,
+        text,
         status: 'succeeded',
         provider: 'replicate',
         model: model.id,

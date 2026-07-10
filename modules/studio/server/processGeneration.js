@@ -22,6 +22,16 @@ function extractOutputs(providerResult) {
   return [];
 }
 
+function extractTextOutput(providerResult) {
+  if (!providerResult) return null;
+  if (typeof providerResult.text === 'string') return providerResult.text;
+  if (Array.isArray(providerResult.outputs) && providerResult.outputs.length > 0) {
+    const textOutputs = providerResult.outputs.filter((value) => typeof value === 'string' && !/^https?:\/\//i.test(value));
+    if (textOutputs.length > 0) return textOutputs.join('');
+  }
+  return null;
+}
+
 export async function createDefaultProcessDeps() {
   const [
     { createOutputObjectKey, deleteObject, getS3Config, uploadObject },
@@ -104,8 +114,26 @@ export async function cleanupGenerationInputs({ generation, config, deps, env = 
 // Store all provider outputs for a generation: the first goes onto the existing
 // row, extras fan out into sibling rows. Returns the updated primary row.
 export async function storeGenerationOutputs({ generation, providerResult, deps, config, env = process.env }) {
+  const textOutput = generation.mediaType === 'text' ? extractTextOutput(providerResult) : null;
   const outputs = extractOutputs(providerResult);
   const resolvedConfig = config || deps.getS3Config();
+
+  if (generation.mediaType === 'text') {
+    const cleaned = await cleanupGenerationInputs({ generation, config: resolvedConfig, deps, env });
+    if (textOutput === null || textOutput === '') {
+      return deps.markGenerationFailed(generation.id, {
+        error: 'Provider returned no text output.',
+        inputAssets: cleaned,
+      });
+    }
+    return deps.updateGenerationResult(generation.id, {
+      status: 'succeeded',
+      outputType: 'text/plain',
+      outputMeta: { text: textOutput },
+      providerRef: providerResult.replicateId || providerResult.request_id || null,
+      inputAssets: cleaned,
+    });
+  }
 
   if (outputs.length === 0) {
     const cleaned = await cleanupGenerationInputs({ generation, config: resolvedConfig, deps, env });

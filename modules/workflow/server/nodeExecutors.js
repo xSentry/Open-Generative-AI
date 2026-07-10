@@ -37,9 +37,17 @@ function textOutput(value) {
   return { id: newId(), outputs: [{ type: 'text', value: value ?? '', id: newId() }] };
 }
 
-// Normalize a provider result ({ url, outputs }) into the UI output list.
+// Normalize a provider result ({ url, outputs, text }) into the UI output list.
 function normalizeOutputs(providerResult, category) {
   const type = outputTypeForCategory(category);
+  if (type === 'text') {
+    if (typeof providerResult?.text === 'string') {
+      return [{ type, value: providerResult.text, id: newId() }];
+    }
+    if (Array.isArray(providerResult?.outputs) && providerResult.outputs.length) {
+      return providerResult.outputs.map((value) => ({ type, value, id: newId() }));
+    }
+  }
   const urls = Array.isArray(providerResult?.outputs) && providerResult.outputs.length
     ? providerResult.outputs
     : providerResult?.url
@@ -74,8 +82,9 @@ export async function executeNode({ provider, apiKey, node, runModel = defaultRu
 
   // ---- Pure local nodes (no inference) ----
 
-  // Text input node — emits its prompt text downstream.
-  if (category === 'text' || model === 'text-passthrough') {
+  // Text input node — emits its prompt text downstream. A text node with a real
+  // model id is handled by the inference branch below.
+  if ((category === 'text' && (!model || model === 'text-passthrough')) || model === 'text-passthrough') {
     return textOutput(params.prompt ?? params.text ?? '');
   }
 
@@ -94,8 +103,8 @@ export async function executeNode({ provider, apiKey, node, runModel = defaultRu
     return { id: newId(), outputs: [{ type: outputTypeForCategory(category), value, id: newId() }] };
   }
 
-  // ---- Inference nodes (image / video / audio) ----
-  if (category === 'image' || category === 'video' || category === 'audio') {
+  // ---- Inference nodes (text / image / video / audio) ----
+  if (category === 'text' || category === 'image' || category === 'video' || category === 'audio') {
     const providerResult = await runModel({ provider, apiKey, model, params });
     return { id: newId(), outputs: normalizeOutputs(providerResult, category) };
   }

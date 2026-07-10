@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildInput } from '../modules/providers/replicate/server/run.js';
+import { buildInput, runReplicatePrediction } from '../modules/providers/replicate/server/run.js';
 
 // A Seedance-like model: a single first-frame `image`, a `last_frame_image`
 // (swap) and a `reference_images` array (found via its mediaKind/field hints).
@@ -70,3 +70,35 @@ test('non-image params pass through unchanged', () => {
   assert.equal(input.prompt, 'hello');
 });
 
+test('Replicate string-array iterator outputs are returned as concatenated text', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    return Response.json({
+      id: 'prediction-1',
+      status: 'succeeded',
+      output: ['Hello', ', ', 'world'],
+      urls: { get: 'https://api.replicate.com/v1/predictions/prediction-1' },
+    });
+  };
+
+  try {
+    const result = await runReplicatePrediction({
+      apiKey: 'r8_test',
+      model: {
+        id: 'llm',
+        replicate: { version: 'version-1' },
+        inputs: { prompt: { type: 'string' } },
+      },
+      params: { prompt: 'Say hello' },
+    });
+
+    assert.equal(result.text, 'Hello, world');
+    assert.deepEqual(result.outputs, []);
+    assert.equal(result.url, null);
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

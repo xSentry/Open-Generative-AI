@@ -19,7 +19,7 @@
  *   node modules/providers/replicate/scripts/replicate-model-import.js --collection lipsync --mode lipsync
  *
  * Options:
- *   --mode <t2i|i2i|t2v|i2v|v2v|lipsync|recast|audio>   Force the Studio mode(s), comma-separated (otherwise inferred).
+ *   --mode <t2i|i2i|t2v|i2v|v2v|lipsync|recast|audio|t2t>   Force the Studio mode(s), comma-separated (otherwise inferred).
  *   --collection <slug>                                 Import every model in a Replicate collection (repeatable).
  *   --sort <newest|oldest|run_count|none>               Order collection models before limiting (default: newest).
  *   --limit <n|none>                                    Cap collection models kept (default: 80; "none" disables).
@@ -47,7 +47,7 @@ const STORE_PATH = path.join(MODULE_DIR, 'data', 'replicate-models.json');
 const OUTPUT_PATH = path.join(MODULE_DIR, 'replicateModels.js');
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
-const STUDIO_MODES = ['t2i', 'i2i', 't2v', 'i2v', 'v2v', 'lipsync', 'recast', 'audio'];
+const STUDIO_MODES = ['t2i', 'i2i', 't2v', 'i2v', 'v2v', 'lipsync', 'recast', 'audio', 't2t'];
 
 // Derived (virtual) modes are NOT imported directly with --mode; they are
 // computed from a model's inputs/outputs when the JS module is generated. This
@@ -142,6 +142,7 @@ const MODE_EXPORTS = {
   lipsync: 'lipsyncReplicateModels',
   recast: 'recastReplicateModels',
   audio: 'audioReplicateModels',
+  t2t: 't2tReplicateModels',
   // Derived modes:
   cinema: 'cinemaReplicateModels',
   marketing: 'marketingReplicateModels',
@@ -621,6 +622,7 @@ function inferModes(record, outputKind) {
   }
 
   if (resolvedKind === 'audio') return ['audio'];
+  if (resolvedKind === 'text') return ['t2t'];
 
   if (resolvedKind === 'video') {
     const modes = [];
@@ -643,7 +645,7 @@ function inferModes(record, outputKind) {
   if (hasVideoInput) return ['v2v'];
   if (hasImageInput) return ['i2i'];
   if (audioField) return ['audio'];
-  return ['t2i'];
+  return ['t2t'];
 }
 
 // ---------------------------------------------------------------------------
@@ -687,17 +689,8 @@ function buildRecord({ owner, name, model, version, schema }, opts) {
   // Prefer a concrete schema kind; otherwise fall back to the default_example's
   // file extension before leaving it ambiguous.
   const exampleKind = mediaKindFromExample(model);
-  const isConcrete = ['image', 'video', 'audio'].includes(outputInfo.kind);
+  const isConcrete = ['image', 'video', 'audio', 'text'].includes(outputInfo.kind);
   const effectiveOutputKind = isConcrete ? outputInfo.kind : (exampleKind || outputInfo.kind);
-
-  // Text-to-text / non-media models (LLMs, classifiers, embeddings, speech-to-
-  // text) have no Studio mode, so they are always filtered out — even when
-  // --mode is forced, since there is no media output to render.
-  if (effectiveOutputKind === 'text') {
-    const error = new Error('non-media (text-to-text) output; filtered out (no Studio mode applies)');
-    error.skip = true;
-    throw error;
-  }
 
   const displayName = opts.name || model.name || prettifyName(name);
   const id = opts.id || slugify(name);

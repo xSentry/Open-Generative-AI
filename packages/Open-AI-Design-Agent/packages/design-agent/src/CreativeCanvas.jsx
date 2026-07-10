@@ -297,9 +297,9 @@ export default function CreativeCanvas({
   }, [embedStorageKey]);
 
   const modelLists = useMemo(() => ({
-    ttt: provider === "muapi"
+    t2t: provider === "muapi"
       ? [{ id: "gpt-5-mini", name: "Default planner" }]
-      : (modelsByMode?.ttt || []),
+      : (modelsByMode?.t2t || []),
     t2i: modelsByMode?.t2i || [],
     i2i: modelsByMode?.i2i || [],
     t2v: modelsByMode?.t2v || [],
@@ -319,7 +319,7 @@ export default function CreativeCanvas({
 
   const currentModeModels = modelLists[selectedToolMode] || [];
   const currentModeModel = currentModeModels.find((model) => model.id === selectedModels[selectedToolMode]) || currentModeModels[0] || null;
-  const plannerModels = modelLists.ttt || [];
+  const plannerModels = modelLists.t2t || [];
   const selectedPlannerModelObj = provider === "muapi"
     ? { id: "gpt-5-mini", name: "Default planner" }
     : plannerModels.find((model) => model.id === selectedPlannerModel) || null;

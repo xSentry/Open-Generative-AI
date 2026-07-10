@@ -210,6 +210,7 @@ export function buildNodeSchemas(provider) {
   const image = [...(lists.t2i || []), ...(lists.i2i || [])];
   const video = [...(lists.t2v || []), ...(lists.i2v || []), ...(lists.v2v || [])];
   const audio = [...(lists.audio || []), ...(lists.lipsync || [])];
+  const text = [...(lists.t2t || [])];
 
   const apiModels = {};
   for (const [id, model] of Object.entries(API_NODE_MODELS)) {
@@ -220,6 +221,7 @@ export function buildNodeSchemas(provider) {
     categories: {
       text: {
         models: {
+          ...Object.fromEntries(dedupeById(text).map((model) => [model.id, mediaModelEntry(model)])),
           'text-passthrough': {
             name: 'text-passthrough',
             input_schema: { schemas: { input_data: { properties: PASSTHROUGH_PROPERTIES['text-passthrough'] } } },
