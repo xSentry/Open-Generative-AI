@@ -16,6 +16,7 @@ import { themes } from "./components/themes";
 import { FaAngleRight } from "react-icons/fa6";
 
 const BASE_URL = "/api/agents"; // "https://api.muapi.ai/agents";
+const AGENTS_HOME_PATH = "/studio/agents";
 
 const formatMessageTime = (date) => {
   if (!date) return "";
@@ -24,6 +25,24 @@ const formatMessageTime = (date) => {
     minute: "2-digit",
     hour12: true,
   }).format(new Date(date));
+};
+
+const hydrateMessage = (msg, fallbackTimestamp, index) => {
+  let ts = msg.timestamp || fallbackTimestamp || new Date();
+  if (typeof ts === 'string' && ts.includes('T') && !ts.endsWith('Z') && !ts.includes('+')) {
+    ts += 'Z';
+  }
+
+  const status = Array.isArray(msg.status)
+    ? msg.status
+    : (msg.toolcall && msg.skill_name ? [`Calling ${msg.skill_name}`] : []);
+
+  return {
+    ...msg,
+    id: msg.id || `${msg.role}_${Date.now()}_${index}`,
+    timestamp: ts,
+    status,
+  };
 };
 
 const getDateHeader = (date) => {
@@ -83,6 +102,25 @@ const parseMessageContent = (text) => {
   return parts;
 };
 
+const createClientUuid = () => {
+  if (typeof globalThis !== "undefined" && typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis !== "undefined" && typeof globalThis.crypto?.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
 
@@ -118,6 +156,106 @@ const CopyButton = ({ text }) => {
   );
 };
 
+const ModelGlyph = ({ model, fallback = "M" }) => {
+  const label = model?.replicate?.owner || model?.provider_name || model?.provider || fallback;
+  return (
+    <span className="text-[10px] font-black uppercase">
+      {String(label || fallback).slice(0, 1)}
+    </span>
+  );
+};
+
+const AgentModelButton = ({ icon, label, title, disabled, onClick }) => (
+  <button
+    type="button"
+    disabled={disabled}
+    title={title || label}
+    onClick={onClick}
+    className="h-8 flex items-center gap-2 px-3 rounded-lg transition-all border border-[var(--border-color)] bg-[var(--component-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--component-hover)] disabled:opacity-45 disabled:cursor-not-allowed group whitespace-nowrap"
+  >
+    <span className="w-5 h-5 shrink-0 rounded-md border border-[var(--border-color)] bg-[var(--component-hover)] flex items-center justify-center overflow-hidden">
+      {icon}
+    </span>
+    <span className="text-xs font-semibold max-w-[130px] truncate">
+      {label}
+    </span>
+    <IoChevronBack className="w-3.5 h-3.5 opacity-50 -rotate-90 group-hover:opacity-100 transition-opacity" />
+  </button>
+);
+
+function AgentModelDropdown({ title, children }) {
+  const [search, setSearch] = useState("");
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute top-[calc(100%+10px)] right-0 z-[70] w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border border-[var(--border-color)] bg-[var(--header-bg)]/95 shadow-2xl backdrop-blur-2xl p-3.5"
+    >
+      <div className="px-2 pb-3 mb-2 border-b border-[var(--border-color)]">
+        <div className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+          {title}
+        </div>
+        <div className="flex items-center gap-3 rounded-xl px-4 py-2.5 border border-[var(--border-color)] bg-[var(--component-bg)] focus-within:border-[var(--accent)] transition-colors">
+          <MdTerminal className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+          <input
+            type="text"
+            autoFocus
+            placeholder="Search models..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-transparent border-none text-xs text-[var(--text-primary)] focus:ring-0 w-full p-0 outline-none"
+          />
+        </div>
+      </div>
+      {children(search)}
+    </div>
+  );
+}
+
+function AgentModelList({ models, selectedId, onSelect, search, emptyLabel = "No models available" }) {
+  const needle = search.toLowerCase();
+  const filtered = models.filter((model) =>
+    String(model.name || "").toLowerCase().includes(needle) ||
+    String(model.id || "").toLowerCase().includes(needle)
+  );
+
+  if (filtered.length === 0) {
+    return <div className="px-4 py-8 text-center text-[var(--text-secondary)] text-xs italic opacity-60">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-1 max-h-[52vh]">
+      {filtered.map((model) => (
+        <button
+          type="button"
+          key={model.id}
+          onClick={() => onSelect(model)}
+          className={`w-full flex items-center justify-between p-3.5 rounded-2xl cursor-pointer transition-all border text-left hover:bg-[var(--component-hover)] ${
+            selectedId === model.id
+              ? "bg-[var(--component-hover)] border-[var(--accent)]"
+              : "border-transparent hover:border-[var(--border-color)]"
+          }`}
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 text-[var(--accent)] border border-[var(--border-color)] rounded-lg flex items-center justify-center shadow-inner uppercase overflow-hidden shrink-0">
+              <ModelGlyph model={model} />
+            </div>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="text-xs font-bold text-[var(--text-primary)] tracking-tight truncate">
+                {model.name || model.id}
+              </span>
+              <span className="text-[9px] text-[var(--text-secondary)] truncate">
+                {model.id}
+              </span>
+            </div>
+          </div>
+          {selectedId === model.id && <MdCheck className="w-4 h-4 text-[var(--accent)]" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const ChatPage = ({ 
   initialAgentDetails, 
   useUser, 
@@ -152,17 +290,7 @@ const ChatPage = ({
 
   const [messages, setMessages] = useState(() => {
     if (initialHistory && initialHistory.history) {
-      return initialHistory.history.map((msg, i) => {
-        let ts = msg.timestamp || initialHistory.created_at || new Date();
-        if (typeof ts === 'string' && ts.includes('T') && !ts.endsWith('Z') && !ts.includes('+')) {
-          ts += 'Z';
-        }
-        return {
-          ...msg,
-          id: msg.id || `${msg.role}_${Date.now()}_${i}`,
-          timestamp: ts
-        };
-      });
+      return initialHistory.history.map((msg, i) => hydrateMessage(msg, initialHistory.created_at, i));
     }
     return [];
   });
@@ -209,10 +337,72 @@ const ChatPage = ({
   const [isMounted, setIsMounted] = useState(false);
   const [liked, setLiked] = useState(agentDetails ? agentDetails?.has_liked : false);
   const [likeCount, setLikeCount] = useState(agentDetails ? agentDetails?.like_count : 0);
+  const [agentModelCatalog, setAgentModelCatalog] = useState(null);
+  const [selectedConversationModel, setSelectedConversationModel] = useState("");
+  const [selectedToolModel, setSelectedToolModel] = useState("");
+  const [openAgentModelMenu, setOpenAgentModelMenu] = useState(null);
+  const [hasHydratedAgentModel, setHasHydratedAgentModel] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCatalog() {
+      try {
+        const res = await fetch("/api/studio/models", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setAgentModelCatalog(data.models || null);
+      } catch {
+        if (!cancelled) setAgentModelCatalog(null);
+      }
+    }
+    loadCatalog();
+    return () => { cancelled = true; };
+  }, []);
+
+  const conversationModels = agentModelCatalog?.t2t || [];
+  const imageModels = agentModelCatalog?.t2i?.length ? agentModelCatalog.t2i : (agentModelCatalog?.i2i || []);
+  const selectedConversationModelObj = conversationModels.find((model) => model.id === selectedConversationModel) || null;
+  const selectedImageModelObj = imageModels.find((model) => model.id === selectedToolModel) || null;
+
+  useEffect(() => {
+    if (!agentModelCatalog || hasHydratedAgentModel) return;
+    const availableIds = new Set(conversationModels.map((model) => model.id));
+    const toolIds = new Set(imageModels.map((model) => model.id));
+    let stored = "";
+    let storedTool = "";
+    try {
+      const parsed = JSON.parse(localStorage.getItem("hg_agents_model_config") || "{}");
+      stored = typeof parsed.conversation_model === "string" ? parsed.conversation_model : "";
+      storedTool = typeof parsed.tool_model === "string" ? parsed.tool_model : "";
+    } catch {
+      stored = "";
+      storedTool = "";
+    }
+    const selected = stored && availableIds.has(stored)
+      ? stored
+      : (conversationModels[0]?.id || "");
+    const selectedTool = storedTool && toolIds.has(storedTool)
+      ? storedTool
+      : (imageModels[0]?.id || "");
+    setSelectedConversationModel(selected);
+    setSelectedToolModel(selectedTool);
+    setHasHydratedAgentModel(true);
+  }, [agentModelCatalog, conversationModels, imageModels, hasHydratedAgentModel]);
+
+  useEffect(() => {
+    if (!hasHydratedAgentModel || !selectedConversationModel) return;
+    localStorage.setItem(
+      "hg_agents_model_config",
+      JSON.stringify({
+        conversation_model: selectedConversationModel,
+        tool_model: selectedToolModel,
+      })
+    );
+  }, [hasHydratedAgentModel, selectedConversationModel, selectedToolModel]);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -236,17 +426,7 @@ const ChatPage = ({
           let endpoint = `${BASE_URL}/by-slug/${lowerAgentSlug}/${effectiveConversationId}`;
           const res = await axios.get(endpoint);
           if (res.data && res.data.history) {
-            const hydratedMessages = res.data.history.map((msg, i) => {
-              let ts = msg.timestamp || res.data.created_at || new Date();
-              if (typeof ts === 'string' && ts.includes('T') && !ts.endsWith('Z') && !ts.includes('+')) {
-                ts += 'Z';
-              }
-              return {
-                ...msg,
-                id: msg.id || `${msg.role}_${Date.now()}_${i}`,
-                timestamp: ts
-              };
-            });
+            const hydratedMessages = res.data.history.map((msg, i) => hydrateMessage(msg, res.data.created_at, i));
 
             if (hydratedMessages.length > 0) {
               setMessages(hydratedMessages);
@@ -349,7 +529,7 @@ const ChatPage = ({
     if (initialAgentDetails) {
       setAgentDetails(initialAgentDetails);
     } else {
-      // fetchAgentDetails();
+      fetchAgentDetails();
     }
   }, [lowerAgentSlug, initialAgentDetails]);
 
@@ -427,7 +607,7 @@ const ChatPage = ({
       });
       formData.append("file", file);
 
-      await axios.post(url, formData, {
+      const uploadRes = await axios.post(url, formData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (progressEvent) => {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -435,7 +615,7 @@ const ChatPage = ({
         }
       });
       const prefix = "https://cdn.muapi.ai/";
-      const uploadedUrl = prefix + fields.key;
+      const uploadedUrl = uploadRes.data?.url || response.data?.public_url || fields.public_url || prefix + fields.key;
       setAttachments(prev => [...prev, uploadedUrl]);
     } catch (err) {
       console.error("Upload failed", err);
@@ -554,7 +734,7 @@ const ChatPage = ({
       let currentConvId = conversationIdRef.current || effectiveConversationId;
       
       if (!currentConvId && !overrideText) {
-        const newConvId = crypto.randomUUID();
+        const newConvId = createClientUuid();
         conversationIdRef.current = newConvId;
         
         sessionStorage.setItem('pending_first_msg', JSON.stringify({
@@ -578,6 +758,8 @@ const ChatPage = ({
           stream: false,
           conversation_id: currentConvId,
           attachments: userMessage.attachments,
+          conversation_model: selectedConversationModel || null,
+          tool_model: selectedToolModel || null,
         }
       );
 
@@ -705,7 +887,7 @@ const ChatPage = ({
         <div className="flex items-center justify-between gap-4 w-full lg:max-w-[80%]">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => window.history.back()}
+              onClick={() => router.push(AGENTS_HOME_PATH)}
               className="flex items-center justify-center transition-all group"
             >
               <IoChevronBack className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors" />
@@ -835,6 +1017,62 @@ const ChatPage = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {conversationModels.length > 0 && (
+              <div className="relative">
+                <AgentModelButton
+                  title="Chat model"
+                  label={selectedConversationModelObj?.name || selectedConversationModelObj?.id || "Chat model"}
+                  icon={<RiRobot2Fill className="w-3.5 h-3.5" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenAgentModelMenu(openAgentModelMenu === "chat" ? null : "chat");
+                  }}
+                />
+                {openAgentModelMenu === "chat" && (
+                  <AgentModelDropdown title="Chat model">
+                    {(search) => (
+                      <AgentModelList
+                        models={conversationModels}
+                        selectedId={selectedConversationModel}
+                        search={search}
+                        onSelect={(model) => {
+                          setSelectedConversationModel(model.id);
+                          setOpenAgentModelMenu(null);
+                        }}
+                      />
+                    )}
+                  </AgentModelDropdown>
+                )}
+              </div>
+            )}
+            {imageModels.length > 0 && (
+              <div className="relative hidden md:block">
+                <AgentModelButton
+                  title="Image model"
+                  label={selectedImageModelObj?.name || selectedImageModelObj?.id || "Image model"}
+                  icon={<MdImage className="w-3.5 h-3.5" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenAgentModelMenu(openAgentModelMenu === "image" ? null : "image");
+                  }}
+                />
+                {openAgentModelMenu === "image" && (
+                  <AgentModelDropdown title="Image model">
+                    {(search) => (
+                      <AgentModelList
+                        models={imageModels}
+                        selectedId={selectedToolModel}
+                        search={search}
+                        onSelect={(model) => {
+                          setSelectedToolModel(model.id);
+                          setOpenAgentModelMenu(null);
+                        }}
+                      />
+                    )}
+                  </AgentModelDropdown>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleLike}

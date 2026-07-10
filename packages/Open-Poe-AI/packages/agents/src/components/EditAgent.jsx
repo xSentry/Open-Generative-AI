@@ -11,6 +11,59 @@ import { MdClose } from "react-icons/md";
 import { themes } from "./themes";
 
 const BASE_URL = "/api/agents";
+const AGENTS_HOME_PATH = "/studio/agents";
+
+const darkEditCss = `
+  .agent-edit-surface {
+    color: #fff;
+    background: #030303;
+  }
+  .agent-edit-surface [class*="bg-white"],
+  .agent-edit-surface [class*="bg-gray-50"],
+  .agent-edit-surface [class*="bg-gray-100"],
+  .agent-edit-surface [class*="bg-blue-50"],
+  .agent-edit-surface [class*="bg-violet-50"] {
+    background-color: rgba(255,255,255,0.035) !important;
+  }
+  .agent-edit-surface [class*="text-gray-900"],
+  .agent-edit-surface [class*="text-gray-800"],
+  .agent-edit-surface [class*="text-gray-700"],
+  .agent-edit-surface [class*="text-gray-600"] {
+    color: rgba(255,255,255,0.88) !important;
+  }
+  .agent-edit-surface [class*="text-gray-500"],
+  .agent-edit-surface [class*="text-gray-400"] {
+    color: rgba(255,255,255,0.42) !important;
+  }
+  .agent-edit-surface [class*="border-gray-"],
+  .agent-edit-surface [class*="border-white"] {
+    border-color: rgba(255,255,255,0.08) !important;
+  }
+  .agent-edit-surface input,
+  .agent-edit-surface textarea {
+    background-color: rgba(0,0,0,0.35) !important;
+    color: rgba(255,255,255,0.9) !important;
+    border-color: rgba(255,255,255,0.08) !important;
+  }
+  .agent-edit-surface input::placeholder,
+  .agent-edit-surface textarea::placeholder {
+    color: rgba(255,255,255,0.24) !important;
+  }
+  .agent-edit-surface input:focus,
+  .agent-edit-surface textarea:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: none !important;
+  }
+  .agent-edit-surface .agent-edit-panel {
+    background: rgba(255,255,255,0.035) !important;
+    border: 1px solid rgba(255,255,255,0.075) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.28) !important;
+  }
+  .agent-edit-surface .agent-edit-button {
+    border-radius: 6px !important;
+  }
+`;
 
 const EditAgent = ({ useUser, usedIn }) => {
   // Project-specific user detail extraction
@@ -129,7 +182,7 @@ const EditAgent = ({ useUser, usedIn }) => {
       setSaving(true);
       await axios.delete(`${BASE_URL}/by-slug/${id}`);
       toast.success("Agent deleted successfully");
-      router.push("/agents");
+      router.push(AGENTS_HOME_PATH);
     } catch (err) {
       console.error("Delete error:", err);
       toast.error("Failed to delete agent");
@@ -168,7 +221,7 @@ const EditAgent = ({ useUser, usedIn }) => {
       });
       uploadData.append("file", file);
 
-      await axios.post(url, uploadData, {
+      const uploadRes = await axios.post(url, uploadData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (progressEvent) => {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -176,7 +229,7 @@ const EditAgent = ({ useUser, usedIn }) => {
         }
       });
       const prefix = usedIn === "vadoo" ? "https://d3adwkbyhxyrtq.cloudfront.net/": "https://cdn.muapi.ai/";
-      const uploadedUrl = `${prefix}${fields.key}`;
+      const uploadedUrl = uploadRes.data?.url || uploadParams.public_url || fields.public_url || `${prefix}${fields.key}`;
       setFormData(prev => ({ ...prev, icon_url: uploadedUrl }));
       toast.success("Profile image updated");
     } catch (err) {
@@ -258,7 +311,7 @@ const EditAgent = ({ useUser, usedIn }) => {
       setSuccess(true);
       toast.success("Agent profile updated successfully!");
       setTimeout(() => {
-        router.push("/agents");
+        router.push(AGENTS_HOME_PATH);
       }, 1500);
     } catch (err) {
       console.error("Error updating agent:", err);
@@ -275,10 +328,11 @@ const EditAgent = ({ useUser, usedIn }) => {
 
   if (loading) {
     return (
-      <main className="flex-1 flex items-center justify-center">
+      <main className="agent-edit-surface flex min-h-full w-full items-center justify-center bg-[#030303]">
+        <style dangerouslySetInnerHTML={{ __html: darkEditCss }} />
         <div className="flex flex-col items-center gap-2">
-          <BiLoaderAlt className="w-12 h-12 text-blue-600 animate-spin" />
-          <p className="text-gray-500 font-medium animate-pulse">Loading Identity Data...</p>
+          <BiLoaderAlt className="w-10 h-10 text-[var(--primary-color)] animate-spin" />
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/35 animate-pulse">Loading Agent</p>
         </div>
       </main>
     );
@@ -286,17 +340,18 @@ const EditAgent = ({ useUser, usedIn }) => {
   
   if (error) {
     return (
-      <main className="flex-1 flex flex-col items-center justify-center h-full gap-4 text-center p-8">
-        <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-2">
-          <IoCloseOutline className="w-10 h-10 text-red-500 dark:text-red-400" />
+      <main className="agent-edit-surface flex min-h-full w-full flex-col items-center justify-center gap-4 bg-[#030303] p-8 text-center">
+        <style dangerouslySetInnerHTML={{ __html: darkEditCss }} />
+        <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10">
+          <IoCloseOutline className="h-8 w-8 text-red-300" />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Access Denied</h2>
-        <p className="text-gray-600 dark:text-secondary-text max-w-md font-medium">
+        <h2 className="text-lg font-bold text-white">Access denied</h2>
+        <p className="max-w-md text-sm text-white/45">
           {error}
         </p>
         <Link 
-          href="/agents"
-          className="mt-4 px-8 py-3 bg-gray-900 dark:bg-primary text-white font-bold rounded-xl hover:bg-gray-800 dark:hover:bg-primary/90 transition-all shadow-lg active:scale-95"
+          href={AGENTS_HOME_PATH}
+          className="mt-4 rounded-md bg-[var(--primary-color)] px-6 py-3 text-xs font-black uppercase tracking-[0.16em] text-black transition-all hover:bg-[var(--primary-light-color)] active:scale-95"
         >
           Return to My Agents
         </Link>
@@ -305,11 +360,13 @@ const EditAgent = ({ useUser, usedIn }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-8 items-center w-full max-w-[95%] sm:max-w-[90%] lg:max-w-[80%] relative">
-      <div className="flex items-center justify-between pb-2 border-b border-gray-50 dark:border-divider w-full">
+    <div className="agent-edit-surface min-h-full w-full bg-[#030303] text-white">
+      <style dangerouslySetInnerHTML={{ __html: darkEditCss }} />
+      <div className="sticky top-0 z-30 border-b border-white/[0.06] bg-black/50 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-5">
         <Link 
-          href="/agents"
-          className="flex items-center gap-2 text-gray-500 hover:text-gray-900 dark:text-secondary-text dark:hover:text-primary-text transition-colors text-sm font-medium"
+          href={AGENTS_HOME_PATH}
+          className="flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
         >
           <IoChevronBack className="w-4 h-4" />
           Back
@@ -317,7 +374,7 @@ const EditAgent = ({ useUser, usedIn }) => {
         <div className="flex items-center gap-3">
           <Link 
             href={`${window.location.origin}/agents/${id}`}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-xl text-sm font-bold text-white transition-all active:scale-95 shadow-sm"
+            className="agent-edit-button flex items-center gap-2 border border-white/[0.08] bg-white/[0.05] px-4 py-2 text-xs font-bold text-white/80 transition-all hover:bg-white/[0.09] active:scale-95"
           >
             <IoChatbubblesOutline className="w-4 h-4" />
             Chat
@@ -325,7 +382,8 @@ const EditAgent = ({ useUser, usedIn }) => {
           <button 
             type="button"
             onClick={handleShare}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-100 dark:border-divider rounded-xl text-sm font-bold text-gray-600 dark:text-primary-text hover:bg-gray-50 dark:hover:bg-secondary-bg transition-all active:scale-95"
+            className="agent-edit-button flex items-center gap-2 border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-white/55 transition-all hover:bg-white/[0.07] hover:text-white active:scale-95"
+            aria-label="Share agent"
           >
             <IoShareOutline className="w-4 h-4" />
           </button>
@@ -333,36 +391,38 @@ const EditAgent = ({ useUser, usedIn }) => {
             type="button"
             onClick={handleDelete}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 border border-red-50 dark:border-red-900/30 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all active:scale-95 disabled:opacity-50"
+            className="agent-edit-button flex items-center gap-2 border border-red-500/20 bg-red-500/10 px-3 py-2 text-red-300 transition-all hover:bg-red-500/15 active:scale-95 disabled:opacity-50"
+            aria-label="Delete agent"
           >
             <IoTrashOutline className="w-4 h-4" />
           </button>
           <Link 
             href="/docs/agents"
             target="_blank"
-            className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-secondary-bg border border-gray-100 dark:border-divider rounded-lg text-xs font-bold text-blue-600 dark:text-primary hover:bg-blue-50 dark:hover:bg-primary-bg transition-all active:scale-95 shadow-sm"
+            className="agent-edit-button hidden items-center gap-2 border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs font-bold text-white/45 transition-all hover:bg-white/[0.07] hover:text-white active:scale-95 sm:flex"
           >
             Docs
           </Link>
         </div>
       </div>
-      <div className="flex flex-col items-center gap-2 w-full">
-        <form id="edit-agent-form" onSubmit={handleSubmit} className="flex flex-col gap-12 w-full">
-          <div className="flex flex-col md:flex-row md:items-center gap-8 w-full">
+      </div>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-8">
+        <form id="edit-agent-form" onSubmit={handleSubmit} className="flex w-full flex-col gap-6">
+          <div className="agent-edit-panel flex w-full flex-col gap-6 p-5 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-8 w-full">
               <div className="relative">
                 <div 
                   onClick={() => setShowIconSelectionModal(true)}
-                  className="w-28 h-28 rounded-full bg-gray-100 dark:bg-secondary-bg overflow-hidden ring-4 ring-white dark:ring-primary-bg shadow-sm border border-gray-100 dark:border-divider cursor-pointer group transition-all hover:ring-blue-500/30"
+                  className="group relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.035] transition-all hover:border-[var(--primary-color)]/50"
                 >
                   {formData.icon_url ? (
                     <img src={formData.icon_url} alt="Profile" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-50 dark:bg-primary-bg transition-colors group-hover:bg-gray-100 dark:group-hover:bg-secondary-bg">
-                      <RiRobot2Fill className="w-12 h-12 text-gray-300 dark:text-divider group-hover:text-blue-500 transition-colors" />
+                    <div className="flex h-full w-full items-center justify-center bg-black/30 transition-colors group-hover:bg-white/[0.04]">
+                      <RiRobot2Fill className="h-10 w-10 text-white/20 transition-colors group-hover:text-[var(--primary-color)]" />
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-full">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
                     <IoPencilOutline className="w-6 h-6 text-white" />
                   </div>
                   {uploading && (
@@ -400,14 +460,14 @@ const EditAgent = ({ useUser, usedIn }) => {
                 </div>
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
               </div>
-              <div className="flex flex-col gap-2 w-full">
+              <div className="flex min-w-0 flex-col gap-2 w-full">
                 <div className="flex items-center gap-2 group/title w-full">
                   <input
                     type="text"
                     name="name"
                     value={formData.name}
                     onChange={handleInputChange}
-                    className="text-3xl font-bold text-gray-900 dark:text-white leading-tight tracking-tight truncate bg-transparent border-none p-0 focus:ring-0 w-full"
+                    className="w-full truncate border-none bg-transparent p-0 text-3xl font-bold leading-tight tracking-tight text-white outline-none focus:ring-0"
                     placeholder="Unnamed Agent"
                     required
                   />
@@ -418,47 +478,47 @@ const EditAgent = ({ useUser, usedIn }) => {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-4">
+            <div className="flex shrink-0 flex-col gap-3">
               <button
                 type="submit"
                 form="edit-agent-form"
                 disabled={saving}
-                className="px-6 py-3 whitespace-nowrap bg-black dark:bg-primary hover:bg-gray-800 dark:hover:bg-primary/90 disabled:opacity-50 text-white font-bold rounded-xl transition-all shadow-lg text-sm active:scale-95"
+                className="agent-edit-button h-10 whitespace-nowrap bg-[var(--primary-color)] px-6 text-xs font-black uppercase tracking-[0.14em] text-black transition-all hover:bg-[var(--primary-light-color)] active:scale-95 disabled:opacity-50"
               >
                 {saving ? "Saving..." : "Save Changes"}
               </button>
-              <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-secondary-bg rounded-2xl border border-gray-200 dark:border-divider w-fit">
+              <div className="flex w-fit items-center gap-1.5 rounded-md border border-white/[0.08] bg-black/25 p-1">
                 <div 
                   onClick={() => setFormData(prev => ({ ...prev, is_published: !prev.is_published }))}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer transition-all duration-300 ${
+                  className={`flex cursor-pointer items-center gap-2 rounded px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] transition-all duration-300 ${
                     formData.is_published 
-                      ? "bg-white dark:bg-primary-bg shadow-sm text-blue-600 dark:text-primary" 
-                      : "text-gray-400 hover:text-gray-600 dark:text-secondary-text dark:hover:text-primary-text"
+                      ? "bg-[var(--primary-color)] text-black"
+                      : "text-white/35 hover:bg-white/[0.05] hover:text-white/75"
                   }`}
                 >
-                  <div className={`w-2 h-2 rounded-full transition-all duration-500 ${formData.is_published ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" : "bg-gray-300 dark:bg-gray-600"}`} />
-                  <span className="text-xs font-bold tracking-wider">Publish</span>
+                  <div className={`h-2 w-2 rounded-full transition-all duration-500 ${formData.is_published ? "bg-black/70" : "bg-white/20"}`} />
+                  <span>Publish</span>
                 </div>
               </div>
             </div>
           </div>
-          <div className="flex flex-col gap-12">
-            <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6">
+            <div className="agent-edit-panel flex flex-col gap-5 p-5">
               <div className="flex flex-col gap-2">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Behavior & Identity</h2>
-                <p className="text-sm text-gray-500 dark:text-secondary-text font-medium">
+                <h2 className="text-sm font-black uppercase tracking-[0.18em] text-white">Behavior & Identity</h2>
+                <p className="text-sm text-white/40">
                   Shape how your agent thinks, responds, and describes itself
                 </p>
               </div>
               <div className="flex flex-col gap-6">
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between border-l-4 border-black dark:border-primary pl-3 ml-1 mb-1">
-                    <label className="text-base font-bold text-gray-900 dark:text-white">Instructions</label>
+                  <div className="flex items-center justify-between border-l-2 border-[var(--primary-color)] pl-3">
+                    <label className="text-xs font-black uppercase tracking-[0.16em] text-white/65">Instructions</label>
                     <button
                       type="button"
                       onClick={handleRealign}
                       disabled={isRealigning || JSON.stringify(formData.skill_ids.sort()) === JSON.stringify(initialSkills.sort())}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-100 disabled:text-gray-400 text-white text-xs font-bold rounded-lg transition-all active:scale-95 shadow-sm"
+                      className="agent-edit-button flex items-center gap-2 border border-violet-400/20 bg-violet-500/15 px-3 py-1.5 text-xs font-bold text-violet-100 transition-all hover:bg-violet-500/25 active:scale-95 disabled:opacity-45"
                       title={JSON.stringify(formData.skill_ids.sort()) === JSON.stringify(initialSkills.sort()) ? "No changes to skills" : "Sync instructions with current skills"}
                     >
                       {isRealigning ? <BiLoaderAlt className="animate-spin" /> : "✨ Realign with Skills"}
@@ -469,52 +529,52 @@ const EditAgent = ({ useUser, usedIn }) => {
                       name="system_prompt"
                       value={formData.system_prompt}
                       onChange={handleInputChange}
-                      className="w-full bg-white dark:bg-secondary-bg border border-gray-100 dark:border-divider rounded-2xl px-6 py-6 text-gray-800 dark:text-primary-text text-sm focus:ring-4 focus:ring-black/5 dark:focus:ring-primary/5 focus:border-black dark:focus:border-primary transition-all outline-none min-h-[200px] leading-relaxed shadow-sm font-medium"
+                      className="min-h-[220px] w-full rounded-md border border-white/[0.08] bg-black/35 px-4 py-4 text-sm font-medium leading-relaxed text-white outline-none transition-colors focus:border-[var(--primary-color)]"
                       placeholder="Define how your agent thinks and communicates..."
                       required
                     />
-                    <p className="text-xs text-gray-400 dark:text-secondary-text font-medium ml-1">
+                    <p className="ml-1 text-xs text-white/35">
                       Define how your agent thinks and communicates. Start with &quot;You are...&quot; and include specific examples.
                     </p>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-base font-bold text-gray-900 dark:text-white border-l-4 border-black dark:border-primary pl-3 ml-1">Description</label>
+                  <label className="border-l-2 border-[var(--primary-color)] pl-3 text-xs font-black uppercase tracking-[0.16em] text-white/65">Description</label>
                   <textarea
                     name="description"
                     value={formData.description}
                     onChange={handleInputChange}
-                    className="w-full bg-white dark:bg-secondary-bg border border-gray-100 dark:border-divider rounded-2xl px-6 py-4 text-gray-800 dark:text-primary-text text-sm focus:ring-4 focus:ring-black/5 dark:focus:ring-primary/5 focus:border-black dark:focus:border-primary transition-all outline-none min-h-[100px] leading-relaxed shadow-sm font-medium"
+                    className="min-h-[110px] w-full rounded-md border border-white/[0.08] bg-black/35 px-4 py-4 text-sm font-medium leading-relaxed text-white outline-none transition-colors focus:border-[var(--primary-color)]"
                     placeholder="Add a description that describes your agent to others..."
                   />
-                  <p className="text-xs text-gray-400 dark:text-secondary-text font-medium ml-1">
+                  <p className="ml-1 text-xs text-white/35">
                     This will be visible to users when they discover your agent.
                   </p>
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-6 border-t border-gray-50 dark:border-divider pt-12">
+            <div className="agent-edit-panel flex flex-col gap-5 p-5">
               <div className="flex flex-col gap-2">
-                <h2 className="text-base font-bold text-gray-900 dark:text-white border-l-4 border-black dark:border-primary pl-3 ml-1">Theme & Appearance</h2>
-                <p className="text-sm text-gray-500 dark:text-secondary-text font-medium ml-1">
+                <h2 className="border-l-2 border-[var(--primary-color)] pl-3 text-sm font-black uppercase tracking-[0.18em] text-white">Theme & Appearance</h2>
+                <p className="ml-1 text-sm text-white/40">
                   Customize how your agent looks in the chat interface
                 </p>
               </div>
               
-              <div className="bg-white dark:bg-secondary-bg shadow-lg rounded-3xl p-8 border border-gray-100 dark:border-divider flex flex-col lg:flex-row gap-8">
+              <div className="flex flex-col gap-8 lg:flex-row">
                 {/* Theme Selection */}
                 <div className="flex-1 flex flex-col gap-4">
-                  <h4 className="text-xs text-gray-400 dark:text-secondary-text font-bold uppercase tracking-wider ml-1">Select Theme</h4>
+                  <h4 className="ml-1 text-xs font-bold uppercase tracking-[0.16em] text-white/40">Select Theme</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {Object.values(themes || {}).map((theme) => (
                       <button
                         key={theme.id}
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, theme: theme.id }))}
-                        className={`group relative flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all ${
+                        className={`group relative flex flex-col items-center gap-2 rounded-md border p-3 transition-all ${
                           formData.theme === theme.id 
-                            ? "border-black dark:border-primary bg-gray-50 dark:bg-primary-bg shadow-md scale-[1.02]" 
-                            : "border-gray-100 dark:border-divider hover:border-gray-200 dark:hover:border-primary bg-white dark:bg-primary-bg/50"
+                            ? "border-[var(--primary-color)] bg-white/[0.06]"
+                            : "border-white/[0.08] bg-black/20 hover:border-[var(--primary-color)]/50 hover:bg-white/[0.04]"
                         }`}
                       >
                         <div 
@@ -527,12 +587,12 @@ const EditAgent = ({ useUser, usedIn }) => {
                           </div>
                         </div>
                         <span className={`text-xs font-bold transition-colors ${
-                          formData.theme === theme.id ? "text-black dark:text-white" : "text-gray-500 dark:text-secondary-text group-hover:text-gray-700 dark:group-hover:text-primary-text"
+                          formData.theme === theme.id ? "text-white" : "text-white/40 group-hover:text-white/75"
                         }`}>
                           {theme.name}
                         </span>
                         {formData.theme === theme.id && (
-                          <div className="absolute -top-2 -right-2 w-5 h-5 bg-black dark:bg-primary text-white rounded-full flex items-center justify-center shadow-lg">
+                          <div className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary-color)] text-black shadow-lg">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                             </svg>
@@ -543,9 +603,9 @@ const EditAgent = ({ useUser, usedIn }) => {
                   </div>
                 </div>
                 <div className="flex-1 flex flex-col gap-4">
-                  <h4 className="text-xs text-gray-400 dark:text-secondary-text font-bold uppercase tracking-wider ml-1">Chat Preview</h4>
+                  <h4 className="ml-1 text-xs font-bold uppercase tracking-[0.16em] text-white/40">Chat Preview</h4>
                   <div 
-                    className="w-full h-[300px] rounded-3xl overflow-hidden shadow-2xl border border-gray-100 dark:border-divider relative"
+                    className="relative h-[300px] w-full overflow-hidden rounded-lg border border-white/[0.08] shadow-2xl"
                     style={{
                       background: (themes[formData.theme] || themes.cosmic)?.colors.background,
                       color: (themes[formData.theme] || themes.cosmic)?.colors.foreground
@@ -615,25 +675,25 @@ const EditAgent = ({ useUser, usedIn }) => {
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 dark:text-secondary-text font-medium ml-1">
+              <p className="ml-1 text-xs text-white/35">
                 This theme will be automatically applied to the chat interface for all users.
               </p>
             </div>
 
-            <div className="flex flex-col gap-6 border-t border-gray-50 dark:border-divider pt-12">
-              <h2 className="text-base font-bold text-gray-900 dark:text-white border-l-4 border-black dark:border-primary pl-3 ml-1">Capabilities</h2>
-              <div className="bg-white dark:bg-secondary-bg shadow-lg rounded-3xl p-8 border border-gray-100 dark:border-divider flex flex-col gap-4">
+            <div className="agent-edit-panel flex flex-col gap-5 p-5">
+              <h2 className="border-l-2 border-[var(--primary-color)] pl-3 text-sm font-black uppercase tracking-[0.18em] text-white">Capabilities</h2>
+              <div className="flex flex-col gap-4">
                 <div className="relative">
                   <input
                     type="text"
                     placeholder="Type to search and add skills (e.g. image generation, web search)..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-white dark:bg-primary-bg border border-gray-100 dark:border-divider rounded-xl px-5 py-3.5 text-sm dark:text-white focus:ring-4 focus:ring-black/5 dark:focus:ring-primary/5 focus:border-black dark:focus:border-primary transition-all outline-none shadow-sm"
+                    className="w-full rounded-md border border-white/[0.08] bg-black/35 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-[var(--primary-color)]"
                   />
                 </div>
                 <div className="flex flex-col gap-4">
-                  <h4 className="text-xs text-gray-400 dark:text-secondary-text ml-1">
+                  <h4 className="ml-1 text-xs font-bold uppercase tracking-[0.16em] text-white/40">
                     Active Agent Skills ({formData.skill_ids.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -646,28 +706,28 @@ const EditAgent = ({ useUser, usedIn }) => {
                             key={skill.id}
                             type="button"
                             onClick={() => handleSkillToggle(skill.id)}
-                            className="relative p-4 flex items-center justify-between rounded-2xl bg-white dark:bg-primary-bg border border-gray-100 dark:border-divider shadow-sm transition-all hover:border-black dark:hover:border-primary group"
+                            className="group relative flex items-center justify-between rounded-md border border-white/[0.08] bg-black/25 p-4 text-left transition-all hover:border-[var(--primary-color)]/50 hover:bg-white/[0.04]"
                           >
                             <div className="flex flex-col text-left">
-                              <span title={skill.name} className="text-base font-bold text-gray-900 dark:text-white line-clamp-1">
+                              <span title={skill.name} className="line-clamp-1 text-sm font-bold text-white">
                                 {skill.name}
                               </span>
-                              <span title={skill.description} className="text-xs text-gray-400 dark:text-secondary-text line-clamp-2">
+                              <span title={skill.description} className="line-clamp-2 text-xs text-white/40">
                                 {skill.description}
                               </span>
                             </div>
-                            <FaRegTrashCan size={18} className="absolute right-4 opacity-0 group-hover:opacity-100 transition-all duration-300 ease-in-out bg-white dark:bg-primary-bg text-red-500" />
+                            <FaRegTrashCan size={16} className="absolute right-4 text-red-300 opacity-0 transition-all duration-300 ease-in-out group-hover:opacity-100" />
                           </button>
                         );
                       })
                     ) : (
-                      <div className="col-span-full p-12 rounded-2xl border border-dashed border-gray-200 dark:border-divider text-center bg-white/50 dark:bg-primary-bg/50">
-                        <p className="text-sm text-gray-400 dark:text-secondary-text">No skills configured yet</p>
+                      <div className="col-span-full rounded-md border border-dashed border-white/[0.1] bg-black/20 p-10 text-center">
+                        <p className="text-sm text-white/35">No skills configured yet</p>
                       </div>
                     )}
                   </div>
-                    <div className="border-t border-gray-200/50 dark:border-divider pt-4">
-                      <h4 className="text-xs text-gray-400 dark:text-secondary-text ml-1 mb-2">
+                    <div className="border-t border-white/[0.06] pt-4">
+                      <h4 className="mb-2 ml-1 text-xs font-bold uppercase tracking-[0.16em] text-white/40">
                         Available in Registry
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
@@ -685,17 +745,17 @@ const EditAgent = ({ useUser, usedIn }) => {
                                 handleSkillToggle(skill.id);
                                 setSearchTerm("");
                               }}
-                              className="p-4 flex items-center justify-between rounded-2xl border border-gray-100 dark:border-divider bg-white dark:bg-primary-bg hover:border-black dark:hover:border-primary transition-all shadow-sm hover:shadow-md group"
+                              className="group flex items-center justify-between rounded-md border border-white/[0.08] bg-black/25 p-4 text-left transition-all hover:border-[var(--primary-color)]/50 hover:bg-white/[0.04]"
                             >
                               <div className="flex flex-col text-left">
-                                <span title={skill.name} className="text-base font-bold text-gray-900 dark:text-white line-clamp-1">
+                                <span title={skill.name} className="line-clamp-1 text-sm font-bold text-white">
                                   {skill.name}
                                 </span>
-                                <span title={skill.description} className="text-xs text-gray-400 dark:text-secondary-text line-clamp-2">
+                                <span title={skill.description} className="line-clamp-2 text-xs text-white/40">
                                   {skill.description}
                                 </span>
                               </div>
-                              <span className="text-lg text-white bg-black dark:bg-primary rounded-full p-0.5 w-5 h-5 flex items-center justify-center flex-shrink-0">+</span>
+                              <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-[var(--primary-color)] text-sm font-bold text-black">+</span>
                             </button>
                           ))
                         }
@@ -703,13 +763,13 @@ const EditAgent = ({ useUser, usedIn }) => {
                     </div>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 dark:text-secondary-text font-medium ml-1">
+              <p className="ml-1 text-xs text-white/35">
                 Manage tools and skills your agent can use to perform tasks
               </p>
             </div>
           </div>
           {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-xl text-red-600 dark:text-red-400 text-sm flex items-center gap-3 animate-shake">
+            <div className="flex animate-shake items-center gap-3 rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
               <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -719,30 +779,30 @@ const EditAgent = ({ useUser, usedIn }) => {
         </form>
       </div>
       {showRealignModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-secondary-bg rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="px-8 py-6 border-b border-gray-100 dark:border-divider flex items-center justify-between bg-violet-50/50 dark:bg-violet-900/10">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="agent-edit-panel flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-white/[0.08] bg-violet-500/10 px-6 py-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center text-white shadow-lg shadow-violet-200 dark:shadow-none">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-violet-500/20 text-violet-100">
                   <RiRobot2Fill className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">Review Brain Realignment</h3>
-                  <p className="text-xs text-gray-500 dark:text-secondary-text font-medium">The AI has refactored your instructions to match your new skills.</p>
+                  <h3 className="text-lg font-bold text-white">Review Brain Realignment</h3>
+                  <p className="text-xs text-white/40">The AI has refactored your instructions to match your new skills.</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowRealignModal(false)}
-                className="p-2 hover:bg-white dark:hover:bg-primary-bg rounded-full transition-colors text-gray-400 dark:text-secondary-text hover:text-gray-900 dark:hover:text-white"
+                className="rounded-md p-2 text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white"
               >
                 <MdClose className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 flex flex-col md:flex-row gap-6 custom-scrollbar">
+            <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 md:flex-row custom-scrollbar">
               <div className="flex-1 flex flex-col gap-3">
-                <label className="text-xs font-bold text-gray-400 dark:text-secondary-text uppercase tracking-wider ml-1">Current Instructions</label>
-                <div className="flex-1 p-5 bg-gray-50 dark:bg-primary-bg border border-gray-100 dark:border-divider rounded-2xl text-sm text-gray-600 dark:text-secondary-text font-medium whitespace-pre-wrap overflow-y-auto max-h-[400px]">
+                <label className="ml-1 text-xs font-bold uppercase tracking-[0.16em] text-white/40">Current Instructions</label>
+                <div className="max-h-[400px] flex-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-white/[0.08] bg-black/30 p-4 text-sm font-medium text-white/50">
                   {formData.system_prompt}
                 </div>
               </div>
@@ -752,25 +812,25 @@ const EditAgent = ({ useUser, usedIn }) => {
                 </svg>
               </div>
               <div className="flex-1 flex flex-col gap-3">
-                <label className="text-xs font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider ml-1">Proposed Instructions</label>
+                <label className="ml-1 text-xs font-bold uppercase tracking-[0.16em] text-violet-200">Proposed Instructions</label>
                 <textarea
                   value={realignedPrompt}
                   onChange={(e) => setRealignedPrompt(e.target.value)}
-                  className="flex-1 p-5 bg-violet-50/30 dark:bg-violet-900/10 border-2 border-violet-100 dark:border-violet-800/50 rounded-2xl text-sm text-gray-800 dark:text-primary-text font-medium leading-relaxed focus:ring-4 focus:ring-violet-500/10 focus:border-violet-500 outline-none transition-all resize-none min-h-[400px]"
+                  className="min-h-[400px] flex-1 resize-none rounded-md border border-violet-400/20 bg-violet-500/10 p-4 text-sm font-medium leading-relaxed text-white outline-none transition-all focus:border-violet-300"
                 />
               </div>
             </div>
 
-            <div className="px-8 py-6 bg-gray-50 dark:bg-primary-bg border-t border-gray-100 dark:border-divider flex items-center justify-end gap-3">
+            <div className="flex items-center justify-end gap-3 border-t border-white/[0.08] bg-black/25 px-6 py-5">
               <button
                 onClick={() => setShowRealignModal(false)}
-                className="px-6 py-2.5 text-sm font-bold text-gray-600 dark:text-secondary-text hover:text-gray-900 dark:hover:text-white transition-colors"
+                className="agent-edit-button px-5 py-2.5 text-sm font-bold text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white"
               >
                 Discard Changes
               </button>
               <button
                 onClick={applyRealignedPrompt}
-                className="px-8 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-violet-200 dark:shadow-none active:scale-95"
+                className="agent-edit-button bg-violet-500 px-6 py-2.5 text-sm font-bold text-white transition-all hover:bg-violet-400 active:scale-95"
               >
                 Accept & Apply
               </button>
@@ -779,22 +839,22 @@ const EditAgent = ({ useUser, usedIn }) => {
         </div>
       )}
       {showIconPromptModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-secondary-bg w-full max-w-lg rounded-3xl shadow-2xl border border-gray-100 dark:border-divider overflow-hidden transform animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-100 dark:border-divider flex items-center justify-between bg-gray-50/50 dark:bg-primary-bg/50">
-              <h3 className="text-xl font-bold dark:text-white flex items-center gap-2">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="agent-edit-panel w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-white/[0.08] bg-white/[0.03] p-5">
+              <h3 className="flex items-center gap-2 text-lg font-bold text-white">
                 <span className="text-2xl">✨</span> Customize AI Icon Prompt
               </h3>
               <button
                 onClick={() => setShowIconPromptModal(false)}
-                className="p-2 hover:bg-white dark:hover:bg-secondary-bg rounded-full transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-primary-text"
+                className="rounded-md p-2 text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white"
               >
                 <IoCloseOutline className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="p-8">
-              <p className="text-sm text-gray-500 dark:text-secondary-text mb-6">
+            <div className="p-6">
+              <p className="mb-5 text-sm text-white/45">
                 Tell the AI what kind of icon you want. You can describe style, colors, and specific elements.
               </p>
 
@@ -803,20 +863,20 @@ const EditAgent = ({ useUser, usedIn }) => {
                   value={iconPrompt}
                   onChange={(e) => setIconPrompt(e.target.value)}
                   placeholder="Describe your agent's icon..."
-                  className="w-full h-40 p-5 bg-gray-50 dark:bg-primary-bg border border-gray-200 dark:border-divider rounded-2xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none dark:text-white placeholder:text-gray-400"
+                  className="h-40 w-full resize-none rounded-md border border-white/[0.08] bg-black/35 p-4 text-sm text-white outline-none transition-all placeholder:text-white/25 focus:border-[var(--primary-color)]"
                 />
 
                 <div className="flex gap-3 pt-4">
                   <button
                     onClick={() => setShowIconPromptModal(false)}
-                    className="flex-1 px-6 py-4 border border-gray-200 dark:border-divider rounded-2xl text-sm font-bold text-gray-600 dark:text-primary-text hover:bg-gray-50 dark:hover:bg-primary-bg transition-all active:scale-[0.98]"
+                    className="agent-edit-button flex-1 border border-white/[0.08] px-5 py-3 text-sm font-bold text-white/55 transition-all hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={() => handleGenerateIcon(iconPrompt)}
                     disabled={generatingIcon || !iconPrompt.trim()}
-                    className="flex-[2] px-6 py-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-2xl transition-all shadow-lg shadow-blue-500/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="agent-edit-button flex flex-[2] items-center justify-center gap-2 bg-[var(--primary-color)] px-5 py-3 font-bold text-black transition-all hover:bg-[var(--primary-light-color)] active:scale-[0.98] disabled:opacity-50"
                   >
                     {generatingIcon ? (
                       <>
@@ -837,35 +897,35 @@ const EditAgent = ({ useUser, usedIn }) => {
         </div>
       )}
       {showIconSelectionModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-secondary-bg w-full max-w-md rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-divider overflow-hidden transform animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-gray-50 dark:border-divider flex items-center justify-between">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="agent-edit-panel w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-white/[0.08] p-6">
               <div>
-                <h3 className="text-2xl font-black dark:text-white leading-tight">Profile Icon</h3>
-                <p className="text-sm text-gray-500 dark:text-secondary-text mt-1 font-medium">Choose how to update your agent's look</p>
+                <h3 className="text-lg font-black leading-tight text-white">Profile Icon</h3>
+                <p className="mt-1 text-sm text-white/40">Choose how to update your agent's look</p>
               </div>
               <button 
                 onClick={() => setShowIconSelectionModal(false)}
-                className="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-primary-bg rounded-full text-gray-400 hover:text-black dark:hover:text-white transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white"
               >
                 <IoCloseOutline className="w-6 h-6" />
               </button>
             </div>
             
-            <div className="p-8 grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-3 p-6">
               <button
                 onClick={() => {
                   setShowIconSelectionModal(false);
                   fileInputRef.current?.click();
                 }}
-                className="group flex flex-col items-center gap-4 p-8 bg-gray-50 dark:bg-primary-bg rounded-[2rem] border border-gray-100 dark:border-divider hover:border-blue-500/50 hover:bg-white dark:hover:bg-secondary-bg transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5 active:scale-[0.98]"
+                className="group flex flex-col items-center gap-4 rounded-md border border-white/[0.08] bg-black/25 p-6 transition-all duration-300 hover:border-[var(--primary-color)]/50 hover:bg-white/[0.04] active:scale-[0.98]"
               >
-                <div className="w-16 h-16 rounded-2xl bg-white dark:bg-secondary-bg shadow-sm flex items-center justify-center text-gray-400 group-hover:text-blue-500 transition-colors duration-300">
+                <div className="flex h-12 w-12 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white/45 transition-colors duration-300 group-hover:text-[var(--primary-color)]">
                   <IoImageOutline className="w-8 h-8" />
                 </div>
                 <div className="text-center">
-                  <h4 className="font-bold text-gray-900 dark:text-white text-lg">Upload Photo</h4>
-                  <p className="text-sm text-gray-500 dark:text-secondary-text mt-1">Pick a file from your device</p>
+                  <h4 className="text-base font-bold text-white">Upload Photo</h4>
+                  <p className="mt-1 text-sm text-white/40">Pick a file from your device</p>
                 </div>
               </button>
 
@@ -875,14 +935,14 @@ const EditAgent = ({ useUser, usedIn }) => {
                   setIconPrompt(`A professional, clean profile icon for an AI agent named "${formData.name}". Description: ${formData.description || "An AI assistant"}. Minimalist, high-quality, circular composition.`);
                   setShowIconPromptModal(true);
                 }}
-                className="group flex flex-col items-center gap-4 p-8 bg-blue-50/30 dark:bg-blue-500/5 rounded-[2rem] border border-blue-100/50 dark:border-blue-500/20 hover:border-blue-500 hover:bg-white dark:hover:bg-secondary-bg transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/10 active:scale-[0.98]"
+                className="group flex flex-col items-center gap-4 rounded-md border border-[var(--primary-color)]/20 bg-[var(--primary-color)]/10 p-6 transition-all duration-300 hover:border-[var(--primary-color)]/60 hover:bg-[var(--primary-color)]/15 active:scale-[0.98]"
               >
-                <div className="w-16 h-16 rounded-2xl bg-blue-600 shadow-lg shadow-blue-500/30 flex items-center justify-center text-white transform transition-transform duration-500 group-hover:rotate-12 group-hover:scale-110">
+                <div className="flex h-12 w-12 transform items-center justify-center rounded-md bg-[var(--primary-color)] text-black transition-transform duration-500 group-hover:scale-105">
                   <IoSparklesOutline className="w-8 h-8" />
                 </div>
                 <div className="text-center">
-                  <h4 className="font-bold text-blue-600 dark:text-primary text-lg">Generate with AI</h4>
-                  <p className="text-sm text-blue-500/70 dark:text-primary/70 mt-1">Create unique icon from prompt</p>
+                  <h4 className="text-base font-bold text-[var(--primary-color)]">Generate with AI</h4>
+                  <p className="mt-1 text-sm text-white/40">Create unique icon from prompt</p>
                 </div>
               </button>
             </div>
