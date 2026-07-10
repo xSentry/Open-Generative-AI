@@ -15,17 +15,19 @@ Primary files:
 - `modules/workflow/server/schemas.js` - exposes registered utilities through `/api/workflow/{id}/node-schemas`.
 - `modules/workflow/server/nodeExecutors.js` - dispatches `category: "utility"` nodes to the registry.
 - `modules/workflow/server/outputStorage.js` - uploads media outputs to S3 for all workflow nodes.
+- `app/api/workflow/[[...path]]/route.js` - keeps local utility schemas visible even when a provider proxy is selected.
 - `packages/Vibe-Workflow/packages/workflow-builder/src/components/UtilityNode.jsx` - generic frontend utility node.
 - `packages/Vibe-Workflow/packages/workflow-builder/src/components/NodeFlow.jsx` - save/restore/edge handling.
+- `packages/Vibe-Workflow/packages/workflow-builder/src/components/RenderField.jsx` - properties panel field rendering and visibility rules.
 - `packages/Vibe-Workflow/packages/workflow-builder/src/components/NodesNavbar.jsx` - node menu routing.
 
-In most cases, add a node by editing only `utilityNodes.js` and tests. Frontend code should not need changes unless the node needs a bespoke visual component.
+In most cases, add a node by editing only `utilityNodes.js` and tests. Frontend code should not need changes when the generic utility UI already supports the needed schema metadata. If a node requires new generic behavior (conditional config fields, non-connectable config, auto-run, preview behavior, edge cleanup), update `UtilityNode.jsx` / `NodeFlow.jsx` once so future utility nodes inherit it.
 
 ## Add A New Utility Node
 
 1. Add an entry to `UTILITY_NODE_DEFINITIONS` in `modules/workflow/server/utilityNodes.js`.
 2. Use `nodeType: "utilityNode"` unless reusing an existing specialized component.
-3. Declare every accepted input in `inputSchema`.
+3. Declare every runtime parameter in `inputSchema`.
 4. Declare the output media type with `output.type`.
 5. Implement `execute: async ({ params }) => result`.
 6. Return the standard node result shape:
@@ -46,7 +48,7 @@ Valid output types:
 - `video_url`
 - `audio_url`
 
-The frontend derives generic utility input handles from `inputSchema` property names. The executor receives resolved `params` with upstream `{{ node.outputs[0].value }}` templates already substituted by the engine.
+The frontend derives generic utility input handles from connectable `inputSchema` property names. The executor receives resolved `params` with upstream `{{ node.outputs[0].value }}` templates already substituted by the engine.
 
 ## Input Schema Rules
 
@@ -76,6 +78,42 @@ timestamp: { type: 'number', title: 'Timestamp', default: 0 }
 format: { type: 'string', title: 'Format', enum: ['png', 'jpg'], default: 'png' }
 include_metadata: { type: 'boolean', title: 'Include Metadata', default: false }
 ```
+
+Distinguish workflow inputs from local configuration:
+
+```js
+video_url: {
+  type: 'string',
+  title: 'Video',
+  field: 'video',
+  name: 'video_url',
+  required: true,        // required for auto-run
+},
+frame_mode: {
+  type: 'string',
+  title: 'Frame',
+  enum: ['First Frame', 'Last Frame', 'Custom Frame'],
+  default: 'First Frame',
+  connectable: false,   // config field, not a workflow handle
+},
+timestamp: {
+  type: 'string',
+  title: 'Timestamp',
+  format: 'text',
+  default: '0',
+  connectable: false,
+  visibleWhen: { field: 'frame_mode', equals: 'Custom Frame' },
+}
+```
+
+Generic utility UI expectations:
+
+- `connectable: false` fields appear in the properties panel but do not render graph handles.
+- `visibleWhen` / `showWhen` hides fields until the referenced config value matches.
+- Required connectable inputs (`required: true`) gate auto-run. If they are missing or disconnected, the node output resets to the placeholder.
+- Generic utility nodes preview their output in the node body by output type (`text`, `image_url`, `video_url`, `audio_url`), not their config.
+- Utility nodes should auto-run when connected input values or visible config values change.
+- Removing an edge must reset the corresponding utility input. Clearing a utility input in the config panel must remove the corresponding edge.
 
 Handle colors are inferred from field names and `field` metadata:
 
@@ -143,11 +181,26 @@ For media transforms, use a helper if needed and return a media output:
   name: 'Video Frame Extractor',
   nodeType: 'utilityNode',
   inputSchema: {
-    video_url: { type: 'string', title: 'Video', field: 'video', name: 'video_url' },
-    timestamp: { type: 'number', title: 'Timestamp Seconds', default: 0 },
-    format: { type: 'string', title: 'Format', enum: ['png', 'jpg'], default: 'png' },
+    video_url: { type: 'string', title: 'Video', field: 'video', name: 'video_url', required: true },
+    frame_mode: {
+      type: 'string',
+      title: 'Frame',
+      name: 'frame_mode',
+      enum: ['First Frame', 'Last Frame', 'Custom Frame'],
+      default: 'First Frame',
+      connectable: false,
+    },
+    timestamp: {
+      type: 'string',
+      title: 'Timestamp',
+      name: 'timestamp',
+      format: 'text',
+      default: '0',
+      connectable: false,
+      visibleWhen: { field: 'frame_mode', equals: 'Custom Frame' },
+    },
   },
-  output: { type: 'image_url', label: 'Frame' },
+  output: { type: 'image_url', label: 'Image' },
   execute: async ({ params }) => {
     const framePath = await extractFrameSomehow(params.video_url, params);
     return {
@@ -160,6 +213,16 @@ For media transforms, use a helper if needed and return a media output:
 
 Do not implement heavy binary logic inline when it becomes large. Put helper functions in a small module under `modules/workflow/server/` and import them into `utilityNodes.js`.
 
+For binary-backed utilities:
+
+- Prefer a small helper module under `modules/workflow/server/`.
+- Fail clearly if required binaries are unavailable.
+- Support explicit binary path env vars when useful (for example `FFMPEG_PATH`).
+- Verify local media outputs exist and are non-empty before returning a file path.
+- Strip query strings from remote URLs before deriving temp filenames.
+- Document runtime package requirements. For the root Alpine Dockerfile, ffmpeg-based nodes need `RUN apk add --no-cache ffmpeg`.
+- For exact last-frame extraction with ffmpeg, do not rely on `-sseof -0.001 -frames:v 1`. Seek from near the end and decode through the remaining frames with `-update 1 -f image2`, with a no-seek fallback, so the final decoded frame overwrites the image.
+
 ## Validation
 
 Add or update focused tests:
@@ -167,6 +230,7 @@ Add or update focused tests:
 - `tests/workflowSchemas.test.js` when schema metadata or menu routing expectations change.
 - `tests/workflowRunProcessor.test.js` for executor behavior and output storage.
 - `tests/workflowEngine.test.js` only when graph resolution/order behavior changes.
+- `npm run build:workflow` after any workflow-builder UI/schema behavior change.
 
 Run at minimum:
 
@@ -179,7 +243,8 @@ npm run build:workflow
 
 - Keep utility nodes provider-independent when possible.
 - Do not add database migrations for static utility node registration.
-- Do not edit MuAPI proxy behavior for local utility nodes.
+- Utility schemas should be exposed locally regardless of selected provider, because utility nodes are provider-independent. Be careful not to route `node-schemas` entirely through a provider proxy or local utilities disappear from the builder.
+- Provider-independent schema visibility is separate from execution routing. Do not make remote provider/MuAPI execution responsible for local helper binaries or local-only utility code unless that provider runtime is explicitly designed for it.
 - Preserve existing specialized nodes: `prompt-concatenator` uses `concatNode`; `video-combiner` uses `vidConcatNode`.
 - Use `utilityNode` for new generic programmatic nodes.
 - Keep the public output contract as `{ outputs: [{ type, value, id }] }`.
