@@ -15,6 +15,7 @@
 
 import { STUDIO_MODEL_LISTS } from '../../studio/server/studioCatalog.js';
 import { getSerializableReplicateModelLists } from '../../providers/replicate/server/catalog.js';
+import { buildUtilityModelEntries } from './utilityNodes.js';
 
 // ---------------------------------------------------------------------------
 // Static catalogs mirrored from the workflow-builder client (utility.jsx) so we
@@ -55,24 +56,6 @@ const API_NODE_MODELS = {
       category: { description: 'Model category (e.g. imagegen)', type: 'string', format: 'text', required: true },
       subcategory: { description: 'Model identifier (e.g. flux_dev)', type: 'string', format: 'text', required: true },
     },
-  },
-};
-
-// Utility models (prompt concatenator + video combiner).
-const CONCAT_PROPERTIES = {
-  prompt: { examples: [''], description: 'Text prompt describing the image.', type: 'string', title: 'Prompt', name: 'prompt' },
-};
-
-const VIDEO_COMBINER_PROPERTIES = {
-  videos_list: {
-    examples: ['https://d3adwkbyhxyrtq.cloudfront.net/webassets/videomodels/seedance-v2.0-i2v.mp4'],
-    description: 'Upload the video clips you want to combine, in order. Each clip can be 5–60 seconds.',
-    field: 'videos_list', type: 'array', items: { type: 'string' }, title: 'Video Clips', name: 'videos_list', maxItems: 20,
-  },
-  aspect_ratio: {
-    enum: ['auto', '16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21'],
-    title: 'Aspect Ratio', name: 'aspect_ratio', type: 'string', default: 'auto',
-    description: "Output aspect ratio. 'auto' uses the aspect ratio of the first uploaded clip.",
   },
 };
 
@@ -233,15 +216,7 @@ export function buildNodeSchemas(provider) {
       audio: buildMediaCategory(audio, 'audio-passthrough'),
       api: { models: apiModels },
       utility: {
-        models: {
-          // prompt-concatenator uses a plain properties map (iterated directly).
-          'prompt-concatenator': { name: 'Prompt Concatenator', input_schema: CONCAT_PROPERTIES },
-          // video-combiner nests under schemas.input_data.properties.
-          'video-combiner': {
-            name: 'Video Combiner',
-            input_schema: { schemas: { input_data: { properties: VIDEO_COMBINER_PROPERTIES } } },
-          },
-        },
+        models: buildUtilityModelEntries(),
       },
     },
   };

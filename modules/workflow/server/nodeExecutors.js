@@ -13,6 +13,7 @@
 import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
 import { runMuapiPrediction } from '../../providers/muapi/server/run.js';
 import { getReplicateModelById } from '../../providers/replicate/server/catalog.js';
+import { executeUtilityNode } from './utilityNodes.js';
 
 function newId() {
   return (globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -88,12 +89,10 @@ export async function executeNode({ provider, apiKey, node, runModel = defaultRu
     return textOutput(params.prompt ?? params.text ?? '');
   }
 
-  // Prompt concatenator utility — joins incoming prompt fragments.
-  if (model === 'prompt-concatenator') {
-    const parts = [];
-    if (Array.isArray(params.prompt)) parts.push(...params.prompt);
-    else if (params.prompt != null && params.prompt !== '') parts.push(params.prompt);
-    return textOutput(parts.filter((p) => p != null && p !== '').join(' '));
+  // Registered local utility nodes (prompt concatenator, media transforms, etc.).
+  if (category === 'utility') {
+    const result = await executeUtilityNode({ model, params });
+    if (result) return result;
   }
 
   // Media passthrough / upload nodes — surface the provided URL unchanged.

@@ -82,11 +82,3 @@ create table if not exists agent_chat_jobs (
 );
 create index if not exists agent_chat_jobs_user_idx
   on agent_chat_jobs (user_id, provider, updated_at desc);
-
-insert into agent_skills (id, name, description) values
-  ('text-chat', 'Text Chat', 'Answer questions and help with general text tasks.'),
-  ('creative-prompting', 'Creative Prompting', 'Improve prompts for image, video, audio, and design workflows.'),
-  ('media-analysis', 'Media Analysis', 'Discuss uploaded images and media references when the selected model supports them.')
-on conflict (id) do update
-  set name = excluded.name,
-      description = excluded.description;

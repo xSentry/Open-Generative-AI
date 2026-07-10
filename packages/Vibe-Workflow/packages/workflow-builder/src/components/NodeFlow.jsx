@@ -41,6 +41,7 @@ import NodesNavbar from "./NodesNavbar"
 import ChatWidget from "./ChatWidget";
 import { AiOutlineAudio } from "react-icons/ai";
 import VideoCombiner from "./VideoCombiner";
+import UtilityNode from "./UtilityNode";
 import { useGenerationCost } from "./useGenerationCost";
 import { watchWorkflowRun } from "./workflowStream";
 
@@ -53,6 +54,7 @@ const nodeTypes = {
   audioNode: AudioGeneration,
   concatNode: PromptConcate,
   vidConcatNode: VideoCombiner,
+  utilityNode: UtilityNode,
   apiNode: ApiNode
 }
 
@@ -105,6 +107,11 @@ const getEdgeColor = (sourceHandle, targetHandle, sourceNode = null, targetNode 
   }
 
   if (["textOutput", "concatOutput"].includes(sourceHandle)) return "blue";
+  if (sourceHandle === "utilityOutput" && sourceNode) {
+    return sourceNode.data?.handleTypes?.utilityOutput
+      || getUtilityOutputColor(sourceNode.data?.nodeSchemas, sourceNode.data?.selectedModel?.id)
+      || "blue";
+  }
   if (["imageOutput"].includes(sourceHandle)) return "green";
   if (["videoOutput"].includes(sourceHandle)) return "orange";
   if (["audioOutput"].includes(sourceHandle)) return "yellow";
@@ -162,6 +169,36 @@ const getModelObjStatic = (category, modelId, nodeSchemas) => {
   };
 };
 
+const getUtilityNodeType = (modelId, nodeSchemas) => {
+  return nodeSchemas?.categories?.utility?.models?.[modelId]?.workflow?.node_type
+    || (modelId === "video-combiner" ? "vidConcatNode" : modelId === "prompt-concatenator" ? "concatNode" : "utilityNode");
+};
+
+const outputColorForType = (type) => {
+  if (type === "image_url") return "green";
+  if (type === "video_url") return "orange";
+  if (type === "audio_url") return "yellow";
+  return "blue";
+};
+
+const colorForSchemaField = (fieldName, meta = {}) => {
+  const field = meta.field || fieldName;
+  if (/audio/i.test(field)) return "yellow";
+  if (/video/i.test(field)) return "orange";
+  if (/image|swap|frame/i.test(field)) return "green";
+  return "blue";
+};
+
+const getUtilityProperties = (nodeSchemas, modelId) => {
+  const schema = nodeSchemas?.categories?.utility?.models?.[modelId]?.input_schema;
+  return schema?.schemas?.input_data?.properties || schema || {};
+};
+
+const getUtilityOutputColor = (nodeSchemas, modelId) => {
+  const outputType = nodeSchemas?.categories?.utility?.models?.[modelId]?.workflow?.output_type || "text";
+  return outputColorForType(outputType);
+};
+
 // Reduce a node's persisted run history (all node-runs, any status) into the
 // current UI state: the succeeded-only entries used for the image/output
 // navigation, plus the latest error / in-progress flag so a reopened workflow
@@ -202,7 +239,7 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
     return {
       id: n.id,
       type: n.category === "utility"
-        ? (n.model === "video-combiner" ? "vidConcatNode" : "concatNode")
+        ? getUtilityNodeType(n.model, nodeSchemas)
         : `${n.category}Node`,
       position: {
         x: n.position?.x ?? 350,
@@ -399,7 +436,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       return {
         id: n.id,
         type: n.category === "utility"
-          ? (n.model === "video-combiner" ? "vidConcatNode" : "concatNode")
+          ? getUtilityNodeType(n.model, nodeSchemas)
           : `${n.category}Node`,
         position: {
           x: n.position?.x ?? 350,
@@ -775,6 +812,22 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
               }
             }
 
+            if (n.id === params.target && n.type === "utilityNode") {
+              const utilityProps = getUtilityProperties(nodeSchemas, n.data?.selectedModel?.id);
+              const meta = utilityProps[params.targetHandle];
+              if (meta) {
+                if (meta.type === "array") {
+                  const list = Array.isArray(updatedFormValues[params.targetHandle]) ? [...updatedFormValues[params.targetHandle]] : [];
+                  if (sourceValue && sourceValue.trim() !== "" && !list.includes(sourceValue)) {
+                    list.push(sourceValue);
+                  }
+                  updatedFormValues[params.targetHandle] = list;
+                } else {
+                  updatedFormValues[params.targetHandle] = sourceValue || "";
+                }
+              }
+            }
+
             if (color === "blue") {
               if (targetNode.type === "concatNode" && params.targetHandle === "concatInput") {
                 const allConcatEdges = newEdges.filter((e) =>
@@ -860,7 +913,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         return newEdges;
       });
     },
-    [nodes]
+    [nodes, nodeSchemas]
   );
 
   const pollArchitectStatus = (request_id) => {
@@ -909,7 +962,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
               return {
                 id: newId,
-                type: n.category === "utility" ? (n.model === "video-combiner" ? "vidConcatNode" : "concatNode") : `${n.category}Node`,
+                type: n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`,
                 position: existingNode?.position || {
                   x: n.position?.x ?? 350,
                   y: n.position?.y ?? 0
@@ -1114,12 +1167,14 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const inputNodes = connectedEdges.map((e) => e.source);
       const category = node.type === "textNode" ? "text" : node.type === "imageNode" ? "image" : node.type === "videoNode" ? "video" : node.type === "apiNode" ? "api" : node.type === "audioNode" ? "audio" : "utility";
       const isVideoCombiner = node.type === "vidConcatNode";
+      const isGenericUtility = node.type === "utilityNode";
       const model = node.data?.selectedModel?.id ? node.data?.selectedModel?.id : category === "utility" ? (isVideoCombiner ? "video-combiner" : "prompt-concatenator") : `${category}-passthrough`;
       const modelSchema = nodeSchemas?.categories?.[category]?.models?.[model]?.input_schema?.schemas?.input_data;
       const inputSchema = modelSchema?.properties || {};
       const wavespeedSchema = nodeSchemas?.categories?.api?.models?.[model]?.input_schema;
       const concatSchema = nodeSchemas?.categories?.utility?.models?.["prompt-concatenator"]?.input_schema;
       const videoCombinerSchema = nodeSchemas?.categories?.utility?.models?.["video-combiner"]?.input_schema?.schemas?.input_data?.properties;
+      const utilitySchema = getUtilityProperties(nodeSchemas, model);
       const formValues = node.data?.formValues || {};
 
       let dynamicPrompt = "";
@@ -1264,6 +1319,24 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         });
       }
 
+      if (isGenericUtility) {
+        connectedEdges.forEach((edge) => {
+          if (edge.target !== node.id || !edge.targetHandle || !(edge.targetHandle in utilitySchema)) return;
+          const val = `{{ ${edge.source}.outputs[0].value }}`;
+          const meta = utilitySchema[edge.targetHandle] || {};
+          if (meta.type === "array") {
+            if (!Array.isArray(localSources[edge.targetHandle])) {
+              localSources[edge.targetHandle] = [];
+            }
+            if (!localSources[edge.targetHandle].includes(val)) {
+              localSources[edge.targetHandle].push(val);
+            }
+          } else {
+            localSources[edge.targetHandle] = val;
+          }
+        });
+      }
+
       let params = {};
       const input_params = formValues || {};
       let output_params = {};
@@ -1309,6 +1382,14 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
             params[key] = meta.default ?? null;
           }
         }
+      } else if (isGenericUtility) {
+        for (const [key, meta] of Object.entries(utilitySchema)) {
+          if (localSources[key] !== undefined && localSources[key] !== null) {
+            params[key] = localSources[key];
+          } else {
+            params[key] = meta.default ?? (meta.type === "array" ? [] : null);
+          }
+        }
       } else {
         for (const [key, meta] of Object.entries(inputSchema)) {
           if (localSources[key] !== undefined && localSources[key] !== null) {
@@ -1324,7 +1405,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           resultUrl: node.data?.resultUrl || "",
           outputs: node.data?.outputs || [],
         }
-      } else if (["imageNode", "videoNode", "audioNode", "apiNode", "concatNode", "vidConcatNode"].includes(node.type)) {
+      } else if (["imageNode", "videoNode", "audioNode", "apiNode", "concatNode", "vidConcatNode", "utilityNode"].includes(node.type)) {
         output_params = {
           resultUrl: node.data?.resultUrl || null,
           outputs: node.data?.outputs || [],
@@ -1433,7 +1514,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
           if (!nodeIdMatch || !result) return node;
 
-          if (["textNode", "imageNode", "videoNode", "audioNode", "concatNode", "apiNode", "vidConcatNode"].includes(node.type)) {
+          if (["textNode", "imageNode", "videoNode", "audioNode", "concatNode", "apiNode", "vidConcatNode", "utilityNode"].includes(node.type)) {
             const currentHistory = node.data.outputHistory || [];
             const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
             const newHistory = isAlreadyInHistory
@@ -1741,6 +1822,12 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       setEdges,
       handleTypes: {
         ...(node.type === 'apiNode' ? Object.keys(node.data?.formValues || {}).reduce((acc, key) => ({ ...acc, [key]: 'white' }), {}) : {}),
+        ...(node.type === 'utilityNode'
+          ? Object.entries(getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)).reduce(
+            (acc, [key, meta]) => ({ ...acc, [key]: colorForSchemaField(key, meta) }),
+            { utilityOutput: getUtilityOutputColor(nodeSchemas, node.data?.selectedModel?.id) }
+          )
+          : {}),
         concatInput: "blue", concatOutput: "blue",
         apiInput: "blue", apiInput2: "green", apiInput3: "green",
         apiOutput: (() => {
@@ -1846,6 +1933,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         validHandles = apiInputs.filter(k => k !== 'apiOutput' && exposedHandles.includes(k));
         break;
 
+      case "utilityNode":
+        validHandles = Object.keys(getUtilityProperties(nodeSchemas, targetNode.data?.selectedModel?.id));
+        break;
+
       case "vidConcatNode":
         validHandles = ["videoInput7"];
         break;
@@ -1909,6 +2000,20 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoInput8: "yellow", videoOutput: "orange",
       audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioOutput: "yellow",
     };
+    const utilityProps = nodeType === "utilityNode"
+      ? getUtilityProperties(nodeSchemas, initialData?.selectedModel?.id)
+      : {};
+    const utilityHandleTypes = Object.entries(utilityProps).reduce(
+      (acc, [key, meta]) => ({ ...acc, [key]: colorForSchemaField(key, meta) }),
+      {}
+    );
+    if (nodeType === "utilityNode") {
+      utilityHandleTypes.utilityOutput = getUtilityOutputColor(nodeSchemas, initialData?.selectedModel?.id);
+    }
+    const getHandleColor = (handleId) => {
+      const existingNode = nodesWithHandlers.find((n) => n.id === edgePicker.sourceNodeId || n.id === edgePicker.targetNodeId);
+      return existingNode?.data?.handleTypes?.[handleId] || handleTypesMap[handleId] || utilityHandleTypes[handleId];
+    };
 
     const flowPosition = screenToFlowPosition({
       x: edgePicker.cursorPos.x,
@@ -1937,12 +2042,13 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         apiNode: ["apiInput", "apiInput2", "apiInput3"],
         concatNode: ["concatInput"],
         vidConcatNode: ["videoInput7"],
+        utilityNode: Object.keys(utilityProps),
       };
 
-      const sourceHandleColor = handleTypesMap[edgePicker.sourceHandleId];
+      const sourceHandleColor = getHandleColor(edgePicker.sourceHandleId);
       const compatibleHandles = nodeTypeToHandles[nodeType] || [];
       const targetHandle = compatibleHandles.find(h =>
-        handleTypesMap[h] === sourceHandleColor
+        (handleTypesMap[h] || utilityHandleTypes[h]) === sourceHandleColor
       );
 
       if (targetHandle) {
@@ -1962,12 +2068,13 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         apiNode: ["apiOutput"],
         concatNode: ["concatOutput"],
         vidConcatNode: ["videoOutput"],
+        utilityNode: ["utilityOutput"],
       };
 
-      const targetHandleColor = handleTypesMap[edgePicker.targetHandleId];
+      const targetHandleColor = getHandleColor(edgePicker.targetHandleId);
       const compatibleHandles = nodeTypeToHandles[nodeType] || [];
       const sourceHandle = compatibleHandles.find(h =>
-        handleTypesMap[h] === targetHandleColor
+        (handleTypesMap[h] || utilityHandleTypes[h]) === targetHandleColor
       );
 
       if (sourceHandle) {
@@ -1994,18 +2101,18 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const getCompatibleNodeTypes = (handleColor, isOutput) => {
     if (isOutput) {
       const compatibilityMap = {
-        blue: ['textNode', 'imageNode', 'videoNode', 'audioNode', 'apiNode', 'concatNode'],
-        green: ['imageNode', 'videoNode', 'apiNode'],
-        orange: ['videoNode', 'vidConcatNode'],
-        yellow: ['audioNode', 'videoNode']
+        blue: ['textNode', 'imageNode', 'videoNode', 'audioNode', 'apiNode', 'concatNode', 'utilityNode'],
+        green: ['imageNode', 'videoNode', 'apiNode', 'utilityNode'],
+        orange: ['videoNode', 'vidConcatNode', 'utilityNode'],
+        yellow: ['audioNode', 'videoNode', 'utilityNode']
       };
       return compatibilityMap[handleColor] || [];
     } else {
       const compatibilityMap = {
-        blue: ['textNode', 'concatNode', 'apiNode'],
-        green: ['imageNode', 'apiNode'],
-        orange: ['videoNode', 'vidConcatNode'],
-        yellow: ['audioNode']
+        blue: ['textNode', 'concatNode', 'apiNode', 'utilityNode'],
+        green: ['imageNode', 'apiNode', 'utilityNode'],
+        orange: ['videoNode', 'vidConcatNode', 'utilityNode'],
+        yellow: ['audioNode', 'utilityNode']
       };
       return compatibilityMap[handleColor] || [];
     }
@@ -2160,6 +2267,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     if (node.type === "videoNode") return mapModels(nodeSchemas.categories.video?.models);
     if (node.type === "audioNode") return mapModels(nodeSchemas.categories.audio?.models);
     if (node.type === "apiNode") return filteredApiNodeModels;
+    if (node.type === "utilityNode") {
+      return mapModels(nodeSchemas.categories.utility?.models)
+        .filter((model) => getUtilityNodeType(model.id, nodeSchemas) === "utilityNode");
+    }
     return [];
   };
 

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
   storeNodeOutputs,
@@ -71,6 +74,64 @@ test('storeNodeOutputs keeps the provider URL when mirroring fails', async () =>
   assert.deepEqual(keys, []);
 });
 
+test('storeNodeOutputs uploads local media file paths', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-output-'));
+  const file = join(dir, 'frame.png');
+  await writeFile(file, Buffer.from([1, 2, 3, 4]));
+  const uploads = [];
+  const deps = {
+    createWorkflowOutputObjectKey: ({ ext }) => `stored.${ext}`,
+    uploadObject: async ({ key, body, contentType }) => {
+      uploads.push({ key, body: Buffer.from(body), contentType });
+      return `https://cdn/${key}`;
+    },
+  };
+
+  try {
+    const { result, keys } = await storeNodeOutputs({
+      result: { outputs: [{ type: 'image_url', value: file, id: 'i' }] },
+      userId: 'u', workflowId: 'wf', runId: 'run', nodeRunId: 'nr', config: {}, deps,
+    });
+
+    assert.equal(result.outputs[0].value, 'https://cdn/stored.png');
+    assert.equal(result.outputs[0].key, 'stored.png');
+    assert.deepEqual(keys, ['stored.png']);
+    assert.deepEqual([...uploads[0].body], [1, 2, 3, 4]);
+    assert.equal(uploads[0].contentType, 'image/png');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('storeNodeOutputs uploads media buffers and object buffer values', async () => {
+  const uploads = [];
+  const deps = {
+    createWorkflowOutputObjectKey: ({ index, ext }) => `stored-${index}.${ext}`,
+    uploadObject: async ({ key, body, contentType }) => {
+      uploads.push({ key, body: Buffer.from(body), contentType });
+      return `https://cdn/${key}`;
+    },
+  };
+
+  const { result, keys } = await storeNodeOutputs({
+    result: {
+      outputs: [
+        { type: 'audio_url', value: Buffer.from([5, 6]), contentType: 'audio/mpeg', id: 'a' },
+        { type: 'image_url', value: { buffer: new Uint8Array([7, 8]), filename: 'thumb.webp' }, id: 'i' },
+      ],
+    },
+    userId: 'u', workflowId: 'wf', runId: 'run', nodeRunId: 'nr', config: {}, deps,
+  });
+
+  assert.deepEqual(keys, ['stored-0.mp3', 'stored-1.webp']);
+  assert.equal(result.outputs[0].value, 'https://cdn/stored-0.mp3');
+  assert.equal(result.outputs[1].value, 'https://cdn/stored-1.webp');
+  assert.deepEqual([...uploads[0].body], [5, 6]);
+  assert.equal(uploads[0].contentType, 'audio/mpeg');
+  assert.deepEqual([...uploads[1].body], [7, 8]);
+  assert.equal(uploads[1].contentType, 'image/webp');
+});
+
 test('signResultOutputs refreshes values from stored keys only', () => {
   const signed = signResultOutputs(
     { outputs: [
@@ -100,6 +161,28 @@ test('executeNode runs real text models and returns text outputs', async () => {
 
   assert.equal(result.outputs[0].type, 'text');
   assert.equal(result.outputs[0].value, 'Generated text');
+});
+
+test('executeNode dispatches registered utility nodes', async () => {
+  const result = await executeNode({
+    provider: 'replicate',
+    apiKey: 'r8_test',
+    node: { category: 'utility', model: 'prompt-concatenator', params: { prompt: ['hello', 'world'] } },
+  });
+
+  assert.equal(result.outputs[0].type, 'text');
+  assert.equal(result.outputs[0].value, 'hello world');
+});
+
+test('executeNode reports unsupported registered utility nodes clearly', async () => {
+  await assert.rejects(
+    () => executeNode({
+      provider: 'replicate',
+      apiKey: 'r8_test',
+      node: { category: 'utility', model: 'video-combiner', params: { videos_list: [] } },
+    }),
+    /not supported.*video-combiner/i
+  );
 });
 
 // ---------------------------------------------------------------------------

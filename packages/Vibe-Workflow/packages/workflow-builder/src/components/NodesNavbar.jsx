@@ -25,6 +25,11 @@ const SPECIAL_MODEL_NAMES = {
   "audio-passthrough": "Input Audio",
 };
 
+const getUtilityNodeType = (model) => {
+  return model?.workflow?.node_type
+    || (model?.id === "video-combiner" ? "vidConcatNode" : model?.id === "prompt-concatenator" ? "concatNode" : "utilityNode");
+};
+
 const NodesNavbar = ({ addNode, apiNodeModels, filterNodeTypes = null, nodeSchemas = {} }) => {
   const [activeSubMenu, setActiveSubMenu] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -33,7 +38,7 @@ const NodesNavbar = ({ addNode, apiNodeModels, filterNodeTypes = null, nodeSchem
   const getNodeTypeFromSubmenuId = (id) => {
     if (id === 'inputs') return ['textNode', 'imageNode', 'videoNode', 'audioNode'];
     if (id.includes('text-llms') || id === 'text-llms') return 'textNode';
-    if (id === 'concat' || id === 'text-utils' || id === 'utilities') return ['concatNode', 'vidConcatNode'];
+    if (id === 'concat' || id === 'text-utils' || id === 'utilities') return ['concatNode', 'vidConcatNode', 'utilityNode'];
     if (id.includes('image')) return 'imageNode';
     if (id.includes('video')) return 'videoNode';
     if (id.includes('audio')) return 'audioNode';
@@ -173,7 +178,7 @@ const NodesNavbar = ({ addNode, apiNodeModels, filterNodeTypes = null, nodeSchem
         return categorizedModels.utilities.map(m => ({ 
           label: m.name, 
           model: m, 
-          type: m.id === "video-combiner" ? "vidConcatNode" : "concatNode" 
+          type: getUtilityNodeType(m)
         }));
       case "generate-image": return categorizedModels.generateImage.map(m => ({ label: m.name, model: m, type: "imageNode" }));
       case "edit-image": return categorizedModels.editImage.map(m => ({ label: m.name, model: m, type: "imageNode" }));
@@ -204,7 +209,7 @@ const NodesNavbar = ({ addNode, apiNodeModels, filterNodeTypes = null, nodeSchem
       ...editVideo.map(m => ({ ...m, type: "videoNode" })),
       ...text.map(m => ({ ...m, type: "textNode" })),
       ...audio.map(m => ({ ...m, type: "audioNode" })),
-      ...textUtils.map(m => ({ ...m, type: m.id === "video-combiner" ? "vidConcatNode" : "concatNode" })),
+      ...textUtils.map(m => ({ ...m, type: getUtilityNodeType(m) })),
       ...apiNodeModels.map(m => ({ ...m, type: "apiNode" })),
     ];
 
@@ -225,6 +230,7 @@ const NodesNavbar = ({ addNode, apiNodeModels, filterNodeTypes = null, nodeSchem
             {item.type === "textNode" && <TfiText />}
             {item.type === "audioNode" && <AiOutlineAudio />}
             {item.type === "concatNode" && <TbArrowMerge className="rotate-90" />}
+            {item.type === "utilityNode" && <FaLayerGroup />}
             {item.type === "apiNode" && <RiInputMethodLine />}
             <span>{item.name}</span>
           </button>

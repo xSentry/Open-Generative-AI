@@ -6,7 +6,9 @@
 //
 // Dependencies (fetch/S3) are injected so this stays unit-testable without the
 // network or real S3.
-import { inferExtension } from '../../studio/server/generationMedia.js';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { contentTypeForExt, inferExtension } from '../../studio/server/generationMedia.js';
 
 const MEDIA_TYPES = new Set(['image_url', 'video_url', 'audio_url']);
 
@@ -14,6 +16,93 @@ function mediaTypeForOutputType(type) {
   if (type === 'image_url') return 'image';
   if (type === 'video_url') return 'video';
   if (type === 'audio_url') return 'audio';
+  return null;
+}
+
+function isHttpUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//.test(value);
+}
+
+function isFileUrl(value) {
+  return typeof value === 'string' && /^file:\/\//.test(value);
+}
+
+function extFromPath(value) {
+  const match = String(value || '').split(/[?#]/)[0].match(/\.([a-zA-Z0-9]{1,12})$/);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function toBuffer(value) {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  if (value && value.type === 'Buffer' && Array.isArray(value.data)) return Buffer.from(value.data);
+  return null;
+}
+
+function normalizeFilePath(value) {
+  if (isFileUrl(value)) return fileURLToPath(value);
+  return value;
+}
+
+function contentTypeFromName(value) {
+  const ext = extFromPath(value);
+  return ext ? contentTypeForExt(ext) : null;
+}
+
+async function readLocalMedia(value, output) {
+  const filePath = normalizeFilePath(value);
+  const body = await readFile(filePath);
+  const ext = extFromPath(filePath);
+  return {
+    body,
+    sourceUrl: pathToFileURL(filePath).toString(),
+    contentType: output.contentType || output.mimeType || (ext ? contentTypeForExt(ext) : null),
+  };
+}
+
+async function resolveMediaPayload(output, deps) {
+  const value = output?.value;
+
+  if (isHttpUrl(value)) {
+    const response = await deps.fetchFn(value);
+    if (!response.ok) throw new Error(`Failed to download output (${response.status}).`);
+    return {
+      body: Buffer.from(await response.arrayBuffer()),
+      sourceUrl: value,
+      contentType: response.headers.get('content-type') || output.contentType || output.mimeType || null,
+    };
+  }
+
+  if (typeof value === 'string' && value) {
+    return readLocalMedia(value, output);
+  }
+
+  const directBuffer = toBuffer(value);
+  if (directBuffer) {
+    const name = output.filename || output.name || null;
+    return {
+      body: directBuffer,
+      sourceUrl: name,
+      contentType: output.contentType || output.mimeType || contentTypeFromName(name),
+    };
+  }
+
+  if (value && typeof value === 'object') {
+    if (value.path || value.filePath) {
+      return readLocalMedia(value.path || value.filePath, { ...output, ...value });
+    }
+    const nestedBuffer = toBuffer(value.buffer ?? value.body ?? value.data);
+    if (nestedBuffer) {
+      const name = value.filename || value.name || output.filename || output.name || null;
+      return {
+        body: nestedBuffer,
+        sourceUrl: name,
+        contentType: value.contentType || value.mimeType || output.contentType || output.mimeType || contentTypeFromName(name),
+      };
+    }
+  }
+
   return null;
 }
 
@@ -35,19 +124,20 @@ export async function storeNodeOutputs({
   let index = 0;
 
   for (const output of outputs) {
-    if (!MEDIA_TYPES.has(output?.type) || typeof output?.value !== 'string' || !/^https?:\/\//.test(output.value)) {
+    if (!MEDIA_TYPES.has(output?.type)) {
       storedOutputs.push(output);
       continue;
     }
 
     try {
-      const response = await deps.fetchFn(output.value);
-      if (!response.ok) throw new Error(`Failed to download output (${response.status}).`);
-      const contentType = response.headers.get('content-type') || null;
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const payload = await resolveMediaPayload(output, deps);
+      if (!payload) {
+        storedOutputs.push(output);
+        continue;
+      }
       const ext = inferExtension({
-        url: output.value,
-        contentType,
+        url: payload.sourceUrl,
+        contentType: payload.contentType,
         mediaType: mediaTypeForOutputType(output.type),
       });
       const key = deps.createWorkflowOutputObjectKey({
@@ -58,7 +148,8 @@ export async function storeNodeOutputs({
         index,
         ext,
       });
-      const url = await deps.uploadObject({ config, key, body: buffer, contentType: contentType || undefined });
+      const contentType = payload.contentType || contentTypeForExt(ext);
+      const url = await deps.uploadObject({ config, key, body: payload.body, contentType });
       keys.push(key);
       storedOutputs.push({ ...output, value: url, key });
       index += 1;
@@ -134,4 +225,3 @@ export function signNodeOutputs(node, sign) {
 }
 
 export { MEDIA_TYPES };
-

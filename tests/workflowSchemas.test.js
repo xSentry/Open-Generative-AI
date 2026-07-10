@@ -41,6 +41,8 @@ test('buildNodeSchemas exposes the required categories and passthrough models', 
   // Utility models drive concat / video-combiner nodes.
   assert.ok(schemas.categories.utility.models['prompt-concatenator']);
   assert.ok(schemas.categories.utility.models['video-combiner']);
+  assert.equal(schemas.categories.utility.models['prompt-concatenator'].workflow.node_type, 'concatNode');
+  assert.equal(schemas.categories.utility.models['video-combiner'].workflow.node_type, 'vidConcatNode');
 
   // API models keys gate which apiNodeModels the UI shows.
   assert.deepEqual(
