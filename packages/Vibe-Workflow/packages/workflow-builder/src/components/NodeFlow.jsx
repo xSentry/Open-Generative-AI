@@ -44,6 +44,8 @@ import VideoCombiner from "./VideoCombiner";
 import { useGenerationCost } from "./useGenerationCost";
 import { watchWorkflowRun } from "./workflowStream";
 
+const WORKFLOW_HOME_PATH = "/studio/workflow";
+
 const nodeTypes = {
   textNode: TextGeneration,
   imageNode: ImageGeneration,
@@ -2203,7 +2205,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         <div className="flex items-center justify-between w-full max-w-[95%] sm:max-w-[90%] lg:max-w-[80%] overflow-x-auto">
           <div className="flex items-center gap-2 w-[35%]">
             <Link
-              href="/workflow"
+              href={WORKFLOW_HOME_PATH}
               className="text-white"
             >
               <FaAngleLeft />
