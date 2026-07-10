@@ -1,5 +1,6 @@
 import { getModelById, getVideoModelById, getI2IModelById, getI2VModelById, getV2VModelById, getRecastModelById, getLipSyncModelById, getAudioModelById } from './models.js';
 import { registerDeferredFile, resolveDeferred } from './deferredUploads.js';
+import { watchWorkflowRun } from '../../Vibe-Workflow/packages/workflow-builder/src/components/workflowStream.js';
 
 // In an http(s) browser we route through the host app's proxy (Next.js routes
 // under /api/* re-issue the call server-side) so api.muapi.ai CORS is bypassed.
@@ -584,7 +585,7 @@ export async function getWorkflowInputs(apiKey, workflowId) {
     return await response.json();
 };
 
-export async function executeWorkflow(apiKey, workflowId, inputs) {
+export async function executeWorkflow(apiKey, workflowId, inputs, options = {}) {
     const response = await fetch(`${BASE_URL}/workflow/${workflowId}/api-execute`, {
         method: 'POST',
         headers: {
@@ -601,32 +602,124 @@ export async function executeWorkflow(apiKey, workflowId, inputs) {
     const runId = submitData.run_id || submitData.id;
     if (!runId) return submitData;
     
-    // Poll for results
-    return await pollWorkflowResult(runId, apiKey);
+    return await streamWorkflowResult(runId, apiKey, options);
 };
 
-async function pollWorkflowResult(runId, apiKey, maxAttempts = 900, interval = 2000) {
-    const pollUrl = `${BASE_URL}/workflow/run/${runId}/api-outputs`;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, interval));
-        try {
-            const response = await fetch(pollUrl, {
-                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey }
-            });
-            if (!response.ok) {
-                if (response.status >= 500) continue;
-                throw new Error(`Poll Failed: ${response.status}`);
-            }
-            const data = await response.json();
-            const status = data.status?.toLowerCase();
-            if (status === 'completed' || status === 'succeeded' || status === 'success') return data;
-            if (status === 'failed' || status === 'error') throw new Error(`Workflow failed: ${data.error || 'Unknown error'}`);
-        } catch (error) {
-            if (attempt === maxAttempts) throw error;
-        }
+function terminalWorkflowStatus(status) {
+    const value = String(status || '').toLowerCase();
+    return value === 'completed' || value === 'succeeded' || value === 'success' || value === 'failed' || value === 'error';
+}
+
+function successfulWorkflowStatus(status) {
+    const value = String(status || '').toLowerCase();
+    return value === 'completed' || value === 'succeeded' || value === 'success';
+}
+
+function outputsFromWorkflowNodeRuns(nodes = {}) {
+    const outputs = [];
+    for (const [nodeId, runs] of Object.entries(nodes || {})) {
+        if (!Array.isArray(runs) || runs.length === 0) continue;
+        const latest = runs[runs.length - 1];
+        const nodeOutputs = latest?.result?.outputs;
+        if (!Array.isArray(nodeOutputs)) continue;
+        outputs.push(...nodeOutputs.map((output) => ({ ...output, node_id: nodeId })));
     }
-    throw new Error('Workflow timed out after polling.');
-};
+    return outputs;
+}
+
+async function getWorkflowApiOutputs(runId, apiKey) {
+    const response = await fetch(`${BASE_URL}/workflow/run/${runId}/api-outputs`, {
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey }
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to fetch workflow outputs: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+}
+
+async function streamWorkflowResult(runId, apiKey, options = {}) {
+    return await new Promise((resolve, reject) => {
+        const maxDuration = options.maxDuration || 30 * 60 * 1000;
+        let disposed = false;
+        let disposer = null;
+        let timeout = null;
+        const state = {
+            status: 'processing',
+            outputs: [],
+            error: null,
+            nodes: {},
+        };
+
+        const cleanup = () => {
+            if (timeout) clearTimeout(timeout);
+            timeout = null;
+            disposer?.();
+            disposer = null;
+        };
+
+        const finish = async (status) => {
+            if (disposed) return;
+            disposed = true;
+            cleanup();
+
+            try {
+                const final = await getWorkflowApiOutputs(runId, apiKey);
+                options.onUpdate?.(final);
+                if (successfulWorkflowStatus(final.status || status)) resolve(final);
+                else reject(new Error(`Workflow failed: ${final.error || state.error || 'Unknown error'}`));
+            } catch (error) {
+                if (successfulWorkflowStatus(status)) reject(error);
+                else reject(new Error(`Workflow failed: ${state.error || error.message || 'Unknown error'}`));
+            }
+        };
+
+        timeout = setTimeout(() => {
+            if (disposed) return;
+            disposed = true;
+            cleanup();
+            reject(new Error('Workflow timed out while waiting for streamed updates.'));
+        }, maxDuration);
+
+        disposer = watchWorkflowRun(
+            runId,
+            (event) => {
+                if (disposed) return;
+                const nodeId = event.node_id;
+                if (nodeId) {
+                    const current = state.nodes[nodeId] || [];
+                    const nextRun = {
+                        node_run_id: event.node_run_id,
+                        status: event.status,
+                        result: event.result || null,
+                        error: event.error || null,
+                    };
+                    const existingIndex = current.findIndex((run) => run.node_run_id === nextRun.node_run_id);
+                    state.nodes[nodeId] = existingIndex >= 0
+                        ? current.map((run, index) => (index === existingIndex ? nextRun : run))
+                        : [...current, nextRun];
+                }
+                state.status = event.run_status || state.status;
+                state.error = event.error || state.error;
+                state.outputs = outputsFromWorkflowNodeRuns(state.nodes);
+                options.onUpdate?.({
+                    ...state,
+                    nodes: { ...state.nodes },
+                    outputs: [...state.outputs],
+                });
+
+                if (terminalWorkflowStatus(event.run_status)) {
+                    finish(event.run_status);
+                }
+            },
+            (error) => {
+                if (disposed) return;
+                state.error = error?.message || 'Workflow stream failed';
+                options.onUpdate?.({ ...state, nodes: { ...state.nodes }, outputs: [...state.outputs] });
+            },
+        );
+    });
+}
 
 export async function getAllNodeSchemas(apiKey, workflowId) {
     const response = await fetch(`${BASE_URL}/workflow/${workflowId}/node-schemas`, {

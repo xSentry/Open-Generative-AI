@@ -84,11 +84,24 @@ export function serializeRunHistory(nodeRuns = []) {
 }
 
 // Projection for the playground api-outputs endpoint.
-export function serializeApiOutputs(run, outputs = []) {
+export function serializeApiOutputs(run, outputs = [], nodeRuns = []) {
+  const nodes = {};
+  for (const nodeRun of nodeRuns || []) {
+    const key = nodeRun.nodeId;
+    if (!key) continue;
+    if (!nodes[key]) nodes[key] = [];
+    nodes[key].push({
+      node_run_id: nodeRun.id,
+      status: nodeRun.status,
+      result: nodeRun.result || null,
+      error: nodeRun.error || null,
+    });
+  }
   return {
     status: run?.status || 'processing',
     outputs: outputs || [],
     error: run?.error || null,
+    nodes,
   };
 }
 

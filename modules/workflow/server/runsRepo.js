@@ -337,11 +337,12 @@ export async function listUpdatedNodeRuns({ userId, since, limit = 200 }) {
   const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
   const result = await query(
     `select ${NODE_RUN_COLUMNS.split(',').map((c) => `nr.${c.trim()}`).join(', ')},
-            r.workflow_id, r.status as run_status
+            r.workflow_id, r.status as run_status,
+            greatest(nr.updated_at, r.updated_at) as stream_updated_at
      from workflow_node_runs nr
      join workflow_runs r on r.id = nr.run_id
-     where r.user_id = $1 and nr.updated_at > $2
-     order by nr.updated_at asc
+     where r.user_id = $1 and greatest(nr.updated_at, r.updated_at) > $2
+     order by greatest(nr.updated_at, r.updated_at) asc
      limit $3`,
     [userId, since, safeLimit]
   );
@@ -349,6 +350,7 @@ export async function listUpdatedNodeRuns({ userId, since, limit = 200 }) {
     ...mapNodeRun(row),
     workflowId: row.workflow_id,
     runStatus: row.run_status,
+    streamUpdatedAt: row.stream_updated_at,
   }));
 }
 

@@ -1320,10 +1320,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     onEdgesChange(changes);
   }, [edges, nodeSchemas, onEdgesChange]);
 
-  const buildWorkflowPayload = () => {
-    const nodeData = nodes.map((node) => {
+  const buildWorkflowPayload = (sourceNodes = nodes, sourceEdges = edges) => {
+    const nodeData = sourceNodes.map((node) => {
 
-      const connectedEdges = edges.filter((e) => e.target === node.id);
+      const connectedEdges = sourceEdges.filter((e) => e.target === node.id);
       const inputNodes = connectedEdges.map((e) => e.source);
       const category = node.type === "textNode" ? "text" : node.type === "imageNode" ? "image" : node.type === "videoNode" ? "video" : node.type === "apiNode" ? "api" : node.type === "audioNode" ? "audio" : "utility";
       const isVideoCombiner = node.type === "vidConcatNode";
@@ -1588,7 +1588,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       workflow_id: interactionMode ? workflowId || null : null,
       source_workflow_id: !interactionMode ? workflowId : null,
       name: workflowName || "Untitled",
-      edges: edges,
+      edges: sourceEdges,
       data: {
         nodes: nodeData
       },
@@ -1597,9 +1597,12 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     };
   };
 
-  const handleSaveWorkFlow = async () => {
+  const handleSaveWorkFlow = async (nodesOverride = null, edgesOverride = null) => {
     if (!interactionMode) return;
-    const workflowPayload = buildWorkflowPayload();
+    const workflowPayload = buildWorkflowPayload(
+      Array.isArray(nodesOverride) ? nodesOverride : nodes,
+      Array.isArray(edgesOverride) ? edgesOverride : edges
+    );
 
     try {
       const response = await axios.post("/api/workflow/create", workflowPayload);
@@ -2472,6 +2475,26 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     );
   }, [selectedNode, setNodes, setEdges, nodeSchemas]);
 
+  const updateSelectedNodeFlag = useCallback((key, checked) => {
+    if (!selectedNode) return;
+    const nextNodes = nodes.map((node) =>
+      node.id === selectedNode.id
+        ? {
+          ...node,
+          data: {
+            ...node.data,
+            formValues: {
+              ...node.data.formValues,
+              [key]: checked,
+            },
+          },
+        }
+        : node
+    );
+    setNodes(nextNodes);
+    handleSaveWorkFlow(nextNodes);
+  }, [selectedNode, nodes, setNodes, handleSaveWorkFlow]);
+
   const updateModel = useCallback((model) => {
     if (!selectedNode) return;
 
@@ -3117,6 +3140,21 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
               </div>
             </div>
             <div className="p-4 flex flex-col gap-3">
+              {/* Make Input Toggle */}
+              <label className="flex items-center justify-between cursor-pointer group">
+                <span className="text-xs text-gray-300 font-medium">Mark as Input</span>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={selectedFormValues?.make_input === true}
+                    onChange={(e) => updateSelectedNodeFlag("make_input", e.target.checked)}
+                  />
+                  <div className="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:bg-blue-600 transition-colors"></div>
+                  <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full peer-checked:translate-x-4 transition-transform"></div>
+                </div>
+              </label>
+
               {/* Make Output Toggle */}
               <label className="flex items-center justify-between cursor-pointer group">
                 <span className="text-xs text-gray-300 font-medium">Mark as Output</span>
@@ -3125,25 +3163,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                     type="checkbox"
                     className="sr-only peer"
                     checked={selectedFormValues?.make_output === true}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setNodes((nds) =>
-                        nds.map((n) =>
-                          n.id === selectedNode.id
-                            ? {
-                              ...n,
-                              data: {
-                                ...n.data,
-                                formValues: {
-                                  ...n.data.formValues,
-                                  make_output: checked,
-                                },
-                              },
-                            }
-                            : n
-                        )
-                      );
-                    }}
+                    onChange={(e) => updateSelectedNodeFlag("make_output", e.target.checked)}
                   />
                   <div className="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:bg-blue-600 transition-colors"></div>
                   <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full peer-checked:translate-x-4 transition-transform"></div>

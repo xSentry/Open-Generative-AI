@@ -223,19 +223,50 @@ export function latestResultsFromRuns(nodeRuns = []) {
   return map;
 }
 
-// The playground exposes the graph's terminal outputs. Terminal nodes are those
-// without any outgoing edge; their outputs are flattened into a single list of
+function workflowNodeLabel(node = {}) {
+  const explicit =
+    node.input_params?.title ||
+    node.input_params?.label ||
+    node.label ||
+    node.name;
+  if (explicit) return explicit;
+
+  const category = node.category || String(node.type || '').replace(/Node$/, '');
+  const base = {
+    text: 'Text',
+    image: 'Image',
+    video: 'Video',
+    audio: 'Audio',
+    api: 'API',
+    utility: 'Utility',
+  }[category] || 'Node';
+  const index = String(node.id || '').replace(/^\D+/g, '');
+  return index ? `${base} ${index}` : base;
+}
+
+// The playground exposes nodes explicitly marked as workflow outputs. If no
+// nodes are marked, fall back to terminal outputs. Terminal nodes are those
+// without any outgoing edge; outputs are flattened into a single list of
 // { type, value, id } entries (matching WorkflowStudio's result.outputs render).
 export function collectTerminalOutputs(nodes = [], edges = [], resultsByNodeId = {}) {
   const hasOutgoing = new Set();
   for (const edge of edges || []) {
     if (edge?.source) hasOutgoing.add(edge.source);
   }
+  const markedOutputNodes = nodes.filter((node) => node?.input_params?.make_output === true);
+  const outputNodes = markedOutputNodes.length > 0
+    ? markedOutputNodes
+    : nodes.filter((node) => !hasOutgoing.has(node.id));
   const outputs = [];
-  for (const node of nodes) {
-    if (hasOutgoing.has(node.id)) continue;
+  for (const node of outputNodes) {
     const nodeOutputs = resultsByNodeId[node.id];
-    if (Array.isArray(nodeOutputs)) outputs.push(...nodeOutputs);
+    if (Array.isArray(nodeOutputs)) {
+      outputs.push(...nodeOutputs.map((output) => ({
+        ...output,
+        node_id: node.id,
+        node_name: workflowNodeLabel(node),
+      })));
+    }
   }
   return outputs;
 }

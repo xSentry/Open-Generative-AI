@@ -440,7 +440,7 @@ async function apiOutputs(impl, ctx, runId) {
   let outputs = collectTerminalOutputs(wf?.nodes || [], wf?.edges || [], results);
   const sign = makeSigner(impl);
   if (sign) outputs = sign({ outputs }).outputs;
-  return json(serializeApiOutputs(run, outputs));
+  return json(serializeApiOutputs(run, outputs, nodeRuns));
 }
 
 // Server-Sent Events stream of node-run status changes for the authenticated
@@ -483,8 +483,9 @@ function streamRuns(impl, ctx, request) {
         try {
           const rows = await impl.listUpdatedNodeRuns({ userId: ctx.user.id, since });
           for (const row of rows) {
-            if (row.updatedAt && new Date(row.updatedAt) > since) since = new Date(row.updatedAt);
-            const eventId = row.updatedAt ? new Date(row.updatedAt).toISOString() : new Date().toISOString();
+            const updatedAt = row.streamUpdatedAt || row.updatedAt;
+            if (updatedAt && new Date(updatedAt) > since) since = new Date(updatedAt);
+            const eventId = updatedAt ? new Date(updatedAt).toISOString() : new Date().toISOString();
             send(eventId, {
               run_id: row.runId,
               workflow_id: row.workflowId,

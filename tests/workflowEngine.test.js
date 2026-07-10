@@ -226,7 +226,23 @@ test('collectTerminalOutputs flattens outputs of nodes with no outgoing edge', (
   };
   // Only b is terminal (a has an outgoing edge).
   assert.deepEqual(collectTerminalOutputs(nodes, edges, results), [
-    { type: 'image_url', value: 'B', id: '2' },
+    { type: 'image_url', value: 'B', id: '2', node_id: 'b', node_name: 'Node' },
+  ]);
+});
+
+test('collectTerminalOutputs prefers nodes marked as workflow outputs', () => {
+  const nodes = [
+    { id: 'a', input_params: { make_output: true } },
+    { id: 'b', input_params: {} },
+  ];
+  const edges = [{ source: 'a', target: 'b' }];
+  const results = {
+    a: [{ type: 'image_url', value: 'A', id: '1' }],
+    b: [{ type: 'image_url', value: 'B', id: '2' }],
+  };
+
+  assert.deepEqual(collectTerminalOutputs(nodes, edges, results), [
+    { type: 'image_url', value: 'A', id: '1', node_id: 'a', node_name: 'Node' },
   ]);
 });
 

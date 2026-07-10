@@ -167,7 +167,7 @@ test('GET run/{id}/api-outputs returns terminal outputs with run status', async 
   const body = await readJson(response);
   assert.equal(body.status, 'completed');
   // Only terminal node b's output is exposed.
-  assert.deepEqual(body.outputs, [{ type: 'image_url', value: 'B', id: '2' }]);
+  assert.deepEqual(body.outputs, [{ type: 'image_url', value: 'B', id: '2', node_id: 'b', node_name: 'Node' }]);
 });
 
 test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async () => {
