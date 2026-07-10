@@ -712,6 +712,7 @@ function PremiumAudioPlayer({ url, title }) {
 // ---------------------------------------------------------------------------
 export default function AudioStudio({
   apiKey,
+  provider = "replicate",
   onGenerationComplete,
   historyItems,
   droppedFiles,
@@ -727,6 +728,9 @@ export default function AudioStudio({
   const [openDropdown, setOpenDropdown] = useState(false);
   const modelBtnRef = useRef(null);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
+  const hasRestoredConfigRef = useRef(false);
+  const skipNextConfigSaveRef = useRef(false);
 
   // ── Generation state ──────────────────────────────────────────────────
   const [isGenerating, setIsGenerating] = useState(false);
@@ -744,9 +748,10 @@ export default function AudioStudio({
   const selectedModel = audioModelList.find((model) => model.id === selectedModelId) || getAudioModelById(selectedModelId);
 
   useEffect(() => {
+    if (!modelsByMode) return;
     if (!selectedModelId || audioModelList.some((model) => model.id === selectedModelId)) return;
     setSelectedModelId(audioModelList[0]?.id ?? "");
-  }, [audioModelList, selectedModelId]);
+  }, [modelsByMode, audioModelList, selectedModelId]);
 
   // ── Initialize params when model changes ──────────────────────────────
   useEffect(() => {
@@ -765,24 +770,31 @@ export default function AudioStudio({
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) return;
+        skipNextConfigSaveRef.current = true;
         if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.params) setParams(data.params);
-        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
-        if (data.activeResultUrl) setActiveResultUrl(data.activeResultUrl);
-        if (data.activeResultTitle) setActiveResultTitle(data.activeResultTitle);
-        if (data.view) setView(data.view);
+        if (data.params || data.options) setParams(data.params || data.options);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) {
       console.warn("Failed to load AudioStudio persistence:", err);
+    } finally {
+      hasRestoredConfigRef.current = true;
     }
-  }, []);
+  }, [modelsByMode, provider]);
 
   // ── Persistence: Save ────────────────────────────────────────────────────
   useEffect(() => {
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     if (!modelsByMode?.audio?.length) return;
     const first = modelsByMode.audio[0];
     const key = `audio:${first.provider || "muapi"}:${first.id}`;
@@ -792,16 +804,19 @@ export default function AudioStudio({
   }, [modelsByMode?.audio]);
 
   useEffect(() => {
+    if (!modelsByMode || !hasRestoredConfigRef.current) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       try {
         const state = {
+          version: 1,
+          provider,
           selectedModelId,
-          params,
+          options: params,
           // Phase 5: results live server-side when active — persist prefs only.
-          internalHistory: serverGen.active ? [] : internalHistory,
-          activeResultUrl,
-          activeResultTitle,
-          view,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -809,7 +824,7 @@ export default function AudioStudio({
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [selectedModelId, params, internalHistory, activeResultUrl, activeResultTitle, view]);
+  }, [modelsByMode, selectedModelId, params, provider]);
 
   // ── Handle Dropped Files ────────────────────────────────────────────────
   useEffect(() => {

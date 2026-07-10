@@ -265,6 +265,7 @@ const ImageIcon = ({
 // ---------------------------------------------------------------------------
 export default function RecastStudio({
   apiKey,
+  provider = "replicate",
   onGenerationComplete,
   historyItems,
   droppedFiles,
@@ -320,51 +321,80 @@ export default function RecastStudio({
   const aspectBtnRef = useRef(null);
   const hasRestored = useRef(false);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
+  const restoredPersistentModelRef = useRef(false);
+  const restoredPersistentModelIdRef = useRef(null);
+  const skipNextConfigSaveRef = useRef(false);
+  const hasProviderCatalog = provider === "muapi" || !!modelsByMode?.recast?.length;
 
   // ── Persistence: Load ──────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
+    if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.selectedAspectRatio) setSelectedAspectRatio(data.selectedAspectRatio);
-        if (data.videoUrl) {
-          setVideoUrl(data.videoUrl);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) {
+          restoredPersistentModelRef.current = false;
+          restoredPersistentModelIdRef.current = null;
+          return;
+        }
+        skipNextConfigSaveRef.current = true;
+        const options = data.options || data;
+        const restoredModelId = data.selectedModelId || data.selectedModel;
+        const restoredModel = effectiveRecastModels.find((model) => model.id === restoredModelId);
+        restoredPersistentModelRef.current = !!restoredModel;
+        restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
+        if (restoredModelId) setSelectedModelId(restoredModelId);
+        if (options.aspect_ratio || data.selectedAspectRatio) setSelectedAspectRatio(options.aspect_ratio || data.selectedAspectRatio);
+        if (data.uploads?.video_url || data.videoUrl) {
+          setVideoUrl(data.uploads?.video_url || data.videoUrl);
           setVideoState(UPLOAD_STATE.READY);
         }
-        if (data.imageUrl) {
-          setImageUrl(data.imageUrl);
+        if (data.uploads?.image_url || data.imageUrl) {
+          setImageUrl(data.uploads?.image_url || data.imageUrl);
           setImageState(UPLOAD_STATE.READY);
         }
-        if (data.videoName) setVideoName(data.videoName);
-        if (data.imageName) setImageName(data.imageName);
+        if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
+        if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) {
       console.warn("Failed to load RecastStudio persistence:", err);
     } finally {
       hasRestored.current = true;
     }
-  }, []);
+  }, [modelsByMode, hasProviderCatalog, provider, effectiveRecastModels]);
 
   // ── Persistence: Save ──────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog || !hasRestored.current) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       try {
         localStorage.setItem(
           PERSIST_KEY,
           JSON.stringify({
+            version: 1,
+            provider,
             selectedModelId,
-            selectedAspectRatio,
-            videoUrl,
-            videoName,
-            imageUrl,
-            imageName,
+            options: {
+              aspect_ratio: selectedAspectRatio,
+            },
+            uploads: {
+              video_url: videoUrl,
+              video_name: videoName,
+              image_url: imageUrl,
+              image_name: imageName,
+            },
             prompt,
             // Phase 5: results live server-side when active — persist prefs only.
-            internalHistory: serverGen.active ? [] : internalHistory,
           }),
         );
       } catch (err) {
@@ -380,7 +410,9 @@ export default function RecastStudio({
     imageUrl,
     imageName,
     prompt,
-    internalHistory,
+    modelsByMode,
+    hasProviderCatalog,
+    provider,
   ]);
 
   // ── Derived model info ──────────────────────────────────────────────────────
@@ -394,14 +426,24 @@ export default function RecastStudio({
   // MuAPI-only "kling-v3.0-pro-recast" id while Replicate is active). If the
   // catalog doesn't contain it, fall back to the first available model.
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
     if (!effectiveRecastModels.length) return;
+    if (restoredPersistentModelIdRef.current) return;
     if (effectiveRecastModels.some((m) => m.id === selectedModelId)) return;
     const first = effectiveRecastModels[0];
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setSelectedModelId(first.id);
     setSelectedAspectRatio(first.inputs?.aspect_ratio?.default ?? "16:9");
-  }, [effectiveRecastModels, selectedModelId]);
+  }, [modelsByMode, hasProviderCatalog, effectiveRecastModels, selectedModelId]);
 
   useEffect(() => {
+    if (restoredPersistentModelIdRef.current) return;
+    if (restoredPersistentModelRef.current && effectiveRecastModels.some((model) => model.id === selectedModelId)) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     if (!modelsByMode?.recast?.length) return;
     const first = modelsByMode.recast[0];
     const key = `recast:${first.provider || "muapi"}:${first.id}`;
@@ -409,7 +451,7 @@ export default function RecastStudio({
     appliedProviderDefaultRef.current.add(key);
     setSelectedModelId(first.id);
     setSelectedAspectRatio(first.inputs?.aspect_ratio?.default ?? "16:9");
-  }, [modelsByMode?.recast]);
+  }, [modelsByMode?.recast, effectiveRecastModels, selectedModelId]);
 
   // ── Upload handlers ─────────────────────────────────────────────────────────
   const handleVideoPick = useCallback(
@@ -471,6 +513,8 @@ export default function RecastStudio({
 
   // ── Model selection ─────────────────────────────────────────────────────────
   const handleModelSelect = (model) => {
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setSelectedModelId(model.id);
     const ratios = model.inputs?.aspect_ratio?.enum || [];
     if (ratios.length > 0) {

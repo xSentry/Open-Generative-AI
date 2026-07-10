@@ -292,7 +292,7 @@ function ModelDropdown({ isOpen, models, selectedId, onSelect, onClose }) {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, modelsByMode }) {
+export default function MarketingStudio({ apiKey, provider = "replicate", droppedFiles, onFilesHandled, modelsByMode }) {
   const PERSIST_KEY = "hg_marketing_studio_persistent";
   
   const [prompt, setPrompt] = useState("");
@@ -316,6 +316,9 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
 
   const textareaRef = useRef(null);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
+  const hasRestoredConfigRef = useRef(false);
+  const skipNextConfigSaveRef = useRef(false);
 
   // ── Provider-aware model selection + server-persisted generations ──────────
   const marketingModels = useMemo(
@@ -343,6 +346,10 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
 
   useEffect(() => {
     if (!modelsByMode?.marketing?.length) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     const first = modelsByMode.marketing[0];
     const key = `marketing:${first.provider || "muapi"}:${first.id}`;
     if (appliedProviderDefaultRef.current.has(key)) return;
@@ -415,13 +422,18 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
   // ── Persistence ───────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) return;
+        skipNextConfigSaveRef.current = true;
+        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.params) {
-          const p = { ...data.params };
+        if (data.params || data.options) {
+          const p = { ...(data.params || data.options) };
           // Migrate the previous forced default (UGC template as reference video)
           // to the new opt-in "None" so it isn't silently attached (some models
           // reject reference videos > 10s).
@@ -434,18 +446,38 @@ export default function MarketingStudio({ apiKey, droppedFiles, onFilesHandled, 
         if (data.productImage) setProductImage(data.productImage);
         if (data.avatarImage) setAvatarImage(data.avatarImage);
         if (data.additionalImages) setAdditionalImages(data.additionalImages);
-        if (data.history) setHistory(data.history);
+        if (data.uploads?.product_image) setProductImage(data.uploads.product_image);
+        if (data.uploads?.avatar_image) setAvatarImage(data.uploads.avatar_image);
+        if (data.uploads?.additional_images) setAdditionalImages(data.uploads.additional_images);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) { console.warn("Load failed", err); }
-  }, []);
+    finally { hasRestoredConfigRef.current = true; }
+  }, [modelsByMode, provider]);
 
   useEffect(() => {
+    if (!modelsByMode || !hasRestoredConfigRef.current) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
-      const state = { prompt, params, productImage, avatarImage, additionalImages, history };
+      const state = {
+        version: 1,
+        provider,
+        selectedModelId,
+        prompt,
+        options: params,
+        uploads: {
+          product_image: productImage,
+          avatar_image: avatarImage,
+          additional_images: additionalImages,
+        },
+      };
       localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
     }, 500);
     return () => clearTimeout(timer);
-  }, [prompt, params, productImage, avatarImage, additionalImages, history]);
+  }, [modelsByMode, provider, selectedModelId, prompt, params, productImage, avatarImage, additionalImages]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 

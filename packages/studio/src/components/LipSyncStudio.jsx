@@ -320,6 +320,7 @@ const VideoIcon = ({
 // ---------------------------------------------------------------------------
 export default function LipSyncStudio({
   apiKey,
+  provider = "replicate",
   onGenerationComplete,
   historyItems,
   droppedFiles,
@@ -401,58 +402,89 @@ export default function LipSyncStudio({
   const resultVideoRef = useRef(null);
   const hasRestored = useRef(false);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
+  const restoredPersistentModelRef = useRef(false);
+  const restoredPersistentModelIdRef = useRef(null);
+  const skipNextConfigSaveRef = useRef(false);
+  const hasProviderCatalog = provider === "muapi" || !!modelsByMode?.lipsync?.length;
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
+    if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
-        if (data.inputMode) setInputMode(data.inputMode);
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.selectedResolution) setSelectedResolution(data.selectedResolution);
-        if (data.imageUrl) {
-          setImageUrl(data.imageUrl);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) {
+          restoredPersistentModelRef.current = false;
+          restoredPersistentModelIdRef.current = null;
+          return;
+        }
+        skipNextConfigSaveRef.current = true;
+        const options = data.options || data;
+        const restoredInputMode = data.inputMode || inputMode;
+        if (data.inputMode) setInputMode(restoredInputMode);
+        const restoredModelId = data.selectedModelId || data.selectedModel;
+        const restoredModels = restoredInputMode === "image" ? imageModels : videoModels;
+        restoredPersistentModelRef.current = restoredModels.some((model) => model.id === restoredModelId);
+        restoredPersistentModelIdRef.current = restoredPersistentModelRef.current ? restoredModelId : null;
+        if (restoredModelId) setSelectedModelId(restoredModelId);
+        if (options.resolution || data.selectedResolution) setSelectedResolution(options.resolution || data.selectedResolution);
+        if (data.uploads?.image_url || data.imageUrl) {
+          setImageUrl(data.uploads?.image_url || data.imageUrl);
           setImageState(UPLOAD_STATE.READY);
         }
-        if (data.videoUrl) {
-          setVideoUrl(data.videoUrl);
+        if (data.uploads?.video_url || data.videoUrl) {
+          setVideoUrl(data.uploads?.video_url || data.videoUrl);
           setVideoState(UPLOAD_STATE.READY);
         }
-        if (data.audioUrl) {
-          setAudioUrl(data.audioUrl);
+        if (data.uploads?.audio_url || data.audioUrl) {
+          setAudioUrl(data.uploads?.audio_url || data.audioUrl);
           setAudioState(UPLOAD_STATE.READY);
         }
-        if (data.imageName) setImageName(data.imageName);
-        if (data.videoName) setVideoName(data.videoName);
-        if (data.audioName) setAudioName(data.audioName);
+        if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
+        if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
+        if (data.uploads?.audio_name || data.audioName) setAudioName(data.uploads?.audio_name || data.audioName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.internalHistory && !serverGen.active) setInternalHistory(data.internalHistory);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) {
       console.warn("Failed to load LipSyncStudio persistence:", err);
     } finally {
       hasRestored.current = true;
     }
-  }, []);
+  }, [modelsByMode, hasProviderCatalog, provider, inputMode, imageModels, videoModels]);
 
   // ── Persistence: Save ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog || !hasRestored.current) return;
+    if (!currentModels.some((model) => model.id === selectedModelId)) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       try {
         const state = {
+          version: 1,
+          provider,
           inputMode,
           selectedModelId,
-          selectedResolution,
-          imageUrl,
-          imageName,
-          videoUrl,
-          videoName,
-          audioUrl,
-          audioName,
+          options: {
+            resolution: selectedResolution,
+          },
+          uploads: {
+            image_url: imageUrl,
+            image_name: imageName,
+            video_url: videoUrl,
+            video_name: videoName,
+            audio_url: audioUrl,
+            audio_name: audioName,
+          },
           prompt,
           // Phase 5: results live server-side when active — persist prefs only.
-          internalHistory: serverGen.active ? [] : internalHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -471,7 +503,10 @@ export default function LipSyncStudio({
     audioUrl,
     audioName,
     prompt,
-    internalHistory,
+    modelsByMode,
+    hasProviderCatalog,
+    currentModels,
+    provider,
   ]);
 
   // ── Derived model info ──────────────────────────────────────────────────
@@ -495,14 +530,24 @@ export default function LipSyncStudio({
   // MuAPI-only "infinitetalk-*" id while Replicate is active). If the current
   // list doesn't contain it, fall back to the first available model.
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
     if (!currentModels.length) return;
+    if (restoredPersistentModelIdRef.current) return;
     if (currentModels.some((m) => m.id === selectedModelId)) return;
     const first = currentModels[0];
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setSelectedModelId(first.id);
     setSelectedResolution(first.inputs?.resolution?.default ?? "480p");
-  }, [currentModels, selectedModelId]);
+  }, [modelsByMode, hasProviderCatalog, currentModels, selectedModelId]);
 
   useEffect(() => {
+    if (restoredPersistentModelIdRef.current) return;
+    if (restoredPersistentModelRef.current && currentModels.some((model) => model.id === selectedModelId)) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     if (!modelsByMode?.lipsync?.length || !currentModels.length) return;
     const first = currentModels[0];
     const key = `${inputMode}:${first.provider || "muapi"}:${first.id}`;
@@ -611,6 +656,8 @@ export default function LipSyncStudio({
   // ── Mode toggle ─────────────────────────────────────────────────────────
   const switchToImage = () => {
     if (inputMode === "image") return;
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setInputMode("image");
     setVideoUrl(null);
     setVideoState(UPLOAD_STATE.IDLE);
@@ -624,6 +671,8 @@ export default function LipSyncStudio({
 
   const switchToVideo = () => {
     if (inputMode === "video") return;
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setInputMode("video");
     setImageUrl(null);
     setImageState(UPLOAD_STATE.IDLE);
@@ -637,6 +686,8 @@ export default function LipSyncStudio({
 
   // ── Model selection ─────────────────────────────────────────────────────
   const handleModelSelect = (model) => {
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setSelectedModelId(model.id);
     const resolutions = model.inputs?.resolution?.enum || [];
     if (resolutions.length > 0) {

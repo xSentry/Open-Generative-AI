@@ -60,8 +60,127 @@ const TypingDots = () => (
   </div>
 );
 
+const CheckSvg = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" strokeWidth="4">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const ChevronSvg = () => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-50 group-hover:opacity-100 transition-opacity shrink-0">
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
+const SearchSvg = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-secondary-text">
+    <circle cx="11" cy="11" r="8" />
+    <path d="M21 21l-4.35-4.35" />
+  </svg>
+);
+
+function ModelGlyph({ model, fallback = "M" }) {
+  const label = model?.replicate?.owner || model?.provider_name || model?.provider || fallback;
+  return (
+    <span className="text-[10px] font-black uppercase">
+      {String(label || fallback).slice(0, 1)}
+    </span>
+  );
+}
+
+function DesignModelButton({ icon, label, disabled, onClick, title }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title || label}
+      onClick={onClick}
+      className="h-8 flex items-center gap-2 px-3 bg-white/[0.03] hover:bg-white/[0.06] rounded-md transition-all border border-white/[0.03] group whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
+    >
+      <div className="w-5 h-5 shrink-0 rounded-md bg-white/[0.04] text-white/70 border border-white/[0.06] flex items-center justify-center overflow-hidden shadow-inner">
+        {icon}
+      </div>
+      <span className="text-[11px] font-semibold text-white/70 group-hover:text-[var(--primary-color)] transition-colors max-w-[120px] truncate">
+        {label}
+      </span>
+      <ChevronSvg />
+    </button>
+  );
+}
+
+function DesignDropdown({ title, searchPlaceholder = "Search models...", children, searchable = true }) {
+  const [search, setSearch] = useState("");
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute bottom-[calc(100%+12px)] left-0 z-50 bg-[#0c0c0f]/95 rounded-xl p-3.5 shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-white/[0.08] backdrop-blur-2xl w-[calc(100vw-2rem)] max-w-[420px]"
+    >
+      <div className="px-2 pb-3 mb-2 border-b border-white/5">
+        <div className="text-[10px] font-bold text-secondary-text uppercase tracking-wide mb-2">{title}</div>
+        {searchable && (
+          <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5 focus-within:border-primary/50 transition-colors">
+            <SearchSvg />
+            <input
+              type="text"
+              autoFocus
+              placeholder={searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-transparent border-none text-xs text-white focus:ring-0 w-full p-0 outline-none"
+            />
+          </div>
+        )}
+      </div>
+      {children(search)}
+    </div>
+  );
+}
+
+function DesignModelList({ models, selectedId, onSelect, search, emptyLabel = "No models available" }) {
+  const needle = search.toLowerCase();
+  const filtered = models.filter((model) =>
+    String(model.name || "").toLowerCase().includes(needle) ||
+    String(model.id || "").toLowerCase().includes(needle)
+  );
+
+  if (filtered.length === 0) {
+    return <div className="px-4 py-8 text-center text-secondary-text text-xs italic opacity-60">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-1 max-h-[52vh]">
+      {filtered.map((model) => (
+        <button
+          type="button"
+          key={model.id}
+          onClick={() => onSelect(model)}
+          className={`w-full flex items-center justify-between p-3.5 hover:bg-white/5 rounded-2xl cursor-pointer transition-all border border-transparent hover:border-white/5 text-left ${selectedId === model.id ? "bg-white/5 border-white/5" : ""}`}
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 bg-primary/10 text-primary border border-white/5 rounded-lg flex items-center justify-center shadow-inner uppercase overflow-hidden shrink-0">
+              <ModelGlyph model={model} />
+            </div>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="text-xs font-bold text-white tracking-tight truncate">
+                {model.name || model.id}
+              </span>
+              <span className="text-[9px] text-secondary-text truncate">
+                {model.id}
+              </span>
+            </div>
+          </div>
+          {selectedId === model.id && <CheckSvg />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function CreativeCanvas({
   user,
+  provider = "replicate",
+  modelsByMode = null,
   theme: forcedTheme,
   setTheme: forcedSetTheme,
   creditConversionRate = 200,
@@ -116,6 +235,12 @@ export default function CreativeCanvas({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorPos, setMentionCursorPos] = useState(0);
   const [hoveredAsset, setHoveredAsset] = useState(null);
+  const [selectedToolMode, setSelectedToolMode] = useState("t2i");
+  const [selectedModels, setSelectedModels] = useState({});
+  const [selectedPlannerModel, setSelectedPlannerModel] = useState("");
+  const [openModelMenu, setOpenModelMenu] = useState(null);
+  const hasRestoredModelConfigRef = useRef(false);
+  const skipNextModelConfigSaveRef = useRef(false);
 
   // Left Sidebar and Session Management
   const [showLeftSidebar, setShowLeftSidebar] = useState(true);
@@ -170,6 +295,107 @@ export default function CreativeCanvas({
       else window.localStorage.removeItem(embedStorageKey);
     }
   }, [embedStorageKey]);
+
+  const modelLists = useMemo(() => ({
+    ttt: provider === "muapi"
+      ? [{ id: "gpt-5-mini", name: "Default planner" }]
+      : (modelsByMode?.ttt || []),
+    t2i: modelsByMode?.t2i || [],
+    i2i: modelsByMode?.i2i || [],
+    t2v: modelsByMode?.t2v || [],
+    i2v: modelsByMode?.i2v || [],
+    v2v: modelsByMode?.v2v || [],
+    audio: modelsByMode?.audio || [],
+  }), [modelsByMode, provider]);
+
+  const toolModeLabels = {
+    t2i: "Image",
+    i2i: "Image edit",
+    t2v: "Video",
+    i2v: "Image to video",
+    v2v: "Video edit",
+    audio: "Audio",
+  };
+
+  const currentModeModels = modelLists[selectedToolMode] || [];
+  const currentModeModel = currentModeModels.find((model) => model.id === selectedModels[selectedToolMode]) || currentModeModels[0] || null;
+  const plannerModels = modelLists.ttt || [];
+  const selectedPlannerModelObj = provider === "muapi"
+    ? { id: "gpt-5-mini", name: "Default planner" }
+    : plannerModels.find((model) => model.id === selectedPlannerModel) || null;
+
+  useEffect(() => {
+    if (!modelsByMode) return;
+    try {
+      const stored = window.localStorage.getItem("hg_design_agent_model_config");
+      if (!stored) return;
+      const data = JSON.parse(stored);
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      skipNextModelConfigSaveRef.current = true;
+      if (data.selectedToolMode) setSelectedToolMode(data.selectedToolMode);
+      if (data.selectedPlannerModel) setSelectedPlannerModel(data.selectedPlannerModel);
+      if (data.selectedModels && typeof data.selectedModels === "object") {
+        setSelectedModels(data.selectedModels);
+      }
+    } catch (err) {
+      console.warn("Failed to load Design Agent model config:", err);
+    } finally {
+      hasRestoredModelConfigRef.current = true;
+    }
+  }, [modelsByMode, provider]);
+
+  useEffect(() => {
+    setSelectedModels((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const mode of ["t2i", "i2i", "t2v", "i2v", "v2v", "audio"]) {
+        const list = modelLists[mode] || [];
+        if (list.length && !list.some((model) => model.id === next[mode])) {
+          next[mode] = list[0].id;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [modelLists]);
+
+  useEffect(() => {
+    if (provider === "muapi") {
+      setSelectedPlannerModel("gpt-5-mini");
+      return;
+    }
+    if (plannerModels.length === 0) {
+      setSelectedPlannerModel("");
+      return;
+    }
+    setSelectedPlannerModel((current) => (
+      plannerModels.some((model) => model.id === current) ? current : plannerModels[0].id
+    ));
+  }, [plannerModels, provider]);
+
+  useEffect(() => {
+    if (!modelsByMode || !hasRestoredModelConfigRef.current) return;
+    if (skipNextModelConfigSaveRef.current) {
+      skipNextModelConfigSaveRef.current = false;
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        "hg_design_agent_model_config",
+        JSON.stringify({
+          version: 1,
+          provider,
+          selectedToolMode,
+          selectedPlannerModel,
+          selectedModels,
+        }),
+      );
+    } catch (err) {
+      console.warn("Failed to save Design Agent model config:", err);
+    }
+  }, [modelsByMode, provider, selectedToolMode, selectedPlannerModel, selectedModels]);
+
 
   // Initialize
   useEffect(() => {
@@ -475,6 +701,77 @@ export default function CreativeCanvas({
     });
   };
 
+  const finalizeJobWatch = async (activeSessionId) => {
+    setBusy(false);
+    await loadAssets();
+    if (activeSessionId) {
+      setMessages(prev => {
+        const newMsgs = [...prev];
+        axios.patch(`${API}/sessions/${activeSessionId}/messages`, { messages: newMsgs }, { headers: getHeaders() }).catch(() => {});
+        return newMsgs;
+      });
+    }
+  };
+
+  const watchJobEvents = async (jobId, assistantIdx, activeSessionId) => {
+    if (
+      typeof window === "undefined" ||
+      typeof EventSource === "undefined" ||
+      inEmbedMode ||
+      !window.location?.protocol?.startsWith("http")
+    ) {
+      await resumePolling(jobId, assistantIdx);
+      return;
+    }
+
+    let usedPolling = false;
+    await new Promise((resolve) => {
+      let settled = false;
+      let sawOpen = false;
+      const source = new EventSource(`${API}/jobs/${jobId}/stream`);
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          source.close();
+        } catch {}
+        resolve();
+      };
+
+      const fallback = async () => {
+        if (settled) return;
+        settled = true;
+        usedPolling = true;
+        try {
+          source.close();
+        } catch {}
+        await resumePolling(jobId, assistantIdx);
+        resolve();
+      };
+
+      source.onopen = () => {
+        sawOpen = true;
+      };
+      source.onmessage = (event) => {
+        if (!event.data) return;
+        try {
+          processEvent(JSON.parse(event.data), assistantIdx);
+        } catch {}
+      };
+      source.addEventListener("done", finish);
+      source.onerror = () => {
+        fallback();
+      };
+      setTimeout(() => {
+        if (!sawOpen) fallback();
+      }, 2500);
+    });
+
+    if (!usedPolling) {
+      await finalizeJobWatch(activeSessionId);
+    }
+  };
+
   const handleJobAction = async (jobId, action) => {
     try {
       await axios.post(`${API}/jobs/${jobId}/${action}`, {}, { headers: getHeaders() });
@@ -536,11 +833,11 @@ export default function CreativeCanvas({
           // No assistant bubble to resume into, create a new one.
           setMessages(prev => {
             const next = [...prev, { role: "assistant", content: "", events: [], timestamp: new Date().toISOString() }];
-            resumePolling(active.id, next.length - 1);
+            watchJobEvents(active.id, next.length - 1, sessionId);
             return next;
           });
         } else {
-          resumePolling(active.id, aIdx);
+          watchJobEvents(active.id, aIdx, sessionId);
         }
       }
     } catch {}
@@ -598,7 +895,7 @@ export default function CreativeCanvas({
       formData.append("file", file);
 
       // 2. Upload via local proxy
-      await axios.post("/api/v1/upload-binary", formData, {
+      const uploadRes = await axios.post("/api/v1/upload-binary", formData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (pe) => {
           setUploadProgress(Math.round((pe.loaded * 100) / pe.total));
@@ -606,7 +903,7 @@ export default function CreativeCanvas({
       });
 
       // 3. Final URL
-      const uploadedUrl = `https://cdn.muapi.ai/${fields.key}`;
+      const uploadedUrl = uploadRes.data?.url || signData.public_url || fields.public_url || `https://cdn.muapi.ai/${fields.key}`;
 
       // 4. Register as a real session asset so the agent can address it as asset_N.
       const kind = file.type?.startsWith("video/") ? "video"
@@ -704,6 +1001,7 @@ export default function CreativeCanvas({
     setBusy(true);
 
     const aIdx = updatedMessages.length; 
+    let jobWatchStarted = false;
     
     try {
       let canvasState = null;
@@ -714,7 +1012,9 @@ export default function CreativeCanvas({
       let endpoint = `${API}/sessions/${activeSessionId}/chat`;
       let payload = {
         message: typed,
-        model: "gpt-5-mini",
+        model: selectedPlannerModel || "gpt-5-mini",
+        planner_model: selectedPlannerModel || null,
+        selected_models: selectedModels,
         messages_snapshot: updatedMessages,
         canvas_state: canvasState,
       };
@@ -727,14 +1027,17 @@ export default function CreativeCanvas({
         payload = {
           skill_name: currentSkill.name,
           inputs: { [primaryInputKey]: typed },
+          model: selectedPlannerModel || "gpt-5-mini",
           messages_snapshot: updatedMessages,
-          model: "gpt-5-mini"
+          planner_model: selectedPlannerModel || null,
+          selected_models: selectedModels,
         };
         if (!skillOverride) setActiveSkill(null); // Clear skill after sending if not override
       }
 
       const enqueueRes = await axios.post(endpoint, payload, { headers: getHeaders() });
-      await resumePolling(enqueueRes.data.job_id, aIdx);
+      jobWatchStarted = true;
+      await watchJobEvents(enqueueRes.data.job_id, aIdx, activeSessionId);
     } catch (err) {
       setMessages(prev => {
         const arr = [...prev];
@@ -742,15 +1045,7 @@ export default function CreativeCanvas({
         return arr;
       });
     } finally {
-      setBusy(false);
-      await loadAssets();
-      if (activeSessionId) {
-        setMessages(prev => {
-          const newMsgs = [...prev];
-          axios.patch(`${API}/sessions/${activeSessionId}/messages`, { messages: newMsgs }, { headers: getHeaders() }).catch(() => {});
-          return newMsgs;
-        });
-      }
+      if (!jobWatchStarted) await finalizeJobWatch(activeSessionId);
     }
   };
 
@@ -1412,6 +1707,100 @@ export default function CreativeCanvas({
                 ${isDragging ? "border-dashed border-primary bg-primary/5 ring-4 ring-primary/10" : ""}
                 ${busy ? "border-primary ring-1 ring-primary/20" : "border-divider focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary"}`}
             >
+              <div className="px-3 pt-2 pb-2 flex items-center gap-2 flex-wrap border-b border-divider/60 bg-bg-page/20">
+                <div className="relative">
+                  <DesignModelButton
+                    title="Planner model"
+                    label={selectedPlannerModelObj?.name || "Default planner"}
+                    disabled={provider !== "muapi" && plannerModels.length === 0}
+                    icon={<RiRobot2Line size={13} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenModelMenu(openModelMenu === "planner" ? null : "planner");
+                    }}
+                  />
+                  {openModelMenu === "planner" && plannerModels.length > 0 && (
+                    <DesignDropdown title="Planner model">
+                      {(search) => (
+                        <DesignModelList
+                          models={plannerModels}
+                          selectedId={selectedPlannerModel}
+                          search={search}
+                          onSelect={(model) => {
+                            setSelectedPlannerModel(model.id);
+                            setOpenModelMenu(null);
+                          }}
+                        />
+                      )}
+                    </DesignDropdown>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <DesignModelButton
+                    title="Media type"
+                    label={toolModeLabels[selectedToolMode] || "Media"}
+                    icon={<RiSparklingLine size={13} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenModelMenu(openModelMenu === "mode" ? null : "mode");
+                    }}
+                  />
+                  {openModelMenu === "mode" && (
+                    <DesignDropdown title="Media type" searchable={false}>
+                      {() => (
+                        <div className="flex flex-col gap-1.5">
+                          {Object.entries(toolModeLabels).map(([mode, label]) => (
+                            <button
+                              type="button"
+                              key={mode}
+                              onClick={() => {
+                                setSelectedToolMode(mode);
+                                setOpenModelMenu(null);
+                              }}
+                              className={`flex items-center justify-between p-3.5 hover:bg-white/5 rounded-2xl cursor-pointer transition-all group border border-transparent hover:border-white/5 ${selectedToolMode === mode ? "bg-white/5 border-white/5" : ""}`}
+                            >
+                              <span className="text-xs font-bold text-white opacity-80 group-hover:opacity-100">
+                                {label}
+                              </span>
+                              {selectedToolMode === mode && <CheckSvg />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </DesignDropdown>
+                  )}
+                </div>
+
+                <div className="relative min-w-0">
+                  <DesignModelButton
+                    title="Media model"
+                    label={currentModeModel?.name || currentModeModel?.id || "Model"}
+                    disabled={currentModeModels.length === 0}
+                    icon={<ModelGlyph model={currentModeModel} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenModelMenu(openModelMenu === "media" ? null : "media");
+                    }}
+                  />
+                  {openModelMenu === "media" && (
+                    <DesignDropdown title={`${toolModeLabels[selectedToolMode] || "Media"} models`}>
+                      {(search) => (
+                        <DesignModelList
+                          models={currentModeModels}
+                          selectedId={currentModeModel?.id || ""}
+                          search={search}
+                          onSelect={(model) => {
+                            setSelectedModels(prev => ({ ...prev, [selectedToolMode]: model.id }));
+                            setOpenModelMenu(null);
+                          }}
+                        />
+                      )}
+                    </DesignDropdown>
+                  )}
+                </div>
+              </div>
+
               {activeSkill && (
                 <div className="flex items-center gap-2 p-1 animate-fade-in-up">
                   <button 

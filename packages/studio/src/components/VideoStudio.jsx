@@ -273,6 +273,7 @@ function ControlBtn({ icon, label, onClick, style }) {
 
 export default function VideoStudio({
   apiKey,
+  provider = "replicate",
   onGenerationComplete,
   historyItems,
   droppedFiles,
@@ -362,6 +363,9 @@ export default function VideoStudio({
   const hasRestored = useRef(false);
   const appliedProviderDefaultRef = useRef(new Set());
   const suppressProviderDefaultRef = useRef(false);
+  const restoredPersistentModelRef = useRef(false);
+  const restoredPersistentModelIdRef = useRef(null);
+  const skipNextConfigSaveRef = useRef(false);
 
   // ── derived data ──
   const serverGen = useServerGenerations({ mediaType: "video", mode: ["t2v", "i2v", "v2v"] });
@@ -377,6 +381,11 @@ export default function VideoStudio({
     : imageMode
       ? modelsByMode?.i2v
       : modelsByMode?.t2v;
+  const hasProviderCatalog = provider === "muapi" || !!(
+    modelsByMode?.t2v?.length ||
+    modelsByMode?.i2v?.length ||
+    modelsByMode?.v2v?.length
+  );
 
   const getCurrentAspectRatios = useCallback(
     (id) =>
@@ -506,44 +515,70 @@ export default function VideoStudio({
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
+    if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
-        if (data.imageMode !== undefined) setImageMode(data.imageMode);
-        if (data.v2vMode !== undefined) setV2vMode(data.v2vMode);
-        if (data.selectedModel) setSelectedModel(data.selectedModel);
-        if (data.selectedModelName) setSelectedModelName(data.selectedModelName);
-        if (data.selectedAr) setSelectedAr(data.selectedAr);
-        if (data.selectedDuration) setSelectedDuration(data.selectedDuration);
-        if (data.selectedResolution) setSelectedResolution(data.selectedResolution);
-        if (data.selectedQuality) setSelectedQuality(data.selectedQuality);
-        if (data.selectedMode) setSelectedMode(data.selectedMode);
-        if (data.selectedEffect) setSelectedEffect(data.selectedEffect);
-        if (data.uploadedImageUrl) setUploadedImageUrl(data.uploadedImageUrl);
-        if (data.uploadedImageUrls) {
-          setUploadedImageUrls(data.uploadedImageUrls);
-        } else if (data.uploadedImageUrl) {
-          setUploadedImageUrls([data.uploadedImageUrl]);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) {
+          restoredPersistentModelRef.current = false;
+          restoredPersistentModelIdRef.current = null;
+          return;
         }
-        if (data.uploadedVideoUrl) setUploadedVideoUrl(data.uploadedVideoUrl);
-        if (data.uploadedVideoName) setUploadedVideoName(data.uploadedVideoName);
+        skipNextConfigSaveRef.current = true;
+        const options = data.options || data;
+        const restoredImageMode = data.imageMode !== undefined ? data.imageMode : imageMode;
+        const restoredV2vMode = data.v2vMode !== undefined ? data.v2vMode : v2vMode;
+        if (data.imageMode !== undefined) setImageMode(restoredImageMode);
+        if (data.v2vMode !== undefined) setV2vMode(restoredV2vMode);
+        const restoredModelId = data.selectedModelId || data.selectedModel;
+        const restoredModels = restoredV2vMode ? v2vModelList : restoredImageMode ? i2vModelList : t2vModelList;
+        const restoredModel = restoredModels.find((model) => model.id === restoredModelId);
+        restoredPersistentModelRef.current = !!restoredModel;
+        restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
+        if (restoredModelId) setSelectedModel(restoredModelId);
+        if (restoredModelId || data.selectedModelName) {
+          setSelectedModelName(restoredModel?.name || data.selectedModelName);
+        }
+        if (options.aspect_ratio || data.selectedAr) setSelectedAr(options.aspect_ratio || data.selectedAr);
+        if (options.duration || data.selectedDuration) setSelectedDuration(options.duration || data.selectedDuration);
+        if (options.resolution || data.selectedResolution) setSelectedResolution(options.resolution || data.selectedResolution);
+        if (options.quality || data.selectedQuality) setSelectedQuality(options.quality || data.selectedQuality);
+        if (options.mode || data.selectedMode) setSelectedMode(options.mode || data.selectedMode);
+        if (options.effect || data.selectedEffect) setSelectedEffect(options.effect || data.selectedEffect);
+        if (data.uploads?.image_url || data.uploadedImageUrl) setUploadedImageUrl(data.uploads?.image_url || data.uploadedImageUrl);
+        if (data.uploads?.image_urls || data.uploadedImageUrls) {
+          setUploadedImageUrls(data.uploads?.image_urls || data.uploadedImageUrls);
+        } else if (data.uploads?.image_url || data.uploadedImageUrl) {
+          setUploadedImageUrls([data.uploads?.image_url || data.uploadedImageUrl]);
+        }
+        if (data.uploads?.end_image_url || data.uploadedEndImageUrl) setUploadedEndImageUrl(data.uploads?.end_image_url || data.uploadedEndImageUrl);
+        if (data.uploads?.video_url || data.uploadedVideoUrl) setUploadedVideoUrl(data.uploads?.video_url || data.uploadedVideoUrl);
+        if (data.uploads?.video_name || data.uploadedVideoName) setUploadedVideoName(data.uploads?.video_name || data.uploadedVideoName);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.localHistory && !serverGen.active) setLocalHistory(data.localHistory);
+        suppressProviderDefaultRef.current = true;
 
         // Update control visibility based on restored model/mode
         applyControlsForModel(
-          data.selectedModel || defaultModel.id,
-          !!data.imageMode,
-          !!data.v2vMode
+          restoredModelId || defaultModel.id,
+          !!restoredImageMode,
+          !!restoredV2vMode
         );
+        if (options.aspect_ratio || data.selectedAr) setSelectedAr(options.aspect_ratio || data.selectedAr);
+        if (options.duration || data.selectedDuration) setSelectedDuration(options.duration || data.selectedDuration);
+        if (options.resolution || data.selectedResolution) setSelectedResolution(options.resolution || data.selectedResolution);
+        if (options.quality || data.selectedQuality) setSelectedQuality(options.quality || data.selectedQuality);
+        if (options.mode || data.selectedMode) setSelectedMode(options.mode || data.selectedMode);
+        if (options.effect || data.selectedEffect) setSelectedEffect(options.effect || data.selectedEffect);
       }
     } catch (err) {
       console.warn("Failed to load VideoStudio persistence:", err);
     } finally {
       hasRestored.current = true;
     }
-  }, [applyControlsForModel, defaultModel.id]);
+  }, [modelsByMode, hasProviderCatalog, applyControlsForModel, defaultModel.id, provider, imageMode, v2vMode]);
 
   useEffect(() => {
     if (uploadedImageUrls.length === 0) {
@@ -572,24 +607,36 @@ export default function VideoStudio({
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
+        if (!modelsByMode || !hasProviderCatalog || !hasRestored.current) return;
+        if (!getCurrentModels().some((model) => model.id === selectedModel)) return;
+        if (skipNextConfigSaveRef.current) {
+          skipNextConfigSaveRef.current = false;
+          return;
+        }
         const state = {
+          version: 1,
+          provider,
           imageMode,
           v2vMode,
-          selectedModel,
+          selectedModelId: selectedModel,
           selectedModelName,
-          selectedAr,
-          selectedDuration,
-          selectedResolution,
-          selectedQuality,
-          selectedMode,
-          selectedEffect,
-          uploadedImageUrl,
-          uploadedImageUrls,
-          uploadedVideoUrl,
-          uploadedVideoName,
+          options: {
+            aspect_ratio: selectedAr,
+            duration: selectedDuration,
+            resolution: selectedResolution,
+            quality: selectedQuality,
+            mode: selectedMode,
+            effect: selectedEffect,
+          },
+          uploads: {
+            image_url: uploadedImageUrl,
+            image_urls: uploadedImageUrls,
+            end_image_url: uploadedEndImageUrl,
+            video_url: uploadedVideoUrl,
+            video_name: uploadedVideoName,
+          },
           prompt,
           // Phase 5: results live server-side when active — persist prefs only.
-          localHistory: serverGen.active ? [] : localHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -610,10 +657,14 @@ export default function VideoStudio({
     selectedEffect,
     uploadedImageUrl,
     uploadedImageUrls,
+    uploadedEndImageUrl,
     uploadedVideoUrl,
     uploadedVideoName,
     prompt,
-    localHistory,
+    modelsByMode,
+    hasProviderCatalog,
+    getCurrentModels,
+    provider,
   ]);
 
   // ── Derived UI values ────────────────────────────────────────────────────
@@ -906,6 +957,8 @@ export default function VideoStudio({
   // ── model selection from dropdown ─────────────────────────────────────────
   const handleModelSelect = useCallback(
     (m, isV2V) => {
+      restoredPersistentModelRef.current = false;
+      restoredPersistentModelIdRef.current = null;
       if (isV2V) {
         setV2vMode(true);
         setImageMode(false);
@@ -1287,16 +1340,22 @@ export default function VideoStudio({
   const isMultiImageUpload = imageUploadMaxImages > 1;
 
   useEffect(() => {
+    if (!modelsByMode || !hasProviderCatalog) return;
     if (currentModelObj) return;
+    if (restoredPersistentModelIdRef.current) return;
     const fallback = getCurrentModels()[0] || defaultModel;
     if (!fallback) return;
+    restoredPersistentModelRef.current = false;
+    restoredPersistentModelIdRef.current = null;
     setSelectedModel(fallback.id);
     setSelectedModelName(fallback.name);
     applyControlsForModel(fallback.id, imageMode, v2vMode);
-  }, [currentModelObj, getCurrentModels, defaultModel, applyControlsForModel, imageMode, v2vMode]);
+  }, [modelsByMode, hasProviderCatalog, currentModelObj, getCurrentModels, defaultModel, applyControlsForModel, imageMode, v2vMode]);
 
   useEffect(() => {
     if (!currentProviderModels?.length) return;
+    if (restoredPersistentModelIdRef.current) return;
+    if (restoredPersistentModelRef.current && getCurrentModels().some((model) => model.id === selectedModel)) return;
     if (suppressProviderDefaultRef.current) {
       suppressProviderDefaultRef.current = false;
       return;
@@ -1309,7 +1368,7 @@ export default function VideoStudio({
     setSelectedModel(first.id);
     setSelectedModelName(first.name);
     applyControlsForModel(first.id, imageMode, v2vMode);
-  }, [currentProviderModels, imageMode, v2vMode, applyControlsForModel]);
+  }, [currentProviderModels, imageMode, v2vMode, applyControlsForModel, getCurrentModels, selectedModel]);
 
   const promptPlaceholder = v2vMode
     ? currentModelObj?.imageField

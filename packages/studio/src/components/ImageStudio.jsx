@@ -893,6 +893,7 @@ function SimpleDropdown({ title, options, selected, onSelect, onClose }) {
 
 export default function ImageStudio({
   apiKey,
+  provider = "replicate",
   onGenerationComplete,
   historyItems,
   droppedFiles,
@@ -948,6 +949,8 @@ export default function ImageStudio({
   const dropdownRef = useRef(null);
   const appliedProviderDefaultRef = useRef(new Set());
   const suppressProviderDefaultRef = useRef(false);
+  const hasRestoredConfigRef = useRef(false);
+  const skipNextConfigSaveRef = useRef(false);
   const uploadPickerResetRef = useRef(null); // not used directly — managed via key
 
   // ── Close dropdown on outside click ─────────────────────────────────────
@@ -964,26 +967,38 @@ export default function ImageStudio({
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) return;
+        skipNextConfigSaveRef.current = true;
+        const options = data.options || data;
         if (data.imageMode !== undefined) setImageMode(data.imageMode);
         if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.selectedModelName) setSelectedModelName(data.selectedModelName);
-        if (data.selectedAr) setSelectedAr(data.selectedAr);
-        if (data.selectedQuality) setSelectedQuality(data.selectedQuality);
-        if (data.selectedEffect) setSelectedEffect(data.selectedEffect);
-        if (data.maxImages) setMaxImages(data.maxImages);
+        if (data.selectedModelId || data.selectedModelName) {
+          const restoredMode = data.imageMode !== undefined ? data.imageMode : imageMode;
+          const restoredModel = (restoredMode ? i2iModelList : t2iModelList).find((model) => model.id === data.selectedModelId);
+          setSelectedModelName(restoredModel?.name || data.selectedModelName);
+        }
+        if (options.aspect_ratio || data.selectedAr) setSelectedAr(options.aspect_ratio || data.selectedAr);
+        if (options.quality || options.resolution || data.selectedQuality) setSelectedQuality(options.quality || options.resolution || data.selectedQuality);
+        if (options.effect || data.selectedEffect) setSelectedEffect(options.effect || data.selectedEffect);
+        if (options.maxImages || data.maxImages) setMaxImages(options.maxImages || data.maxImages);
         if (data.prompt) setPrompt(data.prompt);
-        if (data.uploadedImageUrls) setUploadedImageUrls(data.uploadedImageUrls);
-        if (data.batchSize) setBatchSize(data.batchSize);
-        if (data.localHistory && !serverGen.active) setLocalHistory(data.localHistory);
+        if (data.uploads?.image_urls || data.uploadedImageUrls) setUploadedImageUrls(data.uploads?.image_urls || data.uploadedImageUrls);
+        if (data.uploads?.swap_image_url) setSwapImageUrl(data.uploads.swap_image_url);
+        if (options.batchSize || data.batchSize) setBatchSize(options.batchSize || data.batchSize);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) {
       console.warn("Failed to load ImageStudio persistence:", err);
+    } finally {
+      hasRestoredConfigRef.current = true;
     }
-  }, []);
+  }, [modelsByMode, provider]);
 
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
@@ -995,21 +1010,33 @@ export default function ImageStudio({
 
   // ── Persistence: Save ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasRestoredConfigRef.current) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       try {
         const state = {
+          version: 1,
+          provider,
           imageMode,
           selectedModelId,
           selectedModelName,
-          selectedAr,
-          selectedQuality,
-          selectedEffect,
-          maxImages,
+          options: {
+            aspect_ratio: selectedAr,
+            quality: selectedQuality,
+            resolution: selectedQuality,
+            effect: selectedEffect,
+            maxImages,
+            batchSize,
+          },
           prompt,
-          uploadedImageUrls,
-          batchSize,
+          uploads: {
+            image_urls: uploadedImageUrls,
+            swap_image_url: swapImageUrl,
+          },
           // Phase 5: results live server-side when active — persist prefs only.
-          localHistory: serverGen.active ? [] : localHistory,
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -1027,8 +1054,10 @@ export default function ImageStudio({
     maxImages,
     prompt,
     uploadedImageUrls,
+    swapImageUrl,
     batchSize,
-    localHistory,
+    modelsByMode,
+    provider,
   ]);
 
   const processDroppedImages = async (files) => {
@@ -1107,6 +1136,7 @@ export default function ImageStudio({
   const showEffectBtn = currentEffects.length > 0;
 
   useEffect(() => {
+    if (!modelsByMode) return;
     if (currentModels.some((model) => model.id === selectedModelId)) return;
     const fallback = currentModels[0] || firstTextModel;
     if (!fallback) return;
@@ -1114,7 +1144,7 @@ export default function ImageStudio({
     setSelectedModelName(fallback.name);
     setSelectedAr(modelDefaultAspect(fallback, imageMode));
     setSelectedQuality(modelDefaultQuality(fallback, imageMode));
-  }, [currentModels, selectedModelId, imageMode, firstTextModel]);
+  }, [modelsByMode, currentModels, selectedModelId, imageMode, firstTextModel]);
 
   useEffect(() => {
     if (!currentProviderModels?.length) return;

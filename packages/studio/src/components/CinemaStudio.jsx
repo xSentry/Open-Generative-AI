@@ -613,6 +613,9 @@ export default function CinemaStudio({
   const resBtnRef = useRef(null);
   const modelBtnRef = useRef(null);
   const appliedProviderDefaultRef = useRef(new Set());
+  const suppressProviderDefaultRef = useRef(false);
+  const hasRestoredConfigRef = useRef(false);
+  const skipNextConfigSaveRef = useRef(false);
 
   // Default the model selection to the first cinema-capable model, and keep it
   // valid when the provider/catalog changes.
@@ -628,6 +631,10 @@ export default function CinemaStudio({
 
   useEffect(() => {
     if (!isReplicate || !modelsByMode?.cinema?.length) return;
+    if (suppressProviderDefaultRef.current) {
+      suppressProviderDefaultRef.current = false;
+      return;
+    }
     const first = modelsByMode.cinema[0];
     const key = `cinema:${first.provider || "muapi"}:${first.id}`;
     if (appliedProviderDefaultRef.current.has(key)) return;
@@ -668,19 +675,26 @@ export default function CinemaStudio({
 
   // ── Persistence: Load ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
       if (stored) {
         const data = JSON.parse(stored);
-        if (data.settings) setSettings(data.settings);
-        if (data.resolution) setResolution(data.resolution);
-        if (data.internalHistory) setInternalHistory(data.internalHistory);
-        if (data.uploadedImage) setUploadedImage(data.uploadedImage);
+        const storedProvider = data.provider || "replicate";
+        if (storedProvider !== provider) return;
+        skipNextConfigSaveRef.current = true;
+        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+        if (data.settings || data.options) setSettings((prev) => ({ ...prev, ...(data.settings || data.options) }));
+        if (data.resolution || data.options?.resolution) setResolution(data.resolution || data.options.resolution);
+        if (data.uploads?.image_url || data.uploadedImage) setUploadedImage(data.uploads?.image_url || data.uploadedImage);
+        suppressProviderDefaultRef.current = true;
       }
     } catch (err) {
       console.warn("Failed to load CinemaStudio persistence:", err);
+    } finally {
+      hasRestoredConfigRef.current = true;
     }
-  }, []);
+  }, [modelsByMode, provider]);
 
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
@@ -696,13 +710,24 @@ export default function CinemaStudio({
 
   // ── Persistence: Save ────────────────────────────────────────────────────
   useEffect(() => {
+    if (!modelsByMode || !hasRestoredConfigRef.current) return;
+    if (skipNextConfigSaveRef.current) {
+      skipNextConfigSaveRef.current = false;
+      return;
+    }
     const timer = setTimeout(() => {
       try {
         const state = {
-          settings,
-          resolution,
-          internalHistory,
-          uploadedImage,
+          version: 1,
+          provider,
+          selectedModelId,
+          options: {
+            ...settings,
+            resolution,
+          },
+          uploads: {
+            image_url: uploadedImage,
+          },
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
       } catch (err) {
@@ -710,7 +735,7 @@ export default function CinemaStudio({
       }
     }, 500); // 500ms debounce
     return () => clearTimeout(timer);
-  }, [settings, resolution, internalHistory, uploadedImage]);
+  }, [modelsByMode, provider, selectedModelId, settings, resolution, uploadedImage]);
 
   // Derive effective history (server-persisted wins when active, then prop, then internal)
   const history = serverActive
