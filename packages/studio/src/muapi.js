@@ -360,11 +360,10 @@ export async function getPublishedWorkflows(apiKey) {
 
 // Agents — uses direct URL → https://api.muapi.ai/agents/...
 export async function getTemplateAgents(apiKey) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
     const response = await fetch(`${BASE_URL}/agents/templates/agents`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey
-        }
+        headers
     });
     if (!response.ok) {
         const errText = await response.text();
@@ -375,11 +374,10 @@ export async function getTemplateAgents(apiKey) {
 };
 
 export async function getUserAgents(apiKey) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
     const response = await fetch(`${BASE_URL}/agents/user/agents`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey
-        }
+        headers
     });
     if (!response.ok) {
         const errText = await response.text();
@@ -407,11 +405,10 @@ export async function getPublishedAgents(apiKey) {
 
 // GET /agents/user/conversations — returns the user's chat history across all agents
 export async function getUserConversations(apiKey) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
     const response = await fetch(`${BASE_URL}/agents/user/conversations`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey
-        }
+        headers
     });
     if (!response.ok) {
         const errText = await response.text();
@@ -419,6 +416,76 @@ export async function getUserConversations(apiKey) {
     }
     const data = await response.json();
     return Array.isArray(data) ? data : [];
+};
+
+export async function deleteUserConversation(apiKey, conversationId) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/agents/user/conversations/${conversationId}`, {
+        method: 'DELETE',
+        headers,
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to delete conversation: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+};
+
+export async function getUserSkills(apiKey) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/agents/user/skills`, { headers });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to fetch skills: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+};
+
+export async function createAgentSkill(apiKey, payload) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/agents/skills`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to create skill: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+};
+
+export async function updateAgentSkill(apiKey, skillId, payload) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/agents/skills/${skillId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to update skill: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
+};
+
+export async function deleteAgentSkill(apiKey, skillId) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/agents/skills/${skillId}`, {
+        method: 'DELETE',
+        headers,
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to delete skill: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return await response.json();
 };
 
 export async function createWorkflow(apiKey, payload) {
