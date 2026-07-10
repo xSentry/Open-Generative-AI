@@ -43,7 +43,7 @@ import { AiOutlineAudio } from "react-icons/ai";
 import VideoCombiner from "./VideoCombiner";
 import UtilityNode from "./UtilityNode";
 import { useGenerationCost } from "./useGenerationCost";
-import { watchWorkflowRun } from "./workflowStream";
+import { watchNodeRun, watchWorkflowRun } from "./workflowStream";
 
 const WORKFLOW_HOME_PATH = "/studio/workflow";
 
@@ -187,6 +187,15 @@ const colorForSchemaField = (fieldName, meta = {}) => {
   if (/video/i.test(field)) return "orange";
   if (/image|swap|frame/i.test(field)) return "green";
   return "blue";
+};
+
+const isSchemaFieldVisible = (meta = {}, formValues = {}) => {
+  const rule = meta.visibleWhen || meta.showWhen;
+  if (!rule?.field) return true;
+  const value = formValues[rule.field];
+  if (Object.prototype.hasOwnProperty.call(rule, "equals")) return value === rule.equals;
+  if (Array.isArray(rule.in)) return rule.in.includes(value);
+  return Boolean(value);
 };
 
 const getUtilityProperties = (nodeSchemas, modelId) => {
@@ -1084,6 +1093,56 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     onConnectRef.current = onConnect;
   }, [onConnect]);
 
+  const sourceOutputValue = (node) => {
+    if (!node) return "";
+    if (node.type === "concatNode") return node.data?.formValues?.prompt || "";
+    return node.data?.viewingOutput ?? node.data?.resultUrl ?? node.data?.outputs?.[0]?.value ?? "";
+  };
+
+  const defaultValueForSchemaField = (meta = {}) => (
+    meta.default !== undefined ? meta.default : meta.type === "array" ? [] : ""
+  );
+
+  const resetUtilityInputsAfterEdgeRemoval = (removedEdges, nextEdges) => {
+    if (!removedEdges.length) return;
+    setNodes((prev) =>
+      prev.map((node) => {
+        if (node.type !== "utilityNode") return node;
+
+        const affectedHandles = removedEdges
+          .filter((edge) => edge.target === node.id && edge.targetHandle)
+          .map((edge) => edge.targetHandle);
+        if (!affectedHandles.length) return node;
+
+        const schema = getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id);
+        const formValues = { ...(node.data?.formValues || {}) };
+        let changed = false;
+
+        for (const handle of [...new Set(affectedHandles)]) {
+          const meta = schema[handle];
+          if (!meta || meta.connectable === false) continue;
+
+          const remainingEdges = nextEdges.filter((e) =>
+            e.target === node.id && e.targetHandle === handle
+          );
+
+          if (meta.type === "array") {
+            formValues[handle] = remainingEdges
+              .map((e) => sourceOutputValue(prev.find((source) => source.id === e.source)))
+              .filter((value) => value !== undefined && value !== null && value !== "");
+          } else if (remainingEdges.length > 0) {
+            formValues[handle] = sourceOutputValue(prev.find((source) => source.id === remainingEdges[0].source));
+          } else {
+            formValues[handle] = defaultValueForSchemaField(meta);
+          }
+          changed = true;
+        }
+
+        return changed ? { ...node, data: { ...node.data, formValues } } : node;
+      })
+    );
+  };
+
   const onEdgeClick = (event, edge) => {
     event.stopPropagation();
     setEdges((eds) => {
@@ -1156,9 +1215,27 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         );
       }
 
+      if (targetNode?.type === "utilityNode") {
+        resetUtilityInputsAfterEdgeRemoval([edge], updatedEdges);
+      }
+
       return updatedEdges;
     });
   };
+
+  const handleEdgesChange = useCallback((changes) => {
+    const removedIds = changes
+      .filter((change) => change.type === "remove")
+      .map((change) => change.id);
+
+    if (removedIds.length > 0) {
+      const removedEdges = edges.filter((edge) => removedIds.includes(edge.id));
+      const nextEdges = edges.filter((edge) => !removedIds.includes(edge.id));
+      resetUtilityInputsAfterEdgeRemoval(removedEdges, nextEdges);
+    }
+
+    onEdgesChange(changes);
+  }, [edges, nodeSchemas, onEdgesChange]);
 
   const buildWorkflowPayload = () => {
     const nodeData = nodes.map((node) => {
@@ -1751,7 +1828,54 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     }
   };
 
+  const runUtilityNodeFromFlow = async (node) => {
+    if (!node) return;
+    try {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id
+            ? { ...n, data: { ...n.data, isLoading: true, errorMsg: null } }
+            : n
+        )
+      );
+
+      const workflow_id = await handleSaveWorkFlow();
+      if (!workflow_id) {
+        toast.error("Failed to save workflow before running node");
+        setNodes((nds) => nds.map((n) => n.id === node.id ? { ...n, data: { ...n.data, isLoading: false } } : n));
+        return;
+      }
+
+      const response = await axios.post(`/api/workflow/${workflow_id}/node/${node.id}/run`, {
+        run_id: runId,
+        model: node.data?.selectedModel?.id,
+        params: node.data?.formValues || {},
+        node_id: node.id,
+      });
+
+      watchNodeRun(response.data.run_id, node.id, {
+        onSucceeded: (latest) => applyRunNodeStatus(node.id, latest),
+        onFailed: (latest) => applyRunNodeStatus(node.id, latest),
+        onError: (error) => {
+          console.error(error);
+          setNodes((nds) => nds.map((n) => n.id === node.id ? { ...n, data: { ...n.data, isLoading: false } } : n));
+          toast.error(`Failed to get workflow status for ${node.id}`);
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      setNodes((nds) => nds.map((n) => n.id === node.id ? { ...n, data: { ...n.data, isLoading: false } } : n));
+      toast.error(error.response?.data?.detail || error.response?.data?.error || "Error running utility node");
+    }
+  };
+
   const runNodeFromFlow = (nodeId) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node?.type === "utilityNode") {
+      runUtilityNodeFromFlow(node);
+      return;
+    }
+
     setNodes((nds) =>
       nds.map((n) =>
         n.id === nodeId
@@ -1824,7 +1948,11 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         ...(node.type === 'apiNode' ? Object.keys(node.data?.formValues || {}).reduce((acc, key) => ({ ...acc, [key]: 'white' }), {}) : {}),
         ...(node.type === 'utilityNode'
           ? Object.entries(getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)).reduce(
-            (acc, [key, meta]) => ({ ...acc, [key]: colorForSchemaField(key, meta) }),
+            (acc, [key, meta]) => (
+              meta.connectable !== false && isSchemaFieldVisible(meta, node.data?.formValues || {})
+                ? { ...acc, [key]: colorForSchemaField(key, meta) }
+                : acc
+            ),
             { utilityOutput: getUtilityOutputColor(nodeSchemas, node.data?.selectedModel?.id) }
           )
           : {}),
@@ -1862,7 +1990,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     if (!sourceType || !targetType || (sourceType !== targetType && targetType !== 'white')) return false;
 
     const isSourceOutput = sourceHandle.toLowerCase().includes("output");
-    const isTargetInput = targetHandle.toLowerCase().includes("input") || (targetNode.type === "apiNode" && targetHandle !== "apiOutput");
+    const isTargetInput =
+      targetHandle.toLowerCase().includes("input") ||
+      (targetNode.type === "apiNode" && targetHandle !== "apiOutput") ||
+      (targetNode.type === "utilityNode" && targetHandle !== "utilityOutput");
     if (!isSourceOutput || !isTargetInput) return false;
 
     const formValues = targetNode.data?.formValues || {};
@@ -1934,7 +2065,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         break;
 
       case "utilityNode":
-        validHandles = Object.keys(getUtilityProperties(nodeSchemas, targetNode.data?.selectedModel?.id));
+        validHandles = Object.entries(getUtilityProperties(nodeSchemas, targetNode.data?.selectedModel?.id))
+          .filter(([, meta]) => meta.connectable !== false && isSchemaFieldVisible(meta, targetNode.data?.formValues || {}))
+          .map(([key]) => key);
         break;
 
       case "vidConcatNode":
@@ -2209,9 +2342,25 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const selectedNodes = nodes.filter(node => node.selected);
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const { generationCost, isRefreshingCost } = useGenerationCost(selectedNode?.data?.selectedModel, selectedNode?.data?.formValues);
+
+  const isEmptyInputValue = (value) => (
+    value == null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  );
   
   const updateNodeFromPanel = useCallback((key, value) => {
     if (!selectedNode) return;
+
+    if (selectedNode.type === "utilityNode" && isEmptyInputValue(value)) {
+      const schema = getUtilityProperties(nodeSchemas, selectedNode.data?.selectedModel?.id);
+      const meta = schema[key];
+      if (meta && meta.connectable !== false) {
+        setEdges((eds) =>
+          eds.filter((edge) => !(edge.target === selectedNode.id && edge.targetHandle === key))
+        );
+      }
+    }
 
     setNodes((nds) =>
       nds.map((node) => {
@@ -2230,7 +2379,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         return node;
       })
     );
-  }, [selectedNode, setNodes]);
+  }, [selectedNode, setNodes, setEdges, nodeSchemas]);
 
   const updateModel = useCallback((model) => {
     if (!selectedNode) return;
@@ -2294,6 +2443,27 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       );
     });
   };
+
+  const utilityMenuModels = useMemo(() => {
+    const mapModels = (modelsMap) =>
+      modelsMap ? Object.entries(modelsMap).map(([id, model]) => ({
+        ...model,
+        id,
+        name: SPECIAL_MODEL_NAMES[id] || formatName(id)
+      })) : [];
+
+    const models = mapModels(nodeSchemas?.categories?.utility?.models);
+    [...concatModels, ...videoCombinerModels].forEach((model) => {
+      if (!models.find((m) => m.id === model.id)) models.push(model);
+    });
+    return models;
+  }, [nodeSchemas]);
+
+  const utilityIconForType = (type) => (
+    type === "utilityNode"
+      ? <FaToolbox />
+      : <TbArrowMerge className="rotate-90" />
+  );
 
   const connectionLineStyle = {
     stroke: activeHandleColor === 'blue' ? '#3b82f6'
@@ -2508,23 +2678,22 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           {dropDown === 4 && (
             <div className="absolute left-14 top-0 bg-[#1b1e23] border border-gray-700 p-3 rounded-lg flex flex-col gap-2 w-52">
               <h3 className="w-full text-center text-sm text-gray-300">Utility Node</h3>
-              <div className="flex flex-col gap-2 w-full">
-                <button
-                  type="button"
-                  suppressHydrationWarning={true}
-                  onClick={() => addNode("concatNode", null, { selectedModel: concatModels[0] })}
-                  className="flex gap-2 justify-center items-center py-3 px-4 text-white cursor-pointer bg-[#2c3037] rounded hover:bg-[#212326]"
-                >
-                  <TbArrowMerge className="rotate-90" /> <span className="text-xs font-medium">Prompt Concatenator</span>
-                </button>
-                <button
-                  type="button"
-                  suppressHydrationWarning={true}
-                  onClick={() => addNode("vidConcatNode", null, { selectedModel: videoCombinerModels[0] })}
-                  className="flex gap-2 justify-center items-center py-3 px-4 text-white cursor-pointer bg-[#2c3037] rounded hover:bg-[#212326]"
-                >
-                  <TbArrowMerge className="rotate-90" /> <span className="text-xs font-medium">Video Combiner</span>
-                </button>
+              <div className="flex flex-col gap-2 w-full max-h-80 overflow-y-auto custom-scrollbar-thin">
+                {utilityMenuModels.map((model) => {
+                  const type = getUtilityNodeType(model.id, nodeSchemas);
+                  return (
+                    <button
+                      type="button"
+                      suppressHydrationWarning={true}
+                      key={model.id}
+                      onClick={() => addNode(type, null, { selectedModel: model })}
+                      className="flex gap-2 justify-center items-center py-3 px-4 text-white cursor-pointer bg-[#2c3037] rounded hover:bg-[#212326]"
+                    >
+                      {utilityIconForType(type)}
+                      <span className="text-xs font-medium truncate">{model.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2567,7 +2736,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           nodes={nodesWithHandlers}
           edges={edges}
           onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={interactionMode ? onConnect : null}
           isValidConnection={isValidConnection}
           connectionMode="loose"
@@ -2641,68 +2810,70 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
             </h1>
             <div className="flex flex-col gap-4 w-full h-full overflow-y-auto px-4 custom-scrollbar-thin">
               <div className="flex flex-col gap-4 w-full h-full">
-                <div
-                  className="flex flex-col gap-1 relative w-full"
-                  onBlur={(e) => {
-                    const currentTarget = e.currentTarget;
-                    setTimeout(() => {
-                      if (currentTarget && !currentTarget.contains(document.activeElement)) {
-                        setDropDown(-1);
-                      }
-                    }, 100);
-                  }}
-                  tabIndex={0}
-                >
-                  <label className="text-[10px] font-bold text-zinc-500 text-start px-1">Model</label>
-                  <button
-                    type="button"
-                    suppressHydrationWarning={true}
-                    ref={modelDropdownTriggerRef}
-                    onClick={() => setDropDown(prev => prev === 3 ? 0 : 3)}
-                    className="flex items-center justify-between gap-1 text-sm text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-3 py-2 bg-zinc-900/50 border border-white/10 hover:border-white/20 focus:outline-none rounded-lg transition-all"
+                {!["utilityNode", "vidConcatNode"].includes(selectedNode.type) && (
+                  <div
+                    className="flex flex-col gap-1 relative w-full"
+                    onBlur={(e) => {
+                      const currentTarget = e.currentTarget;
+                      setTimeout(() => {
+                        if (currentTarget && !currentTarget.contains(document.activeElement)) {
+                          setDropDown(-1);
+                        }
+                      }, 100);
+                    }}
+                    tabIndex={0}
                   >
-                    {selectedNode?.data?.selectedModel?.name || ""}
-                    <FaAngleDown size={14} className={`transition-all duration-300 ${dropDown === 3 && "rotate-180"}`} />
-                  </button>
-                  {dropDown === 3 && (
-                    <div className={`absolute left-0 ${isModelDropdownUp ? "bottom-full mb-2" : "top-16"} bg-zinc-900/95 backdrop-blur-3xl z-20 border border-white/10 p-1 rounded-xl flex flex-col gap-2 shadow-2xl max-h-64 w-full animate-in fade-in zoom-in duration-200`}>
-                      <input
-                        type="search"
-                        value={modelSearch}
-                        onChange={(e) => setModelSearch(e.target.value)}
-                        placeholder="Search models..."
-                        className="px-3 py-2 text-xs bg-black/40 border border-white/5 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 transition-all"
-                      />
-                      <div className="flex flex-col overflow-y-auto">
-                        {getFilteredModelsForNode(selectedNode).length > 0 ? (
-                          getFilteredModelsForNode(selectedNode).map((model, idx) => (
-                            <div
-                              key={idx}
-                              className={`flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg transition-all ${selectedNode?.data?.selectedModel?.id === model.id
-                                  ? "bg-blue-500/10 text-blue-400"
-                                  : "text-zinc-400 hover:bg-white/5 hover:text-white"
-                                }`}
-                              onClick={() => {
-                                updateModel(model);
-                                setDropDown(0);
-                                setModelSearch("");
-                              }}
-                            >
-                              <h2 className="text-sm whitespace-nowrap">{model.name}</h2>
-                              {selectedNode?.data?.selectedModel?.id === model.id && (
-                                <FaCheck size={12} className="ml-auto" />
-                              )}
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-xs text-gray-400 text-center py-2">
-                            No models found
-                          </p>
-                        )}
+                    <label className="text-[10px] font-bold text-zinc-500 text-start px-1">Model</label>
+                    <button
+                      type="button"
+                      suppressHydrationWarning={true}
+                      ref={modelDropdownTriggerRef}
+                      onClick={() => setDropDown(prev => prev === 3 ? 0 : 3)}
+                      className="flex items-center justify-between gap-1 text-sm text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-3 py-2 bg-zinc-900/50 border border-white/10 hover:border-white/20 focus:outline-none rounded-lg transition-all"
+                    >
+                      {selectedNode?.data?.selectedModel?.name || ""}
+                      <FaAngleDown size={14} className={`transition-all duration-300 ${dropDown === 3 && "rotate-180"}`} />
+                    </button>
+                    {dropDown === 3 && (
+                      <div className={`absolute left-0 ${isModelDropdownUp ? "bottom-full mb-2" : "top-16"} bg-zinc-900/95 backdrop-blur-3xl z-20 border border-white/10 p-1 rounded-xl flex flex-col gap-2 shadow-2xl max-h-64 w-full animate-in fade-in zoom-in duration-200`}>
+                        <input
+                          type="search"
+                          value={modelSearch}
+                          onChange={(e) => setModelSearch(e.target.value)}
+                          placeholder="Search models..."
+                          className="px-3 py-2 text-xs bg-black/40 border border-white/5 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 transition-all"
+                        />
+                        <div className="flex flex-col overflow-y-auto">
+                          {getFilteredModelsForNode(selectedNode).length > 0 ? (
+                            getFilteredModelsForNode(selectedNode).map((model, idx) => (
+                              <div
+                                key={idx}
+                                className={`flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg transition-all ${selectedNode?.data?.selectedModel?.id === model.id
+                                    ? "bg-blue-500/10 text-blue-400"
+                                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                                  }`}
+                                onClick={() => {
+                                  updateModel(model);
+                                  setDropDown(0);
+                                  setModelSearch("");
+                                }}
+                              >
+                                <h2 className="text-sm whitespace-nowrap">{model.name}</h2>
+                                {selectedNode?.data?.selectedModel?.id === model.id && (
+                                  <FaCheck size={12} className="ml-auto" />
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-400 text-center py-2">
+                              No models found
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
                 {selectedNode?.data?.selectedModel ? (
                   (() => {
                     const nodeType = selectedNode.id.startsWith("text") ? "text" : selectedNode.id.startsWith("image") ? "image" : selectedNode.id.startsWith("video") ? "video" : selectedNode.id.startsWith("audio") ? "audio": "utility";
@@ -2892,16 +3063,16 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                   type="button"
                   suppressHydrationWarning={true}
                   onClick={() => selectedNode && runNodeFromFlow(selectedNode.id)}
-                  disabled={loadingNodes[selectedNode.id]}
+                  disabled={loadingNodes[selectedNode.id] || selectedNode?.data?.isLoading}
                   className="text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 group disabled:cursor-not-allowed rounded-lg text-white bg-blue-500 px-4 py-2 border border-blue-500/50 hover:bg-blue-600 w-full transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
                 >
-                  {loadingNodes[selectedNode.id] ? (
-                    <><div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>Generating...</>
+                  {loadingNodes[selectedNode.id] || selectedNode?.data?.isLoading ? (
+                    <><div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>{selectedNode.type === "utilityNode" ? "Running..." : "Generating..."}</>
                   ) : (
                     <>
                       <FaPlay size={16} /> 
-                      Generate
-                      {generationCost !== null && (
+                      {selectedNode.type === "utilityNode" ? "Run" : "Generate"}
+                      {selectedNode.type !== "utilityNode" && generationCost !== null && (
                         <span className="text-xs font-medium">
                           {isRefreshingCost ? (
                             <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block align-middle"></div>

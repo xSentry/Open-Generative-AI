@@ -41,8 +41,12 @@ test('buildNodeSchemas exposes the required categories and passthrough models', 
   // Utility models drive concat / video-combiner nodes.
   assert.ok(schemas.categories.utility.models['prompt-concatenator']);
   assert.ok(schemas.categories.utility.models['video-combiner']);
+  assert.ok(schemas.categories.utility.models['video-frame-extractor']);
   assert.equal(schemas.categories.utility.models['prompt-concatenator'].workflow.node_type, 'concatNode');
   assert.equal(schemas.categories.utility.models['video-combiner'].workflow.node_type, 'vidConcatNode');
+  assert.equal(schemas.categories.utility.models['video-frame-extractor'].workflow.node_type, 'utilityNode');
+  assert.equal(schemas.categories.utility.models['video-frame-extractor'].workflow.output_type, 'image_url');
+  assert.equal(schemas.categories.utility.models['video-frame-extractor'].workflow.output_label, 'Image');
 
   // API models keys gate which apiNodeModels the UI shows.
   assert.deepEqual(
@@ -73,6 +77,16 @@ test('node-schemas keeps api/prompt-concatenator input_schema as a plain propert
   // video-combiner however nests under schemas.input_data.properties.
   const combiner = schemas.categories.utility.models['video-combiner'];
   assert.ok(combiner.input_schema.schemas.input_data.properties.videos_list);
+
+  const extractor = schemas.categories.utility.models['video-frame-extractor'];
+  const extractorProps = extractor.input_schema.schemas.input_data.properties;
+  assert.ok(extractorProps.video_url);
+  assert.equal(extractorProps.video_url.required, true);
+  assert.deepEqual(extractorProps.frame_mode.enum, ['First Frame', 'Last Frame', 'Custom Frame']);
+  assert.equal(extractorProps.frame_mode.connectable, false);
+  assert.equal(extractorProps.timestamp.format, 'text');
+  assert.deepEqual(extractorProps.timestamp.visibleWhen, { field: 'frame_mode', equals: 'Custom Frame' });
+  assert.equal(extractorProps.timestamp.connectable, false);
 });
 
 test('router serves node-schemas without a DB lookup', async () => {

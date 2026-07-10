@@ -46,9 +46,24 @@ async function dispatch(request, ctx, method) {
   }
 
   const { user, provider, apiKey } = active;
+  const routeParams = await ctx.params;
+  const path = routeParams?.path || [];
+
+  // Node schemas are a mixed catalog: provider-backed generation models plus
+  // local utility nodes. Keep this local for every provider so provider-
+  // independent utility nodes are always visible in Workflow Studio.
+  if (method === 'GET' && path[1] === 'node-schemas') {
+    return handleLocalWorkflow(
+      request,
+      { params: Promise.resolve(routeParams) },
+      method,
+      { user, provider, apiKey },
+      executionDeps
+    );
+  }
 
   if (provider === 'muapi') {
-    return proxyToMuapi(request, ctx, method, apiKey);
+    return proxyToMuapi(request, { params: Promise.resolve(routeParams) }, method, apiKey);
   }
 
   if (!apiKey) {

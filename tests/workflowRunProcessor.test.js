@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,6 +11,7 @@ import {
 import { executeNode } from '../modules/workflow/server/nodeExecutors.js';
 import { runClaimedRun, processRun } from '../modules/workflow/server/runProcessor.js';
 import { runWorkerOnce } from '../modules/workflow/server/worker.js';
+import { extractVideoFrame, parseTimestampSeconds } from '../modules/workflow/server/videoFrameExtractor.js';
 
 // A minimal fake fetch Response for downloading provider outputs.
 function fakeResponse({ ok = true, contentType = 'image/png', bytes = 8 } = {}) {
@@ -183,6 +184,81 @@ test('executeNode reports unsupported registered utility nodes clearly', async (
     }),
     /not supported.*video-combiner/i
   );
+});
+
+async function installFakeFfmpeg(dir) {
+  const isWin = process.platform === 'win32';
+  if (isWin) {
+    const ffmpeg = join(dir, 'ffmpeg.cmd');
+    await writeFile(ffmpeg, '@echo off\r\nset "last="\r\n:loop\r\nif "%~1"=="" goto done\r\nset "last=%~1"\r\nshift\r\ngoto loop\r\n:done\r\necho fake-frame>"%last%"\r\n');
+    return { ffmpeg };
+  }
+
+  const ffmpeg = join(dir, 'ffmpeg');
+  await writeFile(ffmpeg, '#!/bin/sh\nfor last do :; done\nprintf fake-frame > "$last"\n');
+  await chmod(ffmpeg, 0o755);
+  return { ffmpeg };
+}
+
+test('parseTimestampSeconds accepts seconds and clock timestamps', () => {
+  assert.equal(parseTimestampSeconds('1.5'), 1.5);
+  assert.equal(parseTimestampSeconds('00:01.500'), 1.5);
+  assert.equal(parseTimestampSeconds('01:02:03.5'), 3723.5);
+  assert.equal(parseTimestampSeconds('bad'), null);
+});
+
+test('executeNode extracts a custom video frame as one image output', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-ffmpeg-'));
+  const originalFfmpeg = process.env.FFMPEG_PATH;
+  const fake = await installFakeFfmpeg(dir);
+  process.env.FFMPEG_PATH = fake.ffmpeg;
+
+  try {
+    const result = await executeNode({
+      provider: 'replicate',
+      apiKey: 'r8_test',
+      node: {
+        category: 'utility',
+        model: 'video-frame-extractor',
+        params: {
+          video_url: 'https://example.test/video.mp4',
+          frame_mode: 'Custom Frame',
+          timestamp: '00:00:01.250',
+        },
+      },
+    });
+
+    assert.equal(result.outputs.length, 1);
+    assert.equal(result.outputs[0].type, 'image_url');
+    assert.equal(result.outputs[0].value.contentType, 'image/png');
+    assert.equal((await readFile(result.outputs[0].value.path, 'utf8')).trim(), 'fake-frame');
+  } finally {
+    if (originalFfmpeg == null) delete process.env.FFMPEG_PATH;
+    else process.env.FFMPEG_PATH = originalFfmpeg;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('extractVideoFrame extracts the last frame and ignores URL query params in temp filenames', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-ffmpeg-'));
+  const originalFfmpeg = process.env.FFMPEG_PATH;
+  const fake = await installFakeFfmpeg(dir);
+  process.env.FFMPEG_PATH = fake.ffmpeg;
+
+  try {
+    const frame = await extractVideoFrame({
+      video_url: 'https://example.test/video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256',
+      frame_mode: 'Last Frame',
+    });
+
+    assert.equal(frame.contentType, 'image/png');
+    assert.equal((await readFile(frame.path, 'utf8')).trim(), 'fake-frame');
+    assert.equal(frame.path.includes('X-Amz'), false);
+  } finally {
+    if (originalFfmpeg == null) delete process.env.FFMPEG_PATH;
+    else process.env.FFMPEG_PATH = originalFfmpeg;
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------

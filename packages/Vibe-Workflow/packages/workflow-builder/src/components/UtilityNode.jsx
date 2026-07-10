@@ -1,29 +1,33 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { toast } from "react-hot-toast";
 import { FaToolbox } from "react-icons/fa6";
+import { IoImageOutline, IoVideocamOutline } from "react-icons/io5";
+import { AiOutlineAudio } from "react-icons/ai";
+import { TfiText } from "react-icons/tfi";
+import AudioPlayer from "./AudioPlayer";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 
 const COLOR_CLASS = {
   blue: {
-    bg: "!bg-blue-500 !border-blue-500",
     text: "text-blue-500",
-    shadow: "shadow-[0_0_20px_rgba(59,130,246,0.5)]",
+    connected: "!bg-blue-500 !border-zinc-900 shadow-[0_0_15px_rgba(59,130,246,0.8)]",
+    idle: "!bg-zinc-900 !border-blue-500/50 hover:!border-blue-500 shadow-sm",
   },
   green: {
-    bg: "!bg-green-500 !border-green-500",
-    text: "text-green-500",
-    shadow: "shadow-[0_0_20px_rgba(34,197,94,0.5)]",
+    text: "text-emerald-500",
+    connected: "!bg-emerald-500 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]",
+    idle: "!bg-zinc-900 !border-emerald-500/50 hover:!border-emerald-500 shadow-sm",
   },
   orange: {
-    bg: "!bg-orange-500 !border-orange-500",
     text: "text-orange-500",
-    shadow: "shadow-[0_0_20px_rgba(249,115,22,0.5)]",
+    connected: "!bg-orange-500 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]",
+    idle: "!bg-zinc-900 !border-orange-500/50 hover:!border-orange-500 shadow-sm",
   },
   yellow: {
-    bg: "!bg-yellow-500 !border-yellow-500",
     text: "text-yellow-500",
-    shadow: "shadow-[0_0_20px_rgba(234,179,8,0.5)]",
+    connected: "!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]",
+    idle: "!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm",
   },
 };
 
@@ -34,6 +38,10 @@ function getUtilityProperties(modelId, nodeSchemas) {
 
 function outputTypeForModel(modelId, nodeSchemas) {
   return nodeSchemas?.categories?.utility?.models?.[modelId]?.workflow?.output_type || "text";
+}
+
+function outputLabelForModel(modelId, nodeSchemas) {
+  return nodeSchemas?.categories?.utility?.models?.[modelId]?.workflow?.output_label || "Output";
 }
 
 function colorForField(fieldName, meta = {}) {
@@ -55,6 +63,32 @@ function labelForField(fieldName, meta = {}) {
   return meta.title || meta.name || fieldName.replace(/_/g, " ");
 }
 
+function handleLabel(value) {
+  return String(value || "").replace(/_/g, " ").trim();
+}
+
+function outputPlaceholder(type) {
+  if (type === "image_url") return { icon: <IoImageOutline size={34} />, label: "Image appears here..." };
+  if (type === "video_url") return { icon: <IoVideocamOutline size={34} />, label: "Video appears here..." };
+  if (type === "audio_url") return { icon: <AiOutlineAudio size={34} />, label: "Audio appears here..." };
+  return { icon: <TfiText size={30} />, label: "Text appears here..." };
+}
+
+function outputValue(data = {}) {
+  return data.viewingOutput || data.resultUrl || data.outputs?.[0]?.value || "";
+}
+
+function formatTextOutput(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.error) return value.error;
+  return JSON.stringify(value, null, 2);
+}
+
+function isEmptyValue(value) {
+  return value == null || value === "" || (Array.isArray(value) && value.length === 0);
+}
+
 function initializeFormData(properties) {
   const initialData = {};
   Object.entries(properties || {}).forEach(([fieldName, fieldSchema]) => {
@@ -68,12 +102,22 @@ function initializeFormData(properties) {
   return initialData;
 }
 
+function isFieldVisible(meta = {}, formValues = {}) {
+  const rule = meta.visibleWhen || meta.showWhen;
+  if (!rule?.field) return true;
+  const value = formValues[rule.field];
+  if (Object.prototype.hasOwnProperty.call(rule, "equals")) return value === rule.equals;
+  if (Array.isArray(rule.in)) return rule.in.includes(value);
+  return Boolean(value);
+}
+
 const UtilityNode = ({ id, data, selected }) => {
   const nodeSchemas = data.nodeSchemas || {};
   const selectedModel = data.selectedModel || {};
   const modelId = selectedModel.id;
   const properties = useMemo(() => getUtilityProperties(modelId, nodeSchemas), [modelId, nodeSchemas]);
   const outputType = outputTypeForModel(modelId, nodeSchemas);
+  const outputLabel = outputLabelForModel(modelId, nodeSchemas);
   const outputColor = colorForOutput(outputType);
   const [formValues, setFormValues] = useState({});
   const [connectedInputs, setConnectedInputs] = useState({});
@@ -81,6 +125,7 @@ const UtilityNode = ({ id, data, selected }) => {
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
+  const lastAutoRunSignature = useRef(null);
 
   useEffect(() => {
     const defaults = initializeFormData(properties);
@@ -97,15 +142,10 @@ const UtilityNode = ({ id, data, selected }) => {
   }, [formValues, id, updateNodeInternals]);
 
   useEffect(() => {
-    if (!data?.onDataChange) return;
-    if (JSON.stringify(data.formValues || {}) !== JSON.stringify(formValues)) {
-      data.onDataChange(id, { formValues });
-    }
-  }, [formValues, data, id]);
-
-  useEffect(() => {
     const nextInputs = {};
-    Object.keys(properties).forEach((fieldName) => {
+    Object.entries(properties).forEach(([fieldName, meta]) => {
+      if (meta.connectable === false) return;
+      if (!isFieldVisible(meta, formValues)) return;
       nextInputs[fieldName] = edges.some((e) => e.target === id && e.targetHandle === fieldName);
     });
     setConnectedInputs(nextInputs);
@@ -122,7 +162,50 @@ const UtilityNode = ({ id, data, selected }) => {
     }
   };
 
-  const inputEntries = Object.entries(properties || {});
+  const inputEntries = Object.entries(properties || {})
+    .filter(([, meta]) => meta.connectable !== false && isFieldVisible(meta, formValues));
+  const requiredInputEntries = inputEntries.filter(([, meta]) => meta.required === true);
+  const visibleConfigEntries = Object.entries(properties || {})
+    .filter(([, meta]) => isFieldVisible(meta, formValues));
+  const currentOutput = outputValue(data);
+  const placeholder = outputPlaceholder(outputType);
+
+  useEffect(() => {
+    if (!data?.runNodeFromFlow || !data?.onDataChange || requiredInputEntries.length === 0) return;
+    const signature = JSON.stringify(
+      visibleConfigEntries.map(([fieldName]) => [fieldName, formValues[fieldName] ?? null])
+    );
+    const hasAllRequiredInputs = requiredInputEntries.every(([fieldName]) =>
+      connectedInputs[fieldName] && !isEmptyValue(formValues[fieldName])
+    );
+
+    if (!hasAllRequiredInputs) {
+      lastAutoRunSignature.current = null;
+      if (currentOutput || data.errorMsg || data.isLoading) {
+        data.onDataChange(id, {
+          outputs: [],
+          resultUrl: null,
+          viewingOutput: null,
+          errorMsg: null,
+          isLoading: false,
+        });
+      }
+      return;
+    }
+
+    if (signature === lastAutoRunSignature.current || data.isLoading) return;
+    lastAutoRunSignature.current = signature;
+    data.runNodeFromFlow(id);
+  }, [
+    connectedInputs,
+    currentOutput,
+    data,
+    formValues,
+    id,
+    inputEntries,
+    requiredInputEntries,
+    visibleConfigEntries,
+  ]);
 
   return (
     <div
@@ -147,46 +230,81 @@ const UtilityNode = ({ id, data, selected }) => {
         </div>
         <NodeOptionsMenu nodeId={id} onDuplicate={data.duplicateNode} onDelete={handleDeleteNode} />
       </div>
-      <div className="relative flex flex-col gap-2 bg-zinc-900/30 rounded-xl border border-zinc-800/50 w-full h-full p-3">
-        {inputEntries.length > 0 ? (
-          inputEntries.map(([fieldName, meta], index) => (
-            <div key={fieldName} className="flex items-center justify-between gap-3 text-xs text-zinc-300 py-1">
-              <span className="truncate capitalize">{labelForField(fieldName, meta)}</span>
-              <span className="text-[10px] text-zinc-500">{meta.type || "value"}</span>
-              <Handle
-                type="target"
-                position={Position.Left}
-                id={fieldName}
-                style={{ top: 76 + index * 28, width: 12, height: 12 }}
-                className={`!rounded-full !border-2 !left-[-7px] transition-all duration-200 ${
-                  connectedInputs[fieldName]
-                    ? `${COLOR_CLASS[colorForField(fieldName, meta)].bg} !border-white`
-                    : `!bg-black ${COLOR_CLASS[colorForField(fieldName, meta)].bg} ${COLOR_CLASS[colorForField(fieldName, meta)].shadow}`
-                } hover:!scale-125`}
-                data-type={colorForField(fieldName, meta)}
-              />
+      <div className="relative flex items-center justify-center w-full h-full min-h-[180px] overflow-hidden rounded-b-2xl bg-zinc-950">
+        {data.isLoading ? (
+          <div className="flex flex-col items-center justify-center gap-2 text-zinc-400">
+            <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            <span className="text-xs">Generating...</span>
+          </div>
+        ) : data.errorMsg ? (
+          <div className="w-full text-xs text-red-300 bg-red-950/30 border border-red-500/20 rounded-lg p-3 line-clamp-5">
+            {data.errorMsg}
+          </div>
+        ) : currentOutput ? (
+          outputType === "image_url" ? (
+            <img src={currentOutput} alt="Utility output" className="absolute inset-0 w-full h-full object-cover" />
+          ) : outputType === "video_url" ? (
+            <video src={currentOutput} className="absolute inset-0 w-full h-full object-cover" controls />
+          ) : outputType === "audio_url" ? (
+            <div className="w-full px-3">
+              <AudioPlayer src={currentOutput} />
             </div>
-          ))
+          ) : (
+            <div className="absolute inset-0 overflow-hidden bg-black/30 p-3 text-xs text-zinc-200 whitespace-pre-wrap">
+              {formatTextOutput(currentOutput)}
+            </div>
+          )
         ) : (
-          <div className="text-xs text-zinc-500 py-8 text-center">No inputs</div>
+          <div className="flex flex-col items-center justify-center gap-2 text-zinc-500">
+            <div className={`${COLOR_CLASS[outputColor].text}`}>{placeholder.icon}</div>
+            <span className="text-xs">{placeholder.label}</span>
+          </div>
         )}
       </div>
+      {inputEntries.map(([fieldName, meta], index) => (
+        <React.Fragment key={fieldName}>
+          <p
+            style={{ top: 76 + index * 28 }}
+            className={`absolute -left-12 text-[10px] font-bold tracking-tight ${COLOR_CLASS[colorForField(fieldName, meta)].text} transition-all duration-300 ${
+              data.activeHandleColor === colorForField(fieldName, meta)
+                ? "opacity-100 translate-x-0"
+                : "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0"
+            }`}
+          >
+            {handleLabel(labelForField(fieldName, meta))}
+          </p>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id={fieldName}
+            style={{ top: 76 + index * 28, width: 14, height: 14 }}
+            className={`!rounded-full !border-[3px] !left-[-8px] transition-all ${
+              connectedInputs[fieldName]
+                ? COLOR_CLASS[colorForField(fieldName, meta)].connected
+                : COLOR_CLASS[colorForField(fieldName, meta)].idle
+            }`}
+            data-type={colorForField(fieldName, meta)}
+          />
+        </React.Fragment>
+      ))}
       <Handle
         type="source"
         position={Position.Right}
         id="utilityOutput"
-        style={{ top: 76, width: 12, height: 12 }}
-        className={`!rounded-full !border-2 !right-[-7px] transition-all duration-200 ${
+        style={{ top: 76, width: 14, height: 14 }}
+        className={`!rounded-full !border-[3px] !right-[-8px] transition-all ${
           connectedOutputs.utilityOutput
-            ? `${COLOR_CLASS[outputColor].bg} !border-white`
-            : `!bg-black ${COLOR_CLASS[outputColor].bg} ${COLOR_CLASS[outputColor].shadow}`
-        } hover:!scale-125`}
+            ? COLOR_CLASS[outputColor].connected
+            : COLOR_CLASS[outputColor].idle
+        }`}
         data-type={outputColor}
       />
-      <p className={`absolute -right-9 top-[72px] text-xs ${COLOR_CLASS[outputColor].text} transition-opacity duration-200 ${
-        data.activeHandleColor === outputColor ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      <p className={`absolute -right-11 top-[76px] text-[10px] font-bold tracking-tight ${COLOR_CLASS[outputColor].text} transition-all duration-300 ${
+        data.activeHandleColor === outputColor
+          ? "opacity-100 translate-x-0"
+          : "opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0"
       }`}>
-        Output
+        {handleLabel(outputLabel)}
       </p>
     </div>
   );

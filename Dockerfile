@@ -1,6 +1,9 @@
 FROM node:20-alpine AS base
 WORKDIR /app
 
+# Install ffmpeg for some workflow nodes
+RUN apk add --no-cache ffmpeg
+
 # Install dependencies
 FROM base AS deps
 COPY package*.json ./

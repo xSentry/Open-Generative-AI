@@ -7,6 +7,15 @@ import { toast } from "react-hot-toast";
 import AudioPlayer from "./AudioPlayer";
 import { IoCloudUploadOutline } from "react-icons/io5";
 
+function isFieldVisible(meta = {}, formValues = {}) {
+  const rule = meta.visibleWhen || meta.showWhen;
+  if (!rule?.field) return true;
+  const value = formValues[rule.field];
+  if (Object.prototype.hasOwnProperty.call(rule, "equals")) return value === rule.equals;
+  if (Array.isArray(rule.in)) return rule.in.includes(value);
+  return Boolean(value);
+}
+
 const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleChange, data, modelName }) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dropDown, setDropDown] = useState(-1);
@@ -104,7 +113,9 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
     })
   };
 
-  const isInputModel = modelName.includes("passthrough");
+  if (!isFieldVisible(meta, formValues)) return null;
+
+  const isInputModel = modelName?.includes("passthrough");
   if (isInputModel && meta.type !== "boolean") return null;
 
   if (meta.enum) {

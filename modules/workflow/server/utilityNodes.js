@@ -5,6 +5,7 @@
 //
 // The workflow builder consumes the metadata in `workflow` to render generic
 // handles. The execution engine calls `executeUtilityNode` for local logic.
+import { extractVideoFrame } from './videoFrameExtractor.js';
 
 function newId() {
   return (globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -63,6 +64,51 @@ export const UTILITY_NODE_DEFINITIONS = {
     },
     output: { type: 'video_url', label: 'Video' },
     execute: null,
+  },
+
+  'video-frame-extractor': {
+    id: 'video-frame-extractor',
+    name: 'Video Frame Extractor',
+    nodeType: 'utilityNode',
+    inputSchema: {
+      video_url: {
+        examples: [],
+        description: 'Video to extract a frame from.',
+        field: 'video',
+        type: 'string',
+        title: 'Video',
+        name: 'video_url',
+        required: true,
+      },
+      frame_mode: {
+        enum: ['First Frame', 'Last Frame', 'Custom Frame'],
+        title: 'Frame',
+        name: 'frame_mode',
+        type: 'string',
+        default: 'First Frame',
+        description: 'Which frame to extract from the video.',
+        connectable: false,
+      },
+      timestamp: {
+        title: 'Timestamp',
+        name: 'timestamp',
+        type: 'string',
+        format: 'text',
+        default: '0',
+        description: 'Required for Custom Frame. Use seconds or HH:MM:SS.',
+        placeholder: '0 or 00:00:01.500',
+        visibleWhen: { field: 'frame_mode', equals: 'Custom Frame' },
+        connectable: false,
+      },
+    },
+    output: { type: 'image_url', label: 'Image' },
+    execute: async ({ params }) => {
+      const frame = await extractVideoFrame(params);
+      return {
+        id: newId(),
+        outputs: [{ type: 'image_url', value: frame, id: newId() }],
+      };
+    },
   },
 };
 
