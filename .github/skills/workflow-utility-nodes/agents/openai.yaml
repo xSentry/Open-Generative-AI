@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Utility Nodes"
+  short_description: "Create custom programmatic Workflow utility nodes."
+  default_prompt: "Create or update a custom utility node for the Workflow builder."
