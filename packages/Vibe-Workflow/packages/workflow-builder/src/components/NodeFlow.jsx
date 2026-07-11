@@ -318,9 +318,10 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
   };
 };
 
-const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
+const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
   const params = useParams();
-  const { id } = params;
+  const { id: routeWorkflowId } = params || {};
+  const id = explicitWorkflowId || routeWorkflowId;
 
   // Pre-calculate initial state if data is provided
   const initialState = useMemo(() => {
@@ -349,6 +350,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const staleUtilityDeleteIdsRef = useRef(new Set());
   const autosaveTimerRef = useRef(null);
   const lastAutosaveSignatureRef = useRef(null);
+  const autosaveArmedRef = useRef(false);
+  const workflowNameRef = useRef(initialState?.metadata?.workflowName || "Untitled");
   const latestGraphRef = useRef({ nodes: initialState?.nodes || [], edges: initialState?.edges || initialEdges });
   const latestAutosaveStateRef = useRef({ interactionMode: false, isRestoring: true, hasNodeSchemas: false });
   const saveWorkflowRef = useRef(null);
@@ -372,6 +375,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     setTotalWorkflowCost(total.toFixed(3));
   }, [nodes]);
 
+  useEffect(() => {
+    workflowNameRef.current = workflowName;
+  }, [workflowName]);
+
   // Sync global store with initial data if provided
   useEffect(() => {
     if (initialState?.metadata) {
@@ -390,6 +397,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const modelDropdownTriggerRef = useRef(null);
 
   const { zoomIn, zoomOut, fitView, getNodes, screenToFlowPosition } = useReactFlow();
+
+  const armAutosave = useCallback(() => {
+    autosaveArmedRef.current = true;
+  }, []);
 
   const apiModelsFromBackend =
     nodeSchemas?.categories?.api?.models
@@ -1616,7 +1627,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     return {
       workflow_id: interactionMode ? workflowId || null : null,
       source_workflow_id: !interactionMode ? workflowId : null,
-      name: workflowName || "Untitled",
+      name: workflowNameRef.current || "Untitled",
       edges: sourceEdges,
       data: {
         nodes: nodeData
@@ -1638,8 +1649,17 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const response = await axios.post("/api/workflow/create", workflowPayload);
       console.log("Workflow created:", response.data);
       if (!quiet) setDropDown(0);
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
       setWorkflowIds(response.data.workflow_id, runId);
       setWorkflowId(response.data.workflow_id);
+      onWorkflowSaved?.({
+        ...response.data,
+        workflow_id: response.data.workflow_id,
+        name: workflowNameRef.current || "Untitled",
+      });
       return response.data.workflow_id;
     } catch (error) {
       console.log(error);
@@ -1672,9 +1692,11 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     }
     if (lastAutosaveSignatureRef.current === autosaveGraphSignature) return;
     lastAutosaveSignatureRef.current = autosaveGraphSignature;
+    if (!autosaveArmedRef.current) return;
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
       saveWorkflowRef.current?.(
         latestGraphRef.current.nodes,
         latestGraphRef.current.edges,
@@ -1683,7 +1705,10 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     }, 1800);
 
     return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
     };
   }, [autosaveGraphSignature, interactionMode, isRestoring, nodeSchemas]);
 
@@ -1691,7 +1716,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     const flushAutosave = () => {
       const state = latestAutosaveStateRef.current;
       if (!state.interactionMode || state.isRestoring || !state.hasNodeSchemas) return;
+      if (!autosaveTimerRef.current) return;
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
       saveWorkflowRef.current?.(
         latestGraphRef.current.nodes,
         latestGraphRef.current.edges,
@@ -2692,7 +2719,16 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   };
 
   return (
-    <div tabIndex={0} onKeyDown={onKeyDown} className="flex h-dvh w-full relative">
+    <div
+      tabIndex={0}
+      onPointerDownCapture={armAutosave}
+      onInputCapture={armAutosave}
+      onKeyDown={(event) => {
+        armAutosave();
+        onKeyDown(event);
+      }}
+      className="flex h-dvh w-full relative"
+    >
       {isRestoring && (
         <div className="fixed inset-0 flex items-center justify-center gap-2 bg-black w-full h-full z-20">
           <div className="w-6 h-6 rounded-full border-[4px] border-white border-t-transparent animate-spin"></div>

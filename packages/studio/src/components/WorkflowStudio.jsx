@@ -315,6 +315,10 @@ function workflowInputPlaceholder(key, prop = {}) {
   return `Enter ${prop.title || key}...`;
 }
 
+function normalizeWorkflowTab(tab) {
+  return tab === "builder" || tab === "playground" ? tab : null;
+}
+
 function WorkflowOutputCard({ card }) {
   const out = card.output;
   const status = card.status;
@@ -463,6 +467,34 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   
+  const openWorkflowTab = useCallback(
+    (tab) => {
+      const nextTab = normalizeWorkflowTab(tab) || "playground";
+      setActiveSubTab(nextTab);
+      if (selectedWorkflow?.id) {
+        router.push(`/workflow/${selectedWorkflow.id}/${nextTab}`);
+      }
+    },
+    [router, selectedWorkflow?.id],
+  );
+
+  const handleWorkflowSaved = useCallback((saved) => {
+    const savedId = saved?.workflow_id || saved?.id || selectedWorkflow?.id;
+    const savedName = saved?.name;
+    if (!savedId) return;
+
+    if (savedName) {
+      setSelectedWorkflow((prev) =>
+        prev?.id === savedId ? { ...prev, name: savedName } : prev,
+      );
+      setWorkflows((prev) =>
+        prev.map((wf) => (wf.id === savedId ? { ...wf, name: savedName } : wf)),
+      );
+      setWorkflowDef((prev) =>
+        prev ? { ...prev, name: savedName } : prev,
+      );
+    }
+  }, [selectedWorkflow?.id]);
 
   // Handlers defined early so they can be used in effects
   const handleSelectWorkflow = useCallback(
@@ -471,7 +503,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
       setResult(null);
       setError(null);
       
-      const targetTab = urlTab || "playground";
+      const targetTab = normalizeWorkflowTab(urlTab) || "playground";
       setActiveSubTab(targetTab);
 
       if (!fromUrl) {
@@ -481,6 +513,13 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
     },
     [router, urlTab],
   );
+
+  useEffect(() => {
+    const nextTab = normalizeWorkflowTab(urlTab);
+    if (urlWorkflowId && nextTab && activeSubTab !== nextTab) {
+      setActiveSubTab(nextTab);
+    }
+  }, [urlWorkflowId, urlTab, activeSubTab]);
 
   // Dedicated data fetching effect for the active workflow
   useEffect(() => {
@@ -695,11 +734,11 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
   // Handle reload on exit to clear builder CSS
   useEffect(() => {
     const fromBuilder = sessionStorage.getItem("fromWorkflowBuilder");
-    if (fromBuilder && (!urlWorkflowId || activeSubTab !== "builder")) {
+    if (fromBuilder && !urlWorkflowId) {
       sessionStorage.removeItem("fromWorkflowBuilder");
       window.location.reload();
     }
-  }, [urlWorkflowId, activeSubTab]);
+  }, [urlWorkflowId]);
 
   // The Community tab is MuAPI-only; if the provider isn't MuAPI, never sit on it.
   useEffect(() => {
@@ -822,10 +861,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
               <div className="flex h-full">
                 <div className="flex bg-white/5 p-1 rounded-lg my-auto">
                   <button
-                    onClick={() => {
-                        setActiveSubTab("playground");
-                        if (selectedWorkflow?.id) router.push(`/workflow/${selectedWorkflow.id}/playground`);
-                    }}
+                    onClick={() => openWorkflowTab("playground")}
                     type="button"
                     className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
                       activeSubTab === "playground"
@@ -836,10 +872,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
                     Playground
                   </button>
                   <button
-                    onClick={() => {
-                        setActiveSubTab("builder");
-                        if (selectedWorkflow?.id) router.push(`/workflow/${selectedWorkflow.id}/builder`);
-                    }}
+                    onClick={() => openWorkflowTab("builder")}
                     type="button"
                     className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
                       activeSubTab === "builder"
@@ -885,7 +918,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
             
             <div className="flex bg-white/5 p-1 rounded-lg">
                <button
-                 onClick={() => setActiveSubTab("playground")}
+                 onClick={() => openWorkflowTab("playground")}
                  type="button"
                  className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-md transition-all ${
                    activeSubTab === "playground" ? "bg-[var(--primary-color)] text-black" : "text-white/40"
@@ -894,7 +927,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
                  Play
                </button>
                <button
-                 onClick={() => setActiveSubTab("builder")}
+                 onClick={() => openWorkflowTab("builder")}
                  type="button"
                  className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-md transition-all ${
                    activeSubTab === "builder" ? "bg-[var(--primary-color)] text-black" : "text-white/40"
@@ -1156,6 +1189,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
                     // Inject ID to prevent builder from assuming this is a new unsaved flow
                     workflow_id: selectedWorkflow?.id
                   }}
+                  onWorkflowSaved={handleWorkflowSaved}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
