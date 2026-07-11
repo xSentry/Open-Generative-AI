@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { loadAppEnv } from './load-env.js';
 import { getBullMqPrefix, getRedisConnection, closeRedisConnection } from '../modules/queue/server/redis.js';
+import { createFinalAttemptWorkerLog } from '../modules/queue/server/workerLogs.js';
 import { processDesignAgentJob } from '../modules/design-agent/server/runtime.js';
 
 loadAppEnv();
@@ -38,6 +39,12 @@ const worker = new Worker(
 
 worker.on('failed', async (job, error) => {
   const message = error?.message || String(error);
+  const logData = {
+    jobId: job?.id,
+    designAgentJobId: job?.data?.jobId,
+    attempt: job?.attemptsMade,
+    error: message,
+  };
   try {
     const repo = await import('../modules/design-agent/server/repo.js');
     const row = job?.data?.jobId ? await repo.getJobForProcessing(job.data.jobId) : null;
@@ -58,12 +65,16 @@ worker.on('failed', async (job, error) => {
     });
   }
 
-  console.error('[design-agent-worker] job failed', {
-    jobId: job?.id,
-    designAgentJobId: job?.data?.jobId,
-    attempt: job?.attemptsMade,
-    error: message,
-  });
+  try {
+    await createFinalAttemptWorkerLog(job, { type: 'error', data: logData });
+  } catch (logError) {
+    console.error('[design-agent-worker] failed to persist worker log', {
+      jobId: job?.id,
+      error: logError?.message || logError,
+    });
+  }
+
+  console.error('[design-agent-worker] job failed', logData);
 });
 
 console.log('[design-agent-worker] started', {
