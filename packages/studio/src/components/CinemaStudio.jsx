@@ -553,6 +553,23 @@ export default function CinemaStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_cinema_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "nano-banana-2",
+    options: {
+      prompt: "",
+      aspect_ratio: "16:9",
+      camera: "Modular 8K Digital",
+      lens: "Creative Tilt Lens",
+      focal: 35,
+      aperture: "f/1.4",
+      resolution: "2K",
+    },
+    uploads: {
+      image_url: null,
+    },
+  };
 
   // ── Provider-aware model selection ──
   // When Replicate is active, the user picks any "cinema"-capable model
@@ -679,17 +696,16 @@ export default function CinemaStudio({
     if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) return;
-        skipNextConfigSaveRef.current = true;
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.settings || data.options) setSettings((prev) => ({ ...prev, ...(data.settings || data.options) }));
-        if (data.resolution || data.options?.resolution) setResolution(data.resolution || data.options.resolution);
-        if (data.uploads?.image_url || data.uploadedImage) setUploadedImage(data.uploads?.image_url || data.uploadedImage);
-        suppressProviderDefaultRef.current = true;
-      }
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+      if (data.settings || data.options) setSettings((prev) => ({ ...prev, ...(data.settings || data.options) }));
+      if (data.resolution || data.options?.resolution) setResolution(data.resolution || data.options.resolution);
+      if (data.uploads?.image_url || data.uploadedImage) setUploadedImage(data.uploads?.image_url || data.uploadedImage);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load CinemaStudio persistence:", err);
     } finally {

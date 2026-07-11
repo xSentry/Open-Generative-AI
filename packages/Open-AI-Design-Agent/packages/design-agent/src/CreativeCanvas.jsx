@@ -241,6 +241,20 @@ export default function CreativeCanvas({
   const [openModelMenu, setOpenModelMenu] = useState(null);
   const hasRestoredModelConfigRef = useRef(false);
   const skipNextModelConfigSaveRef = useRef(false);
+  const DEFAULT_MODEL_CONFIG = {
+    version: 1,
+    provider: "replicate",
+    selectedToolMode: "t2i",
+    selectedPlannerModel: "gpt-5-mini",
+    selectedModels: {
+      t2i: "nano-banana-2",
+      i2i: "nano-banana-2",
+      t2v: "seedance-2-0-mini",
+      i2v: "seedance-2-0-mini",
+      v2v: "seedance-2-0-mini",
+      audio: "gemini-3-1-flash-tts",
+    },
+  };
 
   // Left Sidebar and Session Management
   const [showLeftSidebar, setShowLeftSidebar] = useState(true);
@@ -328,10 +342,10 @@ export default function CreativeCanvas({
     if (!modelsByMode) return;
     try {
       const stored = window.localStorage.getItem("hg_design_agent_model_config");
-      if (!stored) return;
-      const data = JSON.parse(stored);
+      const data = stored ? JSON.parse(stored) : DEFAULT_MODEL_CONFIG;
       const storedProvider = data.provider || "replicate";
       if (storedProvider !== provider) return;
+      if (!stored) window.localStorage.setItem("hg_design_agent_model_config", JSON.stringify(data));
       skipNextModelConfigSaveRef.current = true;
       if (data.selectedToolMode) setSelectedToolMode(data.selectedToolMode);
       if (data.selectedPlannerModel) setSelectedPlannerModel(data.selectedPlannerModel);

@@ -721,6 +721,17 @@ export default function AudioStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_audio_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "gemini-3-1-flash-tts",
+    options: {
+      text: "",
+      voice: "Kore",
+      prompt: "",
+      language_code: "de-DE",
+    },
+  };
   const audioModelList = modelsByMode?.audio?.length ? modelsByMode.audio : audioModels;
 
   // ── Mode & model state ──────────────────────────────────────────────────
@@ -774,15 +785,14 @@ export default function AudioStudio({
     if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) return;
-        skipNextConfigSaveRef.current = true;
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.params || data.options) setParams(data.params || data.options);
-        suppressProviderDefaultRef.current = true;
-      }
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+      if (data.params || data.options) setParams(data.params || data.options);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load AudioStudio persistence:", err);
     } finally {

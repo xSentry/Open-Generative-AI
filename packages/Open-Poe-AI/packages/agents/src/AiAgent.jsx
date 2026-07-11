@@ -343,6 +343,10 @@ const ChatPage = ({
   const [selectedToolModel, setSelectedToolModel] = useState("");
   const [openAgentModelMenu, setOpenAgentModelMenu] = useState(null);
   const [hasHydratedAgentModel, setHasHydratedAgentModel] = useState(false);
+  const DEFAULT_AGENT_MODEL_CONFIG = {
+    conversation_model: "gpt-5-mini",
+    tool_model: "nano-banana-2",
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -376,7 +380,11 @@ const ChatPage = ({
     let stored = "";
     let storedTool = "";
     try {
-      const parsed = JSON.parse(localStorage.getItem("hg_agents_model_config") || "{}");
+      const rawConfig = localStorage.getItem("hg_agents_model_config");
+      const parsed = rawConfig ? JSON.parse(rawConfig) : DEFAULT_AGENT_MODEL_CONFIG;
+      if (!rawConfig) {
+        localStorage.setItem("hg_agents_model_config", JSON.stringify(parsed));
+      }
       stored = typeof parsed.conversation_model === "string" ? parsed.conversation_model : "";
       storedTool = typeof parsed.tool_model === "string" ? parsed.tool_model : "";
     } catch {

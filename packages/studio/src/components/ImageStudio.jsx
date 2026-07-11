@@ -860,6 +860,26 @@ export default function ImageStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_image_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    imageMode: false,
+    selectedModelId: "nano-banana-2",
+    selectedModelName: "nano-banana-2",
+    options: {
+      aspect_ratio: "match_input_image",
+      quality: "1K",
+      resolution: "1K",
+      effect: "",
+      maxImages: 1,
+      batchSize: 1,
+    },
+    prompt: "",
+    uploads: {
+      image_urls: [],
+      swap_image_url: null,
+    },
+  };
   const t2iModelList = modelsByMode?.t2i?.length ? modelsByMode.t2i : t2iModels;
   const i2iModelList = modelsByMode?.i2i?.length ? modelsByMode.i2i : i2iModels;
   const firstTextModel = t2iModelList[0] || t2iModels[0];
@@ -929,29 +949,28 @@ export default function ImageStudio({
     if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) return;
-        skipNextConfigSaveRef.current = true;
-        const options = data.options || data;
-        if (data.imageMode !== undefined) setImageMode(data.imageMode);
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.selectedModelId || data.selectedModelName) {
-          const restoredMode = data.imageMode !== undefined ? data.imageMode : imageMode;
-          const restoredModel = (restoredMode ? i2iModelList : t2iModelList).find((model) => model.id === data.selectedModelId);
-          setSelectedModelName(restoredModel?.name || data.selectedModelName);
-        }
-        if (options.aspect_ratio || data.selectedAr) setSelectedAr(options.aspect_ratio || data.selectedAr);
-        if (options.quality || options.resolution || data.selectedQuality) setSelectedQuality(options.quality || options.resolution || data.selectedQuality);
-        if (options.effect || data.selectedEffect) setSelectedEffect(options.effect || data.selectedEffect);
-        if (options.maxImages || data.maxImages) setMaxImages(options.maxImages || data.maxImages);
-        if (data.prompt) setPrompt(data.prompt);
-        if (data.uploads?.image_urls || data.uploadedImageUrls) setUploadedImageUrls(data.uploads?.image_urls || data.uploadedImageUrls);
-        if (data.uploads?.swap_image_url) setSwapImageUrl(data.uploads.swap_image_url);
-        if (options.batchSize || data.batchSize) setBatchSize(options.batchSize || data.batchSize);
-        suppressProviderDefaultRef.current = true;
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      const options = data.options || data;
+      if (data.imageMode !== undefined) setImageMode(data.imageMode);
+      if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+      if (data.selectedModelId || data.selectedModelName) {
+        const restoredMode = data.imageMode !== undefined ? data.imageMode : imageMode;
+        const restoredModel = (restoredMode ? i2iModelList : t2iModelList).find((model) => model.id === data.selectedModelId);
+        setSelectedModelName(restoredModel?.name || data.selectedModelName);
       }
+      if (options.aspect_ratio || data.selectedAr) setSelectedAr(options.aspect_ratio || data.selectedAr);
+      if (options.quality || options.resolution || data.selectedQuality) setSelectedQuality(options.quality || options.resolution || data.selectedQuality);
+      if (options.effect || data.selectedEffect) setSelectedEffect(options.effect || data.selectedEffect);
+      if (options.maxImages || data.maxImages) setMaxImages(options.maxImages || data.maxImages);
+      if (data.prompt) setPrompt(data.prompt);
+      if (data.uploads?.image_urls || data.uploadedImageUrls) setUploadedImageUrls(data.uploads?.image_urls || data.uploadedImageUrls);
+      if (data.uploads?.swap_image_url) setSwapImageUrl(data.uploads.swap_image_url);
+      if (options.batchSize || data.batchSize) setBatchSize(options.batchSize || data.batchSize);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load ImageStudio persistence:", err);
     } finally {

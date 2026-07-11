@@ -333,6 +333,24 @@ function ModelDropdown({ isOpen, models, selectedId, onSelect, onClose }) {
 
 export default function MarketingStudio({ apiKey, provider = "replicate", droppedFiles, onFilesHandled, modelsByMode }) {
   const PERSIST_KEY = "hg_marketing_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "seedance-2-0-mini",
+    prompt: "",
+    options: {
+      ratio: "9:16",
+      format: "None",
+      videoUrl: null,
+      res: "720p",
+      duration: 8,
+    },
+    uploads: {
+      product_image: null,
+      avatar_image: null,
+      additional_images: [],
+    },
+  };
   
   const [prompt, setPrompt] = useState("");
   const [productImage, setProductImage] = useState(null);
@@ -464,32 +482,31 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
     if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) return;
-        skipNextConfigSaveRef.current = true;
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.prompt) setPrompt(data.prompt);
-        if (data.params || data.options) {
-          const p = { ...(data.params || data.options) };
-          // Migrate the previous forced default (UGC template as reference video)
-          // to the new opt-in "None" so it isn't silently attached (some models
-          // reject reference videos > 10s).
-          if (p.videoUrl === ASSETS.ugc[0].url && p.format === ASSETS.ugc[0].name) {
-            p.format = FORMAT_NONE.name;
-            p.videoUrl = null;
-          }
-          setParams(p);
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+      if (data.prompt) setPrompt(data.prompt);
+      if (data.params || data.options) {
+        const p = { ...(data.params || data.options) };
+        // Migrate the previous forced default (UGC template as reference video)
+        // to the new opt-in "None" so it isn't silently attached (some models
+        // reject reference videos > 10s).
+        if (p.videoUrl === ASSETS.ugc[0].url && p.format === ASSETS.ugc[0].name) {
+          p.format = FORMAT_NONE.name;
+          p.videoUrl = null;
         }
-        if (data.productImage) setProductImage(data.productImage);
-        if (data.avatarImage) setAvatarImage(data.avatarImage);
-        if (data.additionalImages) setAdditionalImages(data.additionalImages);
-        if (data.uploads?.product_image) setProductImage(data.uploads.product_image);
-        if (data.uploads?.avatar_image) setAvatarImage(data.uploads.avatar_image);
-        if (data.uploads?.additional_images) setAdditionalImages(data.uploads.additional_images);
-        suppressProviderDefaultRef.current = true;
+        setParams(p);
       }
+      if (data.productImage) setProductImage(data.productImage);
+      if (data.avatarImage) setAvatarImage(data.avatarImage);
+      if (data.additionalImages) setAdditionalImages(data.additionalImages);
+      if (data.uploads?.product_image) setProductImage(data.uploads.product_image);
+      if (data.uploads?.avatar_image) setAvatarImage(data.uploads.avatar_image);
+      if (data.uploads?.additional_images) setAdditionalImages(data.uploads.additional_images);
+      suppressProviderDefaultRef.current = true;
     } catch (err) { console.warn("Load failed", err); }
     finally { hasRestoredConfigRef.current = true; }
   }, [modelsByMode, provider]);

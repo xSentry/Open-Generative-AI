@@ -421,6 +421,24 @@ export default function LipSyncStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_lipsync_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    inputMode: "image",
+    selectedModelId: "omni-human",
+    options: {
+      resolution: "720p",
+    },
+    uploads: {
+      image_url: null,
+      image_name: "",
+      video_url: null,
+      video_name: "",
+      audio_url: null,
+      audio_name: "",
+    },
+    prompt: "",
+  };
 
   // ── Provider-aware model catalog ────────────────────────────────────────
   // When the active provider is Replicate, the shell passes provider-correct
@@ -518,42 +536,41 @@ export default function LipSyncStudio({
     if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) {
-          restoredPersistentModelRef.current = false;
-          restoredPersistentModelIdRef.current = null;
-          return;
-        }
-        skipNextConfigSaveRef.current = true;
-        const options = data.options || data;
-        const restoredInputMode = data.inputMode || inputMode;
-        if (data.inputMode) setInputMode(restoredInputMode);
-        const restoredModelId = data.selectedModelId || data.selectedModel;
-        const restoredModels = restoredInputMode === "image" ? imageModels : videoModels;
-        restoredPersistentModelRef.current = restoredModels.some((model) => model.id === restoredModelId);
-        restoredPersistentModelIdRef.current = restoredPersistentModelRef.current ? restoredModelId : null;
-        if (restoredModelId) setSelectedModelId(restoredModelId);
-        if (options.resolution || data.selectedResolution) setSelectedResolution(options.resolution || data.selectedResolution);
-        if (data.uploads?.image_url || data.imageUrl) {
-          setImageUrl(data.uploads?.image_url || data.imageUrl);
-          setImageState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.video_url || data.videoUrl) {
-          setVideoUrl(data.uploads?.video_url || data.videoUrl);
-          setVideoState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.audio_url || data.audioUrl) {
-          setAudioUrl(data.uploads?.audio_url || data.audioUrl);
-          setAudioState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
-        if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
-        if (data.uploads?.audio_name || data.audioName) setAudioName(data.uploads?.audio_name || data.audioName);
-        if (data.prompt) setPrompt(data.prompt);
-        suppressProviderDefaultRef.current = true;
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) {
+        restoredPersistentModelRef.current = false;
+        restoredPersistentModelIdRef.current = null;
+        return;
       }
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      const options = data.options || data;
+      const restoredInputMode = data.inputMode || inputMode;
+      if (data.inputMode) setInputMode(restoredInputMode);
+      const restoredModelId = data.selectedModelId || data.selectedModel;
+      const restoredModels = restoredInputMode === "image" ? imageModels : videoModels;
+      restoredPersistentModelRef.current = restoredModels.some((model) => model.id === restoredModelId);
+      restoredPersistentModelIdRef.current = restoredPersistentModelRef.current ? restoredModelId : null;
+      if (restoredModelId) setSelectedModelId(restoredModelId);
+      if (options.resolution || data.selectedResolution) setSelectedResolution(options.resolution || data.selectedResolution);
+      if (data.uploads?.image_url || data.imageUrl) {
+        setImageUrl(data.uploads?.image_url || data.imageUrl);
+        setImageState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.video_url || data.videoUrl) {
+        setVideoUrl(data.uploads?.video_url || data.videoUrl);
+        setVideoState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.audio_url || data.audioUrl) {
+        setAudioUrl(data.uploads?.audio_url || data.audioUrl);
+        setAudioState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
+      if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
+      if (data.uploads?.audio_name || data.audioName) setAudioName(data.uploads?.audio_name || data.audioName);
+      if (data.prompt) setPrompt(data.prompt);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load LipSyncStudio persistence:", err);
     } finally {

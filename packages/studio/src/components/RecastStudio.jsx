@@ -366,6 +366,21 @@ export default function RecastStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_recast_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "seedance-2-0-mini",
+    options: {
+      aspect_ratio: "16:9",
+    },
+    uploads: {
+      video_url: null,
+      video_name: "",
+      image_url: null,
+      image_name: "",
+    },
+    prompt: "",
+  };
 
   // ── Provider-aware model catalog ──────────────────────────────────────────
   // When the active provider is Replicate, the shell passes provider-correct
@@ -437,35 +452,34 @@ export default function RecastStudio({
     if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) {
-          restoredPersistentModelRef.current = false;
-          restoredPersistentModelIdRef.current = null;
-          return;
-        }
-        skipNextConfigSaveRef.current = true;
-        const options = data.options || data;
-        const restoredModelId = data.selectedModelId || data.selectedModel;
-        const restoredModel = effectiveRecastModels.find((model) => model.id === restoredModelId);
-        restoredPersistentModelRef.current = !!restoredModel;
-        restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
-        if (restoredModelId) setSelectedModelId(restoredModelId);
-        if (options.aspect_ratio || data.selectedAspectRatio) setSelectedAspectRatio(options.aspect_ratio || data.selectedAspectRatio);
-        if (data.uploads?.video_url || data.videoUrl) {
-          setVideoUrl(data.uploads?.video_url || data.videoUrl);
-          setVideoState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.image_url || data.imageUrl) {
-          setImageUrl(data.uploads?.image_url || data.imageUrl);
-          setImageState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
-        if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
-        if (data.prompt) setPrompt(data.prompt);
-        suppressProviderDefaultRef.current = true;
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) {
+        restoredPersistentModelRef.current = false;
+        restoredPersistentModelIdRef.current = null;
+        return;
       }
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      const options = data.options || data;
+      const restoredModelId = data.selectedModelId || data.selectedModel;
+      const restoredModel = effectiveRecastModels.find((model) => model.id === restoredModelId);
+      restoredPersistentModelRef.current = !!restoredModel;
+      restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
+      if (restoredModelId) setSelectedModelId(restoredModelId);
+      if (options.aspect_ratio || data.selectedAspectRatio) setSelectedAspectRatio(options.aspect_ratio || data.selectedAspectRatio);
+      if (data.uploads?.video_url || data.videoUrl) {
+        setVideoUrl(data.uploads?.video_url || data.videoUrl);
+        setVideoState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.image_url || data.imageUrl) {
+        setImageUrl(data.uploads?.image_url || data.imageUrl);
+        setImageState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
+      if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
+      if (data.prompt) setPrompt(data.prompt);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load RecastStudio persistence:", err);
     } finally {
