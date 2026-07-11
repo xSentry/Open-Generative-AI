@@ -34,6 +34,7 @@ out/
 # Misc
 *.pem
 .env
+.env.server
 .env.*
 !.env.example
-/docs/
+#/docs/

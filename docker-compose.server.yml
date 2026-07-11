@@ -1,0 +1,66 @@
+services:
+  web:
+    image: ghcr.io/omnedia/open-generative-ai:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-open-generative-ai}
+      STUDIO_ASYNC_GENERATIONS: ${STUDIO_ASYNC_GENERATIONS:-true}
+      STUDIO_QUEUE_NAME: ${STUDIO_QUEUE_NAME:-studio-generations}
+      WORKFLOW_QUEUE_NAME: ${WORKFLOW_QUEUE_NAME:-workflow-runs}
+      STUDIO_DELETE_INPUTS_AFTER_GENERATION: ${STUDIO_DELETE_INPUTS_AFTER_GENERATION:-true}
+      STUDIO_OUTPUT_URL_MODE: ${STUDIO_OUTPUT_URL_MODE:-signed}
+    networks:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.open-generative-ai.rule=Host(`aihub.omnedia.com`)"
+      - "traefik.http.routers.open-generative-ai.entrypoints=websecure"
+      - "traefik.http.routers.open-generative-ai.tls.certresolver=myresolver"
+      - "traefik.http.services.open-generative-ai.loadbalancer.server.port=3000"
+
+  studio-worker:
+    image: ghcr.io/omnedia/open-generative-ai:${IMAGE_TAG:-latest}
+    pull_policy: always
+    command: npm run worker:studio
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-open-generative-ai}
+      STUDIO_QUEUE_NAME: ${STUDIO_QUEUE_NAME:-studio-generations}
+      STUDIO_WORKER_CONCURRENCY: ${STUDIO_WORKER_CONCURRENCY:-4}
+      STUDIO_JOB_ATTEMPTS: ${STUDIO_JOB_ATTEMPTS:-3}
+      STUDIO_JOB_BACKOFF_MS: ${STUDIO_JOB_BACKOFF_MS:-5000}
+      STUDIO_DELETE_INPUTS_AFTER_GENERATION: ${STUDIO_DELETE_INPUTS_AFTER_GENERATION:-true}
+      STUDIO_OUTPUT_URL_MODE: ${STUDIO_OUTPUT_URL_MODE:-signed}
+    networks:
+      - backend
+
+  workflow-worker:
+    image: ghcr.io/omnedia/open-generative-ai:${IMAGE_TAG:-latest}
+    pull_policy: always
+    command: npm run worker:workflow
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-open-generative-ai}
+      WORKFLOW_QUEUE_NAME: ${WORKFLOW_QUEUE_NAME:-workflow-runs}
+      WORKFLOW_WORKER_CONCURRENCY: ${WORKFLOW_WORKER_CONCURRENCY:-2}
+      WORKFLOW_JOB_ATTEMPTS: ${WORKFLOW_JOB_ATTEMPTS:-2}
+      WORKFLOW_JOB_BACKOFF_MS: ${WORKFLOW_JOB_BACKOFF_MS:-5000}
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true
