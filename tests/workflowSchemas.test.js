@@ -141,7 +141,7 @@ test('router api-node-schemas returns 404 when workflow missing', async () => {
 test('api-inputs exposes only nodes flagged make_input', () => {
   const result = buildApiInputs({
     nodes: [
-      { id: 'text-1', category: 'text', input_params: { make_input: true, prompt: 'hi' } },
+      { id: 'text-1', title: 'Custom Prompt', category: 'text', input_params: { make_input: true, prompt: 'hi' } },
       { id: 'img-1', category: 'image', input_params: { make_input: false } },
       { id: 'img-2', category: 'image', input_params: {} },
     ],
@@ -149,6 +149,7 @@ test('api-inputs exposes only nodes flagged make_input', () => {
   assert.deepEqual(Object.keys(result.input_data.properties), ['text-1']);
   assert.equal(result.input_data.properties['text-1'].default, 'hi');
   assert.equal(result.input_data.properties['text-1'].type, 'string');
+  assert.equal(result.input_data.properties['text-1'].title, 'Custom Prompt');
 });
 
 test('buildApiNodeSchemas ignores non-api nodes', () => {

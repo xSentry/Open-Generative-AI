@@ -14,6 +14,7 @@ import { HiOutlineViewGrid } from "react-icons/hi";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
+import { getNodeTitle } from "./nodeTitles";
 
 const inputHandles = [
   "imageInput",
@@ -479,7 +480,7 @@ const ImageGeneration = ({ id, data, selected }) => {
       )}
       <div className="flex items-center gap-2 absolute -top-5 left-0">
         <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-          Image {id.replace(/^\D+/g, "")}
+          {getNodeTitle(id, "imageNode", "image", data.title)}
         </h3>
         {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
           <span className="text-xs text-green-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
@@ -555,6 +556,8 @@ const ImageGeneration = ({ id, data, selected }) => {
           <NodeOptionsMenu 
             nodeId={id}
             onDuplicate={data.duplicateNode}
+            onRename={data.renameNode}
+            currentTitle={getNodeTitle(id, "imageNode", "image", data.title)}
             onDelete={handleDeleteNode}
             downloadUrl={currentOutput}
             showThumbnailOption={true}

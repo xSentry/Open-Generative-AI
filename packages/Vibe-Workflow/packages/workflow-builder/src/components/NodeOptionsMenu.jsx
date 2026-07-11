@@ -3,6 +3,7 @@ import { BsThreeDots } from "react-icons/bs";
 import { IoDuplicateOutline, IoTrashOutline } from "react-icons/io5";
 import { MdOutlineFileDownload } from "react-icons/md";
 import { HiOutlinePhotograph } from "react-icons/hi";
+import { FaRegEdit } from "react-icons/fa";
 import { downloadFile } from "./utility";
 
 const NodeOptionsMenu = ({ 
@@ -10,6 +11,8 @@ const NodeOptionsMenu = ({
   onDuplicate, 
   onDelete, 
   onDeleteOutput,
+  onRename,
+  currentTitle,
   downloadUrl, 
   onSetThumbnail, 
   showThumbnailOption 
@@ -58,6 +61,23 @@ const NodeOptionsMenu = ({
             <IoDuplicateOutline size={14} className="text-blue-400" />
             <span>Duplicate</span>
           </button>
+
+          {onRename && (
+            <button
+              type="button"
+              suppressHydrationWarning={true}
+              onClick={(e) => {
+                e.stopPropagation();
+                const nextTitle = window.prompt("Node title", currentTitle || nodeId);
+                if (nextTitle !== null) onRename(nodeId, nextTitle);
+                setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] font-medium text-zinc-300 hover:bg-white/5 hover:text-white transition-colors border-b border-white/5"
+            >
+              <FaRegEdit size={14} className="text-violet-400" />
+              <span>Rename</span>
+            </button>
+          )}
 
           {downloadUrl && (
             <button

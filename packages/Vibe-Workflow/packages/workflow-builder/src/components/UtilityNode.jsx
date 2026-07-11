@@ -8,6 +8,7 @@ import { AiOutlineAudio } from "react-icons/ai";
 import { TfiText } from "react-icons/tfi";
 import AudioPlayer from "./AudioPlayer";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { getNodeTitle } from "./nodeTitles";
 
 const COLOR_CLASS = {
   blue: {
@@ -259,7 +260,7 @@ const UtilityNode = ({ id, data, selected }) => {
       } bg-[#0c0d0f]/95 backdrop-blur-sm`}
     >
       <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Utility {id.replace(/^\D+/g, "")}
+        {getNodeTitle(id, "utilityNode", "utility", data.title)}
       </h3>
       <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -273,6 +274,8 @@ const UtilityNode = ({ id, data, selected }) => {
         <NodeOptionsMenu
           nodeId={id}
           onDuplicate={data.duplicateNode}
+          onRename={data.renameNode}
+          currentTitle={getNodeTitle(id, "utilityNode", "utility", data.title)}
           onDelete={handleDeleteNode}
           downloadUrl={currentOutput}
           onDeleteOutput={handleDeleteOutput}

@@ -12,6 +12,7 @@ import { IoClose, IoTrashOutline } from "react-icons/io5";
 import { RiInputMethodLine } from "react-icons/ri";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { getNodeTitle } from "./nodeTitles";
 
 const outputHandles = [
   "apiOutput",
@@ -567,7 +568,7 @@ const ApiNode = ({ id, data, selected }) => {
     >
       <div className="flex items-center gap-2 absolute -top-5 left-0">
         <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-          Api {id.replace(/^\D+/g, "")}
+          {getNodeTitle(id, "apiNode", "api", data.title)}
         </h3>
         <span className="text-xs text-blue-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
           $0.025
@@ -633,6 +634,8 @@ const ApiNode = ({ id, data, selected }) => {
           <NodeOptionsMenu 
             nodeId={id}
             onDuplicate={data.duplicateNode}
+            onRename={data.renameNode}
+            currentTitle={getNodeTitle(id, "apiNode", "api", data.title)}
             onDelete={handleDeleteNode}
             downloadUrl={currentOutput}
           />

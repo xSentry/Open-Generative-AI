@@ -6,6 +6,7 @@ import { IoClose } from "react-icons/io5";
 import { concatModels } from "./utility";
 import { TbArrowMerge } from "react-icons/tb";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { getNodeTitle } from "./nodeTitles";
 
 const inputHandles = [
   "concatInput",
@@ -207,7 +208,7 @@ const PromptConcate = ({ id, data, selected }) => {
       `}
     >
       <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Prompt Concatenator {id.replace(/^\D+/g, "")}
+        {getNodeTitle(id, "concatNode", "utility", data.title)}
       </h3>
       <div className="flex flex-col">
         <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
@@ -222,6 +223,8 @@ const PromptConcate = ({ id, data, selected }) => {
           <NodeOptionsMenu 
             nodeId={id}
             onDuplicate={data.duplicateNode}
+            onRename={data.renameNode}
+            currentTitle={getNodeTitle(id, "concatNode", "utility", data.title)}
             onDelete={handleDeleteNode}
           />
         </div>

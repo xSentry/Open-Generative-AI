@@ -11,6 +11,7 @@ import NodeOptionsMenu from "./NodeOptionsMenu";
 import { TbArrowMerge } from "react-icons/tb";
 import { useGenerationCost } from "./useGenerationCost";
 import VideoPlayer from "./VideoPlayer";
+import { getNodeTitle } from "./nodeTitles";
 
 const inputHandles = [
   "videoInput7", // videos_list
@@ -407,7 +408,7 @@ const VideoCombiner = ({ id, data, selected }) => {
       )}
       <div className="flex items-center gap-2 absolute -top-5 left-0">
         <h4 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-          Video Combiner {id.replace(/^\D+/g, "")}
+          {getNodeTitle(id, "vidConcatNode", "utility", data.title)}
         </h4>
         {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
           <span className="text-xs text-orange-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
@@ -483,6 +484,8 @@ const VideoCombiner = ({ id, data, selected }) => {
           <NodeOptionsMenu 
             nodeId={id}
             onDuplicate={data.duplicateNode}
+            onRename={data.renameNode}
+            currentTitle={getNodeTitle(id, "vidConcatNode", "utility", data.title)}
             onDelete={handleDeleteNode}
             downloadUrl={currentOutput}
           />

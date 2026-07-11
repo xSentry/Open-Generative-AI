@@ -44,6 +44,7 @@ import VideoCombiner from "./VideoCombiner";
 import UtilityNode from "./UtilityNode";
 import { useGenerationCost } from "./useGenerationCost";
 import { watchNodeRun, watchWorkflowRun } from "./workflowStream";
+import { getGeneratedNodeTitle, getNodeTitle } from "./nodeTitles";
 
 const WORKFLOW_HOME_PATH = "/studio/workflow";
 
@@ -270,6 +271,7 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
       },
       data: {
         nodeSchemas,
+        title: n.title || getGeneratedNodeTitle(n.id, n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`, n.category),
         modelId: n.model,
         selectedModel: getModelObjStatic(n.category, n.model, nodeSchemas),
         outputs: n.output_params?.outputs || [],
@@ -345,6 +347,11 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const onConnectRef = useRef(null);
   const runWatcherRef = useRef(null);
   const staleUtilityDeleteIdsRef = useRef(new Set());
+  const autosaveTimerRef = useRef(null);
+  const lastAutosaveSignatureRef = useRef(null);
+  const latestGraphRef = useRef({ nodes: initialState?.nodes || [], edges: initialState?.edges || initialEdges });
+  const latestAutosaveStateRef = useRef({ interactionMode: false, isRestoring: true, hasNodeSchemas: false });
+  const saveWorkflowRef = useRef(null);
   const [interactionMode, setInteractionMode] = useState(initialState?.metadata?.interactionMode || false);
   const [publishWorkflow, setPublishWorkflow] = useState(initialState?.metadata?.publishWorkflow || false);
   const [template, setTemplate] = useState(initialState?.metadata?.template || {
@@ -392,6 +399,25 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const filteredApiNodeModels = apiNodeModels.filter(model =>
     apiModelsFromBackend.includes(model.id)
   );
+
+  const autosaveGraphSignature = useMemo(() => JSON.stringify({
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: node.position,
+      title: node.data?.title || "",
+      selectedModelId: node.data?.selectedModel?.id || node.data?.modelId || null,
+      formValues: node.data?.formValues || {},
+      exposedHandles: node.data?.exposedHandles || [],
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle || null,
+      targetHandle: edge.targetHandle || null,
+    })),
+  }), [nodes, edges]);
 
   const loadPreset = (preset) => {
     setIsPresetsDismissed(true);
@@ -536,6 +562,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         },
         data: {
           nodeSchemas,
+          title: n.title || getGeneratedNodeTitle(n.id, n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`, n.category),
           modelId: n.model,
           selectedModel: getModelObj(n.category, n.model),
           outputs: n.output_params?.outputs || [],
@@ -1062,6 +1089,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                 data: {
                   ...existingNode?.data,
                   nodeSchemas,
+                  title: n.title || existingNode?.data?.title || getGeneratedNodeTitle(newId, n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`, n.category),
                   modelId: n.model,
                   selectedModel: getModelObj(n.category, n.model),
                   outputs: n.output_params?.outputs || [],
@@ -1574,6 +1602,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
       return {
         id: node.id,
+        title: getNodeTitle(node),
         category,
         model,
         input_params,
@@ -1597,8 +1626,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     };
   };
 
-  const handleSaveWorkFlow = async (nodesOverride = null, edgesOverride = null) => {
+  const handleSaveWorkFlow = async (nodesOverride = null, edgesOverride = null, options = {}) => {
     if (!interactionMode) return;
+    const { quiet = false } = options;
     const workflowPayload = buildWorkflowPayload(
       Array.isArray(nodesOverride) ? nodesOverride : nodes,
       Array.isArray(edgesOverride) ? edgesOverride : edges
@@ -1607,19 +1637,80 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     try {
       const response = await axios.post("/api/workflow/create", workflowPayload);
       console.log("Workflow created:", response.data);
-      setDropDown(0);
+      if (!quiet) setDropDown(0);
       setWorkflowIds(response.data.workflow_id, runId);
       setWorkflowId(response.data.workflow_id);
       return response.data.workflow_id;
     } catch (error) {
       console.log(error);
       if (error.response) {
-        toast.error(`Failed: ${error.response.data.detail || "Server error"}`);
+        if (!quiet) toast.error(`Failed: ${error.response.data.detail || "Server error"}`);
       } else {
-        toast.error(`Error: ${error.message}`);
+        if (!quiet) toast.error(`Error: ${error.message}`);
       }
     }
   };
+
+  useEffect(() => {
+    latestGraphRef.current = { nodes, edges };
+  }, [nodes, edges]);
+
+  useEffect(() => {
+    latestAutosaveStateRef.current = {
+      interactionMode,
+      isRestoring,
+      hasNodeSchemas: !!nodeSchemas?.categories,
+    };
+    saveWorkflowRef.current = handleSaveWorkFlow;
+  }, [interactionMode, isRestoring, nodeSchemas, handleSaveWorkFlow]);
+
+  useEffect(() => {
+    if (!interactionMode || isRestoring || !nodeSchemas?.categories) return;
+    if (lastAutosaveSignatureRef.current === null) {
+      lastAutosaveSignatureRef.current = autosaveGraphSignature;
+      return;
+    }
+    if (lastAutosaveSignatureRef.current === autosaveGraphSignature) return;
+    lastAutosaveSignatureRef.current = autosaveGraphSignature;
+
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      saveWorkflowRef.current?.(
+        latestGraphRef.current.nodes,
+        latestGraphRef.current.edges,
+        { quiet: true }
+      );
+    }, 1800);
+
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [autosaveGraphSignature, interactionMode, isRestoring, nodeSchemas]);
+
+  useEffect(() => {
+    const flushAutosave = () => {
+      const state = latestAutosaveStateRef.current;
+      if (!state.interactionMode || state.isRestoring || !state.hasNodeSchemas) return;
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      saveWorkflowRef.current?.(
+        latestGraphRef.current.nodes,
+        latestGraphRef.current.edges,
+        { quiet: true }
+      );
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushAutosave();
+    };
+
+    window.addEventListener("pagehide", flushAutosave);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      flushAutosave();
+      window.removeEventListener("pagehide", flushAutosave);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const handleDuplicateWorkflow = async () => {
     if (interactionMode) return;
@@ -1640,17 +1731,6 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       }
     }
   };
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      handleSaveWorkFlow();
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [handleSaveWorkFlow]);
 
   // Apply a single node-run status update to the graph. Shared by the SSE
   // watcher (watchFullRun) and the polling fallback (pollRunIdStatus).
@@ -2013,12 +2093,23 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       selected: true,
       data: {
         ...nodeToDuplicate.data,
+        title: getGeneratedNodeTitle(newNodeId, nodeToDuplicate.type),
       }
     };
 
     setNodes((nds) => nds.map(n => ({ ...n, selected: false })).concat(newNode));
     toast.success(`Duplicated node ${nodeId} to ${newNodeId}`);
   }, [nodes, setNodes]);
+
+  const renameNode = useCallback((nodeId, title) => {
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, title: title?.trim() || getGeneratedNodeTitle(node.id, node.type) } }
+          : node
+      )
+    );
+  }, [setNodes]);
 
   const nodesWithHandlers = nodes.map((node) => ({
     ...node,
@@ -2035,6 +2126,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       runNodeInputsFromFlow,
       runId,
       duplicateNode,
+      renameNode,
       setNodes,
       setEdges,
       handleTypes: {
@@ -2253,7 +2345,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         x: flowPosition.x - 160,
         y: flowPosition.y - 100,
       },
-      data: { ...initialData },
+      data: { ...initialData, title: initialData.title || getGeneratedNodeTitle(newNodeId, nodeType) },
     };
 
     setNodes((prev) => [...prev, newNode]);
@@ -2408,7 +2500,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       id,
       type: nodeType,
       position: nodePosition,
-      data: { ...initialData },
+      data: { ...initialData, title: initialData.title || getGeneratedNodeTitle(id, nodeType) },
     };
 
     setNodes((prev) => [...prev, newNode]);
@@ -2474,6 +2566,17 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       })
     );
   }, [selectedNode, setNodes, setEdges, nodeSchemas]);
+
+  const updateSelectedNodeTitle = useCallback((value) => {
+    if (!selectedNode) return;
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === selectedNode.id
+          ? { ...node, data: { ...node.data, title: value } }
+          : node
+      )
+    );
+  }, [selectedNode, setNodes]);
 
   const updateSelectedNodeFlag = useCallback((key, checked) => {
     if (!selectedNode) return;
@@ -2920,10 +3023,24 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
             <h3 className="text-base font-semibold text-center text-white mt-6 tracking-tight">Properties</h3>
             <h1 className="flex items-center gap-2 text-sm font-medium text-start text-white mx-4 bg-zinc-800/50 border border-white/5 rounded-xl px-3 py-2 transition-all">
               {selectedNode.id.startsWith("text") ? <TfiText className="text-blue-400" /> : selectedNode.id.startsWith("image") ? <IoImageOutline className="text-green-400" /> : selectedNode.id.startsWith("video") ? <IoVideocamOutline className="text-orange-400" /> : selectedNode.id.startsWith("audio") ? <AiOutlineAudio className="text-yellow-400" /> : <RiInputMethodLine className="text-purple-400" />}
-              {selectedNode.id.replace(/(\D+)(\d+)/, "$1 $2").replace(/^./, (c) => c.toUpperCase())}
+              {getNodeTitle(selectedNode)}
             </h1>
             <div className="flex flex-col gap-4 w-full h-full overflow-y-auto px-4 custom-scrollbar-thin">
               <div className="flex flex-col gap-4 w-full h-full">
+                <div className="flex flex-col gap-1 relative w-full">
+                  <label className="text-[10px] font-bold text-zinc-500 text-start px-1">Title</label>
+                  <input
+                    type="text"
+                    value={selectedNode?.data?.title || getGeneratedNodeTitle(selectedNode.id, selectedNode.type)}
+                    onChange={(e) => updateSelectedNodeTitle(e.target.value)}
+                    onBlur={(e) => {
+                      const nextTitle = e.target.value.trim() || getGeneratedNodeTitle(selectedNode.id, selectedNode.type);
+                      updateSelectedNodeTitle(nextTitle);
+                    }}
+                    placeholder={getGeneratedNodeTitle(selectedNode.id, selectedNode.type)}
+                    className="text-sm text-white w-full px-3 py-2 bg-zinc-900/50 border border-white/10 hover:border-white/20 focus:outline-none focus:border-blue-500/50 rounded-lg transition-all"
+                  />
+                </div>
                 {!["utilityNode", "vidConcatNode"].includes(selectedNode.type) && (
                   <div
                     className="flex flex-col gap-1 relative w-full"

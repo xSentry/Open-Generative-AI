@@ -195,6 +195,7 @@ function markedWorkflowOutputNodes(workflowDef) {
 
 function workflowNodeLabel(node = {}) {
   const explicit =
+    node.title ||
     node.input_params?.title ||
     node.input_params?.label ||
     node.label ||

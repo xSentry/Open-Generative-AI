@@ -15,6 +15,7 @@ import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import VideoPlayer from "./VideoPlayer";
+import { getNodeTitle } from "./nodeTitles";
 
 const inputHandles = [
   "videoInput",   // prompt
@@ -437,7 +438,7 @@ const VideoGeneration = ({ id, data, selected }) => {
       )}
       <div className="flex items-center gap-2 absolute -top-5 left-0">
         <h4 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-          Video {id.replace(/^\D+/g, "")}
+          {getNodeTitle(id, "videoNode", "video", data.title)}
         </h4>
         {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
           <span className="text-xs text-orange-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
@@ -513,6 +514,8 @@ const VideoGeneration = ({ id, data, selected }) => {
           <NodeOptionsMenu 
             nodeId={id}
             onDuplicate={data.duplicateNode}
+            onRename={data.renameNode}
+            currentTitle={getNodeTitle(id, "videoNode", "video", data.title)}
             onDelete={handleDeleteNode}
             downloadUrl={currentOutput}
           />

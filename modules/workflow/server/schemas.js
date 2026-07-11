@@ -254,6 +254,7 @@ export function buildApiInputs(workflow) {
         default: value,
         examples: [],
         type: 'string',
+        title: node.title || node.input_params?.title || node.input_params?.label || node.label || node.name || node.id,
       };
     }
   }
