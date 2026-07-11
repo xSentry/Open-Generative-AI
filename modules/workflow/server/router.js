@@ -95,6 +95,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     executeSingleNode,
     generateWorkflowDef,
     enqueueRun: defaultEnqueueRun,
+    enqueueArchitect: defaultEnqueueRun,
     ...deps,
   };
   const {
@@ -568,9 +569,8 @@ async function saveThumbnail(impl, ctx, workflowId, body) {
   return json({ success: true });
 }
 
-// Generate a workflow graph from a prompt. The LLM call runs synchronously and
-// the result is persisted, so the client's poll immediately sees `completed`
-// (or `failed` with a helpful message when no LLM is configured).
+// Generate a workflow graph from a prompt. The route only persists the request
+// and enqueues work; the BullMQ workflow worker completes/fails it.
 async function architect(impl, ctx, body) {
   const prompt = body?.prompt;
   if (!prompt || !String(prompt).trim()) {
@@ -584,12 +584,7 @@ async function architect(impl, ctx, body) {
   });
 
   try {
-    const result = await impl.generateWorkflowDef({
-      prompt,
-      history: body?.history || [],
-      provider: ctx.provider,
-    });
-    await impl.updateArchitectRequest(req.id, { status: 'completed', result });
+    await impl.enqueueArchitect(req, { history: body?.history || [] });
   } catch (error) {
     await impl.updateArchitectRequest(req.id, { status: 'failed', error: error.message });
   }

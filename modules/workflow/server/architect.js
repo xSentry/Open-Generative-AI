@@ -23,7 +23,13 @@ export function buildCatalogSummary(provider, perCategory = 8) {
   const categories = schemas.categories || {};
   const summary = {};
   for (const [category, entry] of Object.entries(categories)) {
-    summary[category] = Object.keys(entry.models || {}).slice(0, perCategory);
+    const ids = Object.keys(entry.models || {});
+    const compact = ids.slice(0, perCategory);
+    const passthrough = `${category}-passthrough`;
+    if (compact.length > 0 && ids.includes(passthrough) && !compact.includes(passthrough)) {
+      compact[compact.length - 1] = passthrough;
+    }
+    summary[category] = compact;
   }
   return summary;
 }
@@ -153,5 +159,3 @@ export async function generateWorkflowDef({ prompt, history = [], provider, llm 
   const parsed = parseWorkflowJson(content);
   return normalizeWorkflowDef(parsed);
 }
-
-

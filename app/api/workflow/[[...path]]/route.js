@@ -11,7 +11,10 @@ import {
   deleteObject,
   getS3Config,
 } from '@/modules/storage/server/s3';
-import { enqueueWorkflowRunJob } from '@/modules/workflow/server/runQueue';
+import {
+  enqueueWorkflowArchitectJob,
+  enqueueWorkflowRunJob,
+} from '@/modules/workflow/server/runQueue';
 import {
   publishUserEvent,
   workflowRunEvent,
@@ -29,6 +32,7 @@ const executionDeps = {
   createPresignedGetUrl,
   deleteObject,
   enqueueRun: (run) => enqueueWorkflowRunJob(run),
+  enqueueArchitect: (request, options) => enqueueWorkflowArchitectJob(request, options),
   publishWorkflowEvent: (event) =>
     publishUserEvent(event.userId, workflowRunEvent(event)),
 };

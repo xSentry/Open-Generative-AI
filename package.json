@@ -24,6 +24,7 @@
     "db:migrate": "node modules/db/migrate.js",
     "worker:studio": "node scripts/studio-worker.js",
     "worker:workflow": "node scripts/workflow-worker.js",
+    "worker:design-agent": "node scripts/design-agent-worker.js",
     "requeue:pending": "node scripts/requeue-pending-jobs.js",
     "replicate:import-model": "node modules/providers/replicate/scripts/replicate-model-import.js",
     "replicate:smoke": "node scripts/replicate-studio-smoke.js",

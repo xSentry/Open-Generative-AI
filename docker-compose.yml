@@ -12,6 +12,7 @@ services:
       - STUDIO_ASYNC_GENERATIONS=${STUDIO_ASYNC_GENERATIONS:-true}
       - STUDIO_QUEUE_NAME=${STUDIO_QUEUE_NAME:-studio-generations}
       - WORKFLOW_QUEUE_NAME=${WORKFLOW_QUEUE_NAME:-workflow-runs}
+      - DESIGN_AGENT_QUEUE_NAME=${DESIGN_AGENT_QUEUE_NAME:-design-agent-jobs}
       - STUDIO_DELETE_INPUTS_AFTER_GENERATION=${STUDIO_DELETE_INPUTS_AFTER_GENERATION:-true}
       - STUDIO_OUTPUT_URL_MODE=${STUDIO_OUTPUT_URL_MODE:-signed}
     depends_on:
@@ -46,6 +47,21 @@ services:
       - WORKFLOW_WORKER_CONCURRENCY=${WORKFLOW_WORKER_CONCURRENCY:-2}
       - WORKFLOW_JOB_ATTEMPTS=${WORKFLOW_JOB_ATTEMPTS:-2}
       - WORKFLOW_JOB_BACKOFF_MS=${WORKFLOW_JOB_BACKOFF_MS:-5000}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  design-agent-worker:
+    build: .
+    command: npm run worker:design-agent
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - BULLMQ_PREFIX=${BULLMQ_PREFIX:-open-generative-ai}
+      - DESIGN_AGENT_QUEUE_NAME=${DESIGN_AGENT_QUEUE_NAME:-design-agent-jobs}
+      - DESIGN_AGENT_WORKER_CONCURRENCY=${DESIGN_AGENT_WORKER_CONCURRENCY:-2}
+      - DESIGN_AGENT_JOB_ATTEMPTS=${DESIGN_AGENT_JOB_ATTEMPTS:-2}
+      - DESIGN_AGENT_JOB_BACKOFF_MS=${DESIGN_AGENT_JOB_BACKOFF_MS:-5000}
     depends_on:
       - redis
     restart: unless-stopped

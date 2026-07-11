@@ -7,8 +7,13 @@ import {
 } from '../modules/studio/server/generationQueue.js';
 import {
   closeWorkflowRunQueue,
+  enqueueWorkflowArchitectJob,
   enqueueWorkflowRunJob,
 } from '../modules/workflow/server/runQueue.js';
+import {
+  closeDesignAgentQueue,
+  enqueueDesignAgentJob,
+} from '../modules/design-agent/server/jobQueue.js';
 
 loadAppEnv();
 
@@ -39,7 +44,7 @@ function printHelp() {
 
 Options:
   --dry-run              Print rows that would be enqueued without changing Redis.
-  --limit=N              Max Studio rows and Workflow rows to inspect. Default: 500.
+  --limit=N              Max rows per persisted job table to inspect. Default: 500.
   --reset-stale-claims   Clear old Studio provider_ref claims and Workflow running states first.
   --stale-minutes=N      Claim age for --reset-stale-claims. Default: 30.
 `);
@@ -108,6 +113,43 @@ async function listPendingWorkflowRuns(limit) {
   }));
 }
 
+async function listPendingWorkflowArchitectRequests(limit) {
+  const result = await query(
+    `select id, user_id, provider, workflow_id, created_at
+     from workflow_architect_requests
+     where status = 'processing'
+     order by created_at asc
+     limit $1`,
+    [limit]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    workflowId: row.workflow_id,
+    createdAt: row.created_at?.toISOString?.() || row.created_at,
+  }));
+}
+
+async function listPendingDesignAgentJobs(limit) {
+  const result = await query(
+    `select id, user_id, session_id, provider, action, created_at
+     from design_agent_jobs
+     where status = 'pending'
+     order by created_at asc
+     limit $1`,
+    [limit]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    sessionId: row.session_id,
+    provider: row.provider,
+    action: row.action,
+    createdAt: row.created_at?.toISOString?.() || row.created_at,
+  }));
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
@@ -123,20 +165,26 @@ async function main() {
     console.log('[requeue] reset stale claims', { studioReset, workflowReset, staleMinutes: options.staleMinutes });
   }
 
-  const [generations, runs] = await Promise.all([
+  const [generations, runs, architectRequests, designJobs] = await Promise.all([
     listPendingStudioGenerations(options.limit),
     listPendingWorkflowRuns(options.limit),
+    listPendingWorkflowArchitectRequests(options.limit),
+    listPendingDesignAgentJobs(options.limit),
   ]);
 
   console.log('[requeue] pending rows found', {
     studioGenerations: generations.length,
     workflowRuns: runs.length,
+    workflowArchitectRequests: architectRequests.length,
+    designAgentJobs: designJobs.length,
     dryRun: options.dryRun,
   });
 
   if (options.dryRun) {
     for (const generation of generations) console.log('[requeue] studio dry-run', generation);
     for (const run of runs) console.log('[requeue] workflow dry-run', run);
+    for (const request of architectRequests) console.log('[requeue] workflow architect dry-run', request);
+    for (const job of designJobs) console.log('[requeue] design-agent dry-run', job);
     return;
   }
 
@@ -152,7 +200,24 @@ async function main() {
     workflowEnqueued += 1;
   }
 
-  console.log('[requeue] complete', { studioEnqueued, workflowEnqueued });
+  let workflowArchitectEnqueued = 0;
+  for (const request of architectRequests) {
+    await enqueueWorkflowArchitectJob(request);
+    workflowArchitectEnqueued += 1;
+  }
+
+  let designAgentEnqueued = 0;
+  for (const job of designJobs) {
+    await enqueueDesignAgentJob(job);
+    designAgentEnqueued += 1;
+  }
+
+  console.log('[requeue] complete', {
+    studioEnqueued,
+    workflowEnqueued,
+    workflowArchitectEnqueued,
+    designAgentEnqueued,
+  });
 }
 
 async function closeDbPoolIfOpen() {
@@ -172,6 +237,7 @@ main()
     await Promise.allSettled([
       closeStudioGenerationQueue(),
       closeWorkflowRunQueue(),
+      closeDesignAgentQueue(),
       closeRedisConnection(),
       closeDbPoolIfOpen(),
     ]);

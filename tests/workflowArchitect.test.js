@@ -8,6 +8,7 @@ import {
   buildCatalogSummary,
   generateWorkflowDef,
 } from '../modules/workflow/server/architect.js';
+import { processArchitectRequest } from '../modules/workflow/server/architectProcessor.js';
 
 function ctxFor(userId = 'user-1', provider = 'replicate') {
   return { user: { id: userId }, provider, apiKey: 'r8_test' };
@@ -21,7 +22,6 @@ function request(url = 'http://test.local/api/workflow', body) {
 async function readJson(response) {
   return JSON.parse(await response.text());
 }
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test('buildCatalogSummary lists model ids per category', () => {
   const catalog = buildCatalogSummary('replicate', 3);
@@ -99,18 +99,15 @@ test('generateWorkflowDef runs the injected LLM and normalizes its output', asyn
   assert.ok(seenMessages, 'llm should be called');
 });
 
-test('POST architect persists the generated graph and returns request_id', async () => {
-  const store = new Map();
-  let generated = null;
+test('POST architect persists and enqueues the request', async () => {
+  let enqueued = null;
   const deps = {
-    createArchitectRequest: async () => ({ id: 'req-1' }),
+    createArchitectRequest: async ({ prompt }) => ({ id: 'req-1', prompt, userId: 'user-1', provider: 'replicate' }),
     updateArchitectRequest: async (id, patch) => {
-      store.set(id, patch);
       return { id, ...patch };
     },
-    generateWorkflowDef: async ({ prompt }) => {
-      generated = prompt;
-      return { message: 'ok', suggestions: [], workflow: { nodes: [], edges: [] } };
+    enqueueArchitect: async (requestRow, options) => {
+      enqueued = { requestRow, options };
     },
   };
 
@@ -124,17 +121,17 @@ test('POST architect persists the generated graph and returns request_id', async
 
   assert.equal(response.status, 200);
   assert.deepEqual(await readJson(response), { request_id: 'req-1', status: 'processing' });
-  assert.equal(generated, 'make art');
-  await flush();
-  assert.equal(store.get('req-1').status, 'completed');
+  assert.equal(enqueued.requestRow.id, 'req-1');
+  assert.equal(enqueued.requestRow.prompt, 'make art');
+  assert.deepEqual(enqueued.options, { history: [] });
 });
 
-test('POST architect marks the request failed when the LLM throws', async () => {
+test('POST architect marks the request failed when enqueue throws', async () => {
   const store = new Map();
   const deps = {
     createArchitectRequest: async () => ({ id: 'req-2' }),
     updateArchitectRequest: async (id, patch) => { store.set(id, patch); return { id }; },
-    generateWorkflowDef: async () => { throw new Error('no LLM key'); },
+    enqueueArchitect: async () => { throw new Error('redis unavailable'); },
   };
 
   const response = await handleLocalWorkflow(
@@ -146,9 +143,59 @@ test('POST architect marks the request failed when the LLM throws', async () => 
   );
 
   assert.equal(response.status, 200);
-  await flush();
   assert.equal(store.get('req-2').status, 'failed');
-  assert.match(store.get('req-2').error, /no LLM key/);
+  assert.match(store.get('req-2').error, /redis unavailable/);
+});
+
+test('processArchitectRequest generates and stores the workflow result', async () => {
+  const store = new Map();
+  const result = await processArchitectRequest('req-3', {
+    history: [{ role: 'user', content: 'earlier' }],
+    deps: {
+      getArchitectRequest: async () => ({
+        id: 'req-3',
+        status: 'processing',
+        prompt: 'make art',
+        provider: 'replicate',
+      }),
+      generateWorkflowDef: async ({ prompt, history, provider }) => ({
+        message: `${provider}:${prompt}:${history.length}`,
+        suggestions: [],
+        workflow: { nodes: [], edges: [] },
+      }),
+      updateArchitectRequest: async (id, patch) => {
+        store.set(id, patch);
+        return { id, ...patch };
+      },
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(store.get('req-3').status, 'completed');
+  assert.equal(store.get('req-3').result.message, 'replicate:make art:1');
+});
+
+test('processArchitectRequest marks failed when generation throws', async () => {
+  const store = new Map();
+  const result = await processArchitectRequest('req-4', {
+    deps: {
+      getArchitectRequest: async () => ({
+        id: 'req-4',
+        status: 'processing',
+        prompt: 'make art',
+        provider: 'replicate',
+      }),
+      generateWorkflowDef: async () => { throw new Error('no LLM key'); },
+      updateArchitectRequest: async (id, patch) => {
+        store.set(id, patch);
+        return { id, ...patch };
+      },
+    },
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(store.get('req-4').status, 'failed');
+  assert.match(store.get('req-4').error, /no LLM key/);
 });
 
 test('POST architect rejects an empty prompt', async () => {
@@ -223,4 +270,3 @@ test('POST {id}/thumbnail rejects a missing URL', async () => {
   );
   assert.equal(response.status, 400);
 });
-

@@ -244,7 +244,7 @@ async function handleSessionRoute(request, path, method, scope) {
       action: path[2],
       payload: body,
     });
-    enqueueJob(job.id);
+    await enqueueJob(job);
     return json({ job_id: job.id });
   }
 
