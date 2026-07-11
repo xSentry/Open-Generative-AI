@@ -602,36 +602,6 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [], 
 
 // ─── ModelDropdown ────────────────────────────────────────────────────────────
 
-const PROVIDER_LOGOS = {
-  openai: "https://cdn.muapi.ai/models/openai.png",
-  google: "https://cdn.muapi.ai/models/gemini.png",
-  kling: "https://cdn.muapi.ai/models/kling.png",
-  alibaba: "https://cdn.muapi.ai/models/alibaba.png",
-  bytedance: "https://cdn.muapi.ai/models/bytedance.png",
-  blackforest: "https://cdn.muapi.ai/models/bfl.png",
-  minimax: "https://cdn.muapi.ai/models/minimax.png",
-  suno: "https://cdn.muapi.ai/models/suno.png",
-  anthropic: "https://cdn.muapi.ai/models/claude.png",
-  meshy: "https://cdn.muapi.ai/models/meshy-3.png",
-  tripo3d: "https://cdn.muapi.ai/models/tripo3d.png",
-  grok: "https://cdn.muapi.ai/models/xai.png",
-  muapi: "https://cdn.muapi.ai/models/muapi.png",
-  midjourney: "https://cdn.muapi.ai/models/midjourney.png",
-  vidu: "https://cdn.muapi.ai/models/vidu.png",
-  runway: "https://cdn.muapi.ai/models/runway.png",
-  luma: "https://cdn.muapi.ai/models/luma.png",
-  ideogram: "https://cdn.muapi.ai/models/ideogram.png",
-  leonardoai: "https://cdn.muapi.ai/models/leonardoai.png",
-  hunyuan: "https://cdn.muapi.ai/models/hunyuan.png",
-  hidream: "https://cdn.muapi.ai/models/hidream.png",
-  lightricks: "https://cdn.muapi.ai/models/lightricks.png",
-  pixverse: "https://cdn.muapi.ai/models/pixverse.png",
-  reve: "https://cdn.muapi.ai/models/reve.png",
-  stability: "https://cdn.muapi.ai/models/stability.png"
-};
-
-const invertLogos = ['openai', 'blackforest', 'runway', 'ideogram', 'lightricks', 'grok'];
-
 function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
   const [search, setSearch] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("all");
@@ -639,36 +609,36 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
   const getProviderStyle = (provider) => {
     switch (provider) {
       case "grok":
-        return { text: "xI", bg: "bg-orange-500/10 text-orange-400 border-orange-500/25" };
+        return { text: "G", bg: "bg-orange-500/10 text-orange-400 border-orange-500/25" };
       case "openai":
         return { text: "O", bg: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25" };
       case "google":
         return { text: "G", bg: "bg-blue-500/10 text-blue-400 border-blue-500/25" };
       case "blackforest":
-        return { text: "BF", bg: "bg-amber-500/10 text-amber-400 border-amber-500/25" };
+        return { text: "B", bg: "bg-amber-500/10 text-amber-400 border-amber-500/25" };
       case "bytedance":
-        return { text: "BD", bg: "bg-purple-500/10 text-purple-400 border-purple-500/25" };
+        return { text: "B", bg: "bg-purple-500/10 text-purple-400 border-purple-500/25" };
       case "midjourney":
-        return { text: "MJ", bg: "bg-indigo-500/10 text-indigo-400 border-indigo-500/25" };
+        return { text: "M", bg: "bg-indigo-500/10 text-indigo-400 border-indigo-500/25" };
       case "kling":
-        return { text: "KL", bg: "bg-rose-500/10 text-rose-400 border-rose-500/25" };
+        return { text: "K", bg: "bg-rose-500/10 text-rose-400 border-rose-500/25" };
       case "vidu":
-        return { text: "VD", bg: "bg-cyan-500/10 text-cyan-400 border-cyan-500/25" };
+        return { text: "V", bg: "bg-cyan-500/10 text-cyan-400 border-cyan-500/25" };
       case "minimax":
-        return { text: "MX", bg: "bg-pink-500/10 text-pink-400 border-pink-500/25" };
+        return { text: "M", bg: "bg-pink-500/10 text-pink-400 border-pink-500/25" };
       case "ideogram":
-        return { text: "ID", bg: "bg-yellow-500/10 text-yellow-400 border-yellow-500/25" };
+        return { text: "I", bg: "bg-yellow-500/10 text-yellow-400 border-yellow-500/25" };
       case "luma":
-        return { text: "LM", bg: "bg-teal-500/10 text-teal-400 border-teal-500/25" };
+        return { text: "L", bg: "bg-teal-500/10 text-teal-400 border-teal-500/25" };
       case "alibaba":
-        return { text: "AL", bg: "bg-sky-500/10 text-sky-400 border-sky-500/25" };
+        return { text: "A", bg: "bg-sky-500/10 text-sky-400 border-sky-500/25" };
       case "leonardoai":
-        return { text: "LE", bg: "bg-violet-500/10 text-violet-400 border-violet-500/25" };
+        return { text: "L", bg: "bg-violet-500/10 text-violet-400 border-violet-500/25" };
       case "stability":
-        return { text: "SD", bg: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/25" };
+        return { text: "S", bg: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/25" };
       default:
         const name = provider ? provider.toUpperCase() : "AI";
-        return { text: name.substring(0, 2), bg: "bg-primary/10 text-primary border-primary/25" };
+        return { text: name.charAt(0), bg: "bg-primary/10 text-primary border-primary/25" };
     }
   };
 
@@ -698,8 +668,6 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
       m.id.toLowerCase().includes(query)
     );
   });
-
-  const invertLogos = ['openai', 'blackforest', 'runway', 'ideogram', 'lightricks', 'grok'];
 
   return (
     <div className="flex gap-4 h-full max-h-[60vh] min-h-[350px] overflow-x-hidden">
@@ -735,17 +703,7 @@ function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
               }`}
               title={p.name}
             >
-              {PROVIDER_LOGOS[p.id] ? (
-                <span className="w-full h-full flex items-center justify-center overflow-hidden p-[22%]">
-                  <img
-                    src={PROVIDER_LOGOS[p.id]}
-                    alt={p.name}
-                    className={`block max-w-full max-h-full object-contain ${invertLogos.includes(p.id) ? "invert" : ""}`}
-                  />
-                </span>
-              ) : (
-                style.text
-              )}
+              {style.text}
             </button>
           );
         })}
