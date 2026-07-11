@@ -165,7 +165,14 @@ export async function handleStudioGenerateRequest(request, deps) {
       // Async flow: return immediately, worker/detached task finishes the job.
       if (isAsyncEnabled(deps)) {
         if (typeof deps.enqueueGeneration === 'function') {
-          Promise.resolve(deps.enqueueGeneration(generation.id)).catch(() => {});
+          Promise.resolve(deps.enqueueGeneration(generation))
+            .then(() => deps.publishGenerationEvent?.({
+              userId,
+              id: generation.id,
+              status: generation.status,
+              queueStatus: 'queued',
+            }))
+            .catch(() => {});
         }
         return json({ generations: [serializeGeneration(generation, deps)] }, { status: 202 });
       }

@@ -42,13 +42,13 @@ export async function createDefaultProcessDeps() {
     { runMuapiPrediction },
     { getUserMuapiApiKey, getUserReplicateApiKey },
   ] = await Promise.all([
-    import('@/modules/storage/server/s3'),
+    import('../../storage/server/s3.js'),
     import('./generationsRepo.js'),
-    import('@/modules/providers/replicate/server/catalog'),
+    import('../../providers/replicate/server/catalog.js'),
     import('./studioCatalog.js'),
-    import('@/modules/providers/replicate/server/run'),
-    import('@/modules/providers/muapi/server/run'),
-    import('@/modules/auth/server/users'),
+    import('../../providers/replicate/server/run.js'),
+    import('../../providers/muapi/server/run.js'),
+    import('../../auth/server/users.js'),
   ]);
 
   return {

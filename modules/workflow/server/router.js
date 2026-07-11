@@ -44,18 +44,10 @@ async function readBody(request) {
   }
 }
 
-// Default async enqueue: hand the run off to the run processor on a microtask so
-// the HTTP response returns immediately and the graph keeps executing server-
-// side (surviving page navigation/refresh). processRun atomically claims the run
-// so this and the worker loop never double-process it. The `@/`-heavy processor
-// is imported lazily so this module stays importable under `node --test`.
-function defaultEnqueueRun(runId) {
-  Promise.resolve()
-    .then(async () => {
-      const { processRun } = await import('./runProcessor.js');
-      return processRun(runId);
-    })
-    .catch((error) => console.error('[workflow] run failed:', error));
+// Tests can omit queue wiring; production injects enqueueWorkflowRunJob from the
+// route layer. The router itself must not execute runs locally.
+function defaultEnqueueRun() {
+  return Promise.resolve();
 }
 
 // Build a result signer that refreshes presigned S3 URLs from stored keys, or
@@ -371,7 +363,14 @@ async function startRun(impl, ctx, workflowId) {
     inputs: {},
   });
   await seedNodeRuns(impl, run.id, nodes);
-  await impl.enqueueRun(run.id);
+  await impl.enqueueRun(run);
+  await impl.publishWorkflowEvent?.({
+    userId: ctx.user.id,
+    workflowId: wf.id,
+    runId: run.id,
+    status: run.status,
+    queueStatus: 'queued',
+  });
   return json({ run_id: run.id });
 }
 
@@ -397,7 +396,14 @@ async function startNodeRun(impl, ctx, workflowId, nodeId, body) {
     inputs: {},
   });
   await impl.createNodeRun({ runId: run.id, nodeId, model, params });
-  await impl.enqueueRun(run.id);
+  await impl.enqueueRun(run);
+  await impl.publishWorkflowEvent?.({
+    userId: ctx.user.id,
+    workflowId: wf.id,
+    runId: run.id,
+    status: run.status,
+    queueStatus: 'queued',
+  });
   return json({ run_id: run.id });
 }
 
@@ -425,7 +431,14 @@ async function apiExecute(impl, ctx, workflowId, inputs) {
     inputs,
   });
   await seedNodeRuns(impl, run.id, nodes);
-  await impl.enqueueRun(run.id);
+  await impl.enqueueRun(run);
+  await impl.publishWorkflowEvent?.({
+    userId: ctx.user.id,
+    workflowId: wf.id,
+    runId: run.id,
+    status: run.status,
+    queueStatus: 'queued',
+  });
   return json({ run_id: run.id });
 }
 

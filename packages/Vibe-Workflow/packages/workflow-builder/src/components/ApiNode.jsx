@@ -335,7 +335,7 @@ const ApiNode = ({ id, data, selected }) => {
     }
   }, [selectedModel, formValues, taskData, loading]);
 
-  // Event-driven node-run watcher (SSE via /api/workflow/runs/stream), with an
+  // Event-driven node-run watcher (SSE via /api/events/stream), with an
   // automatic polling fallback when EventSource isn't available.
   const pollNodeStatus = (run_id) => {
     watchNodeRun(run_id, id, {

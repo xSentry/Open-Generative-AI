@@ -17,10 +17,10 @@ export async function createDefaultRunDeps() {
     workflowsRepo,
     { getUserMuapiApiKey, getUserReplicateApiKey },
   ] = await Promise.all([
-    import('@/modules/storage/server/s3'),
+    import('../../storage/server/s3.js'),
     import('./runsRepo.js'),
     import('./workflowsRepo.js'),
-    import('@/modules/auth/server/users'),
+    import('../../auth/server/users.js'),
   ]);
 
   return {

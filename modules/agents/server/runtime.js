@@ -1,5 +1,5 @@
-import { getReplicateModelById, getReplicateModelsForMode } from '@/modules/providers/replicate/server/catalog';
-import { runReplicatePrediction } from '@/modules/providers/replicate/server/run';
+import { getReplicateModelById, getReplicateModelsForMode } from '../../providers/replicate/server/catalog.js';
+import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
 import * as repo from './repo.js';
 
 function pickTextModel() {

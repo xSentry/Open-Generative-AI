@@ -1,7 +1,7 @@
-// Shared, ref-counted Server-Sent Events subscription to the workflow run
-// stream (`/api/workflow/runs/stream`). One EventSource connection is shared by
-// every node/component that watches a run; each subscriber receives the raw
-// node-run update events and filters by run_id/node_id itself.
+// Shared, ref-counted Server-Sent Events subscription to the app event stream
+// (`/api/events/stream`). One EventSource connection is shared by every
+// node/component that watches a run; each subscriber receives hydrated node-run
+// update events and filters by run_id/node_id itself.
 //
 // Robustness: the SSE connection can fail to establish for reasons outside our
 // control — a browser extension / tracking protection blocking the request, the
@@ -12,7 +12,7 @@
 // ever connected) we transparently fall back to polling `run/{id}/status`.
 import axios from "axios";
 
-const STREAM_URL = "/api/workflow/runs/stream";
+const STREAM_URL = "/api/events/stream";
 // If the EventSource hasn't opened within this window we assume it's blocked and
 // switch that watcher to polling.
 const CONNECT_TIMEOUT_MS = 4000;
@@ -43,6 +43,24 @@ function notifyStatus(status) {
   });
 }
 
+function emitRunStatus(runId, data, onEvent) {
+  const nodesInRes = data?.nodes || {};
+  for (const [nodeId, runs] of Object.entries(nodesInRes)) {
+    if (!runs || runs.length === 0) continue;
+    const latest = runs[runs.length - 1];
+    onEvent({
+      run_id: runId,
+      workflow_id: data?.workflow_id,
+      node_id: nodeId,
+      node_run_id: latest.node_run_id,
+      status: latest.status,
+      run_status: data?.status,
+      result: latest.result,
+      error: latest.error,
+    });
+  }
+}
+
 function ensureStream() {
   if (started || !streamSupported()) return;
   started = true;
@@ -58,6 +76,7 @@ function ensureStream() {
       } catch {
         return;
       }
+      if (payload?.type !== "workflow.run.updated" || !payload.runId) return;
       listeners.forEach((fn) => {
         try {
           fn(payload);
@@ -66,8 +85,8 @@ function ensureStream() {
         }
       });
     };
-    // EventSource auto-reconnects; the server resumes from Last-Event-ID so no
-    // updates are missed across transient drops.
+    // EventSource auto-reconnects; Redis Pub/Sub events are live notifications,
+    // and each event hydrates current state from REST.
     source.onopen = () => {
       connected = true;
       everConnected = true;
@@ -92,11 +111,10 @@ export function normalizeNodeId(value) {
   return String(value || "").toLowerCase().replace(/\s+/g, "");
 }
 
-// Subscribe to raw node-run events `{ run_id, workflow_id, node_id,
-// node_run_id, status, run_status, result, error }`. Returns an unsubscribe fn.
-// The underlying connection is opened on first subscribe and closed when the
-// last subscriber leaves.
-export function subscribeWorkflowRuns(onEvent) {
+// Subscribe to raw workflow update notifications `{ type, runId, workflowId,
+// status, queueStatus }`. Returns an unsubscribe fn. The underlying connection
+// is opened on first subscribe and closed when the last subscriber leaves.
+export function subscribeWorkflowUpdates(onEvent) {
   listeners.add(onEvent);
   ensureStream();
   return () => {
@@ -113,6 +131,23 @@ export function subscribeWorkflowRuns(onEvent) {
       everConnected = false;
     }
   };
+}
+
+// Subscribe to hydrated node-run events `{ run_id, workflow_id, node_id,
+// node_run_id, status, run_status, result, error }`. Returns an unsubscribe fn.
+export function subscribeWorkflowRuns(onEvent) {
+  return subscribeWorkflowUpdates((ev) => {
+    const runId = ev.runId;
+    if (!runId) return;
+    axios
+      .get(`/api/workflow/run/${runId}/status`)
+      .then((response) => emitRunStatus(runId, response.data, onEvent))
+      .catch(() => {
+        // Individual watchers keep their polling fallback; this shared
+        // subscription should not fail the EventSource because one hydrate
+        // request had a transient error.
+      });
+  });
 }
 
 // Subscribe to connection-health notifications ("open" | "error" | "drop").
@@ -166,20 +201,7 @@ export function watchWorkflowRun(runId, onEvent, onError) {
         .then((response) => {
           if (disposed) return;
           consecutivePollErrors = 0;
-          const nodesInRes = response.data?.nodes || {};
-          for (const [nodeId, runs] of Object.entries(nodesInRes)) {
-            if (!runs || runs.length === 0) continue;
-            const latest = runs[runs.length - 1];
-            onEvent({
-              run_id: runId,
-              node_id: nodeId,
-              node_run_id: latest.node_run_id,
-              status: latest.status,
-              run_status: response.data?.status,
-              result: latest.result,
-              error: latest.error,
-            });
-          }
+          emitRunStatus(runId, response.data, onEvent);
         })
         .catch((error) => {
           consecutivePollErrors += 1;
@@ -198,10 +220,17 @@ export function watchWorkflowRun(runId, onEvent, onError) {
     return dispose;
   }
 
-  unsub = subscribeWorkflowRuns((ev) => {
+  unsub = subscribeWorkflowUpdates((ev) => {
     if (disposed) return;
-    if (ev.run_id !== runId) return;
-    onEvent(ev);
+    if (ev.runId !== runId) return;
+    axios
+      .get(`/api/workflow/run/${runId}/status`)
+      .then((response) => {
+        if (!disposed) emitRunStatus(runId, response.data, onEvent);
+      })
+      .catch((error) => {
+        if (!disposed) onError?.(error);
+      });
   });
 
   // Fall back to polling if the stream is blocked (never opens / errors before

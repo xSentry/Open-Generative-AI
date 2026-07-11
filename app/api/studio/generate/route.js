@@ -13,9 +13,13 @@ import { createGeneration } from '@/modules/studio/server/generationsRepo';
 import { mediaTypeForMode } from '@/modules/studio/server/generationMedia';
 import {
   createDefaultProcessDeps,
-  processGeneration,
   storeGenerationOutputs,
 } from '@/modules/studio/server/processGeneration';
+import { enqueueGenerationJob } from '@/modules/studio/server/generationQueue';
+import {
+  publishUserEvent,
+  studioGenerationEvent,
+} from '@/modules/events/server/publisher';
 import { createPresignedGetUrl, getS3Config } from '@/modules/storage/server/s3';
 
 export const runtime = 'nodejs';
@@ -40,8 +44,8 @@ export async function POST(request) {
     env: process.env,
     storeGenerationOutputs: ({ generation, providerResult }) =>
       storeGenerationOutputs({ generation, providerResult, deps: processDeps }),
-    // Async: fire-and-forget; processGeneration atomically claims the row so the
-    // worker loop and this call never double-process.
-    enqueueGeneration: (id) => processGeneration(id, processDeps),
+    enqueueGeneration: (generation) => enqueueGenerationJob(generation),
+    publishGenerationEvent: (event) =>
+      publishUserEvent(event.userId, studioGenerationEvent(event)),
   });
 }

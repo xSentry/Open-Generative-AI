@@ -1,11 +1,11 @@
-import { getUserReplicateApiKey } from '@/modules/auth/server/users';
+import { getUserReplicateApiKey } from '../../auth/server/users.js';
 import {
   getReplicateModelById,
   getReplicateModelByRef,
   getReplicateStudioModel,
   getReplicateModelsForMode,
-} from '@/modules/providers/replicate/server/catalog';
-import { runReplicatePrediction } from '@/modules/providers/replicate/server/run';
+} from '../../providers/replicate/server/catalog.js';
+import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
 import * as repo from './repo.js';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';

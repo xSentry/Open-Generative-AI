@@ -1,8 +1,8 @@
-import { requireUser } from '@/modules/auth/server/auth';
+import { requireUser } from '../../auth/server/auth.js';
 import {
   getUserMuapiApiKey,
   getUserReplicateApiKey,
-} from '@/modules/auth/server/users';
+} from '../../auth/server/users.js';
 
 function getLegacyMuapiKey(request) {
   return (

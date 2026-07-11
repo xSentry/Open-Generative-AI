@@ -12,9 +12,9 @@
     "packages/Open-AI-Design-Agent/packages/design-agent"
   ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node scripts/run-next.js dev",
+    "build": "node scripts/run-next.js build",
+    "start": "node scripts/run-next.js start",
     "lint": "next lint",
     "build:studio": "npm run build -w studio",
     "build:workflow": "npm run build -w workflow-builder",
@@ -22,6 +22,9 @@
     "build:design": "npm run build -w design-agent",
     "build:packages": "npm run build:workflow && npm run build:agent && npm run build:design && npm run build:studio",
     "db:migrate": "node modules/db/migrate.js",
+    "worker:studio": "node scripts/studio-worker.js",
+    "worker:workflow": "node scripts/workflow-worker.js",
+    "requeue:pending": "node scripts/requeue-pending-jobs.js",
     "replicate:import-model": "node modules/providers/replicate/scripts/replicate-model-import.js",
     "replicate:smoke": "node scripts/replicate-studio-smoke.js",
     "setup": "git submodule update --init --recursive && npm install && npm run build:packages",
@@ -122,8 +125,11 @@
     }
   },
   "dependencies": {
+    "ai-agent": "file:./packages/Open-Poe-AI/packages/agents",
     "axios": "^1.7.0",
     "bcryptjs": "^3.0.2",
+    "bullmq": "^5.80.1",
+    "ioredis": "^5.11.1",
     "jose": "^6.0.11",
     "next": "^15.0.0",
     "pg": "^8.16.3",
@@ -131,8 +137,7 @@
     "react-dom": "^19.0.0",
     "react-hot-toast": "^2.4.1",
     "studio": "*",
-    "workflow-builder": "file:./packages/Vibe-Workflow/packages/workflow-builder",
-    "ai-agent": "file:./packages/Open-Poe-AI/packages/agents"
+    "workflow-builder": "file:./packages/Vibe-Workflow/packages/workflow-builder"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

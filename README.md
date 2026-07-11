@@ -7,6 +7,107 @@
 
 **Community:** Join [Discord](https://discord.gg/tANKJkHck) for discussions and support
 
+## Fork Runtime Changes
+
+This fork changes the self-hosted web runtime from the original browser/API-key
+only flow into a server-backed application with durable users, persisted
+generations, object storage, and Redis-backed background workers.
+
+Major changes in this fork:
+
+- **Custom provider runtime**: Studio and Workflow execution now run through
+  server-side provider adapters, with Replicate currently supported and MuAPI
+  plumbing still present where applicable.
+- **Custom auth**: users sign in through the app; provider keys can be stored per
+  account instead of only living in browser localStorage.
+- **Postgres database**: users, generations, workflows, workflow runs, node runs,
+  and provider settings are stored durably.
+- **S3-compatible storage**: generated media and uploaded inputs are stored in an
+  S3/MinIO-compatible bucket instead of relying only on provider URLs.
+- **Redis/BullMQ workers**: web requests enqueue jobs; separate worker processes
+  consume Studio generation and Workflow run queues.
+- **Redis event stream**: UI status updates are pushed through an authenticated
+  SSE endpoint backed by Redis pub/sub.
+
+### Local Dev Runtime
+
+For local development, you do **not** need to run the full Docker Compose app
+stack. The usual setup is:
+
+1. Run infrastructure locally or in Docker:
+   - Postgres on `localhost:5432`
+   - MinIO/S3 on `localhost:9000`
+   - Redis on `localhost:6379`
+2. Run the Next.js web app locally.
+3. Run the BullMQ workers locally in separate terminals.
+
+Create your local env file first:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then fill in at least `DATABASE_URL`, `AUTH_SESSION_SECRET`,
+`AUTH_ENCRYPTION_KEY`, S3 settings, `REDIS_URL`, and a provider key such as
+`REPLICATE_API_TOKEN`.
+
+Example Redis-only Docker command:
+
+```powershell
+docker run --name oga-redis -p 6379:6379 -d redis:7-alpine redis-server --appendonly yes
+```
+
+If the container already exists:
+
+```powershell
+docker start oga-redis
+docker exec -it oga-redis redis-cli ping
+```
+
+Start the app and workers from the repo root. For production-like local runs,
+build first:
+
+```powershell
+npm run build
+```
+
+```powershell
+npm run start
+```
+
+For live development, use this instead of `npm run start`:
+
+```powershell
+npm run dev
+```
+
+In either case, run workers in separate terminals:
+
+```powershell
+npm run worker:studio
+```
+
+```powershell
+npm run worker:workflow
+```
+
+The web process only enqueues work. If `worker:studio` is not running, Studio
+generations will stay queued/generating. If `worker:workflow` is not running,
+Workflow runs will stay queued/running.
+
+Useful inspection commands:
+
+```powershell
+docker exec -it oga-redis redis-cli --scan --pattern "open-generative-ai:*"
+```
+
+```text
+http://localhost:3000/api/queue/metrics
+```
+
+The worker terminals print job lifecycle logs such as `job start`, `job
+success`, and `job failed`.
+
 <p align="center">
   <a href="https://github.com/Anil-matcha/awesome-generative-ai-apps">
     <img src="https://img.shields.io/badge/Part%20of-Awesome%20Generative%20AI%20Apps-FFD700?style=for-the-badge&logo=github&logoColor=black" alt="Awesome Generative AI Apps">

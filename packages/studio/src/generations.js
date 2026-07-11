@@ -95,10 +95,9 @@ export function isTerminalStatus(status) {
     return TERMINAL_STATUSES.has(status);
 }
 
-// Subscribe to live generation updates via Server-Sent Events. Returns a
-// disposer that closes the connection. Falls back to null when EventSource is
-// unavailable (caller should then poll). `onOpen`/`onError` report connection
-// state so the caller can enable/disable polling fallback.
+// Subscribe to live generation updates via the authenticated, Redis-backed app
+// event stream. Events are lightweight notifications, so hydrate the affected
+// generation from the REST endpoint before notifying callers.
 export function subscribeGenerations({ onUpdate, onOpen, onError } = {}) {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
         return null;
@@ -107,16 +106,25 @@ export function subscribeGenerations({ onUpdate, onOpen, onError } = {}) {
         return null;
     }
 
-    const source = new EventSource(`${API_BASE}/studio/generations/stream`);
+    const source = new EventSource(`${API_BASE}/events/stream`);
 
     source.onopen = () => onOpen?.();
     source.onerror = (event) => onError?.(event);
-    source.onmessage = (event) => {
+    source.onmessage = async (event) => {
         if (!event.data) return;
+        let payload;
         try {
-            onUpdate?.(JSON.parse(event.data));
+            payload = JSON.parse(event.data);
         } catch {
             // ignore malformed frames
+            return;
+        }
+        if (payload?.type !== 'studio.generation.updated' || !payload.id) return;
+        try {
+            const generation = await getGeneration(payload.id);
+            if (generation) onUpdate?.(generation);
+        } catch (error) {
+            onError?.(error);
         }
     };
 

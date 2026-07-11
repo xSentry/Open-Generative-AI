@@ -1,4 +1,4 @@
-import { query } from '@/modules/db/server/db';
+import { query } from '../../db/server/db.js';
 import { encryptSecret, decryptSecret } from './crypto.js';
 import { AuthError } from './errors.js';
 

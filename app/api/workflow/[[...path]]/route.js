@@ -11,7 +11,11 @@ import {
   deleteObject,
   getS3Config,
 } from '@/modules/storage/server/s3';
-import { processRun } from '@/modules/workflow/server/runProcessor';
+import { enqueueWorkflowRunJob } from '@/modules/workflow/server/runQueue';
+import {
+  publishUserEvent,
+  workflowRunEvent,
+} from '@/modules/events/server/publisher';
 
 export const runtime = 'nodejs';
 // SSE (runs/stream) and per-user data must never be cached.
@@ -24,13 +28,9 @@ const executionDeps = {
   getS3Config,
   createPresignedGetUrl,
   deleteObject,
-  // Fire-and-forget async execution; processRun atomically claims the run so the
-  // worker loop and this call never double-process it.
-  enqueueRun: (runId) => {
-    Promise.resolve()
-      .then(() => processRun(runId))
-      .catch((error) => console.error('[workflow] run failed:', error));
-  },
+  enqueueRun: (run) => enqueueWorkflowRunJob(run),
+  publishWorkflowEvent: (event) =>
+    publishUserEvent(event.userId, workflowRunEvent(event)),
 };
 
 // Single switch point (see docs/workflow-self-hosting-plan.md section 0/2):

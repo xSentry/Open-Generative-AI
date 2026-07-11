@@ -1,6 +1,6 @@
 // Data-access layer for studio_generations. Every read/mutation is scoped by
 // user_id so ownership is enforced at the query level.
-import { query } from '@/modules/db/server/db';
+import { query } from '../../db/server/db.js';
 
 const SELECT_COLUMNS = `
   id, user_id, mode, media_type, provider, model, prompt, params, input_assets,
@@ -250,18 +250,4 @@ export async function claimGeneration(id, claimToken = 'processing') {
   );
   return mapRow(result.rows[0]);
 }
-
-// Mark rows stuck in `generating` beyond the timeout as failed.
-export async function reapStaleGenerations(timeoutMinutes = 30) {
-  const result = await query(
-    `update studio_generations
-       set status = 'failed', error = 'timeout', updated_at = now(), completed_at = now()
-     where status = 'generating'
-       and updated_at < now() - ($1 || ' minutes')::interval
-     returning ${SELECT_COLUMNS}`,
-    [String(timeoutMinutes)]
-  );
-  return result.rows.map(mapRow);
-}
-
 
