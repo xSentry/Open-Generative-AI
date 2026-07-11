@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { uploadFile, generateMarketingStudioAd } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
+import ModelProviderMark from "./ModelProviderMark.jsx";
 
 const SCROLLBAR_STYLE = `
   .custom-scrollbar-thin::-webkit-scrollbar {
@@ -247,9 +248,15 @@ function SimpleDropdown({ isOpen, title, options, selected, onSelect, onClose })
 
 function ModelDropdown({ isOpen, models, selectedId, onSelect, onClose }) {
   const ref = useRef(null);
+  const [search, setSearch] = useState("");
+  const needle = search.toLowerCase();
+  const filtered = models.filter((model) =>
+    String(model.name || "").toLowerCase().includes(needle) ||
+    String(model.id || "").toLowerCase().includes(needle)
+  );
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) onClose();
     };
@@ -262,31 +269,62 @@ function ModelDropdown({ isOpen, models, selectedId, onSelect, onClose }) {
   return (
     <div
       ref={ref}
-      className="absolute bottom-[calc(100%+12px)] left-0 z-50 bg-[#0a0a0a] rounded p-1 max-h-[300px] overflow-y-auto custom-scrollbar shadow-3xl border border-white/10 w-[calc(100vw-3rem)] max-w-[260px] animate-fade-in-up"
+      className="absolute bottom-[calc(100%+12px)] left-0 z-50 flex max-h-[26rem] w-[calc(100vw-3rem)] max-w-xs flex-col rounded-[1.5rem] border border-white/[0.05] bg-[#0a0a0a] p-3 shadow-2xl"
     >
-      <div className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2 px-3 pt-2">
-        Model
+      <div className="mb-2 shrink-0 border-b border-white/5 px-2 pb-3">
+        <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 transition-colors focus-within:border-primary/50">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search models..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full border-none bg-transparent p-0 text-xs text-white outline-none focus:ring-0"
+          />
+        </div>
       </div>
-      {models.length === 0 && (
-        <div className="px-3 py-2 text-xs text-white/30">No compatible models</div>
-      )}
-      {models.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => { onSelect(m.id); onClose(); }}
-          className={`w-full text-left px-3 py-2 rounded text-xs transition-all ${
-            selectedId === m.id ? "bg-primary/10 text-primary font-bold" : "text-white/70 hover:bg-white/5 hover:text-white"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-bold">{m.name || m.id}</span>
-            {selectedId === m.id && <CheckSvg />}
+      <div className="shrink-0 px-3 py-2 text-xs font-bold text-secondary">
+        Marketing models
+      </div>
+      <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-2">
+        {filtered.map((model) => (
+          <div
+            key={model.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(model.id);
+              onClose();
+            }}
+            className={`flex cursor-pointer items-center justify-between rounded-2xl border border-transparent p-3.5 transition-all hover:border-white/5 hover:bg-white/5 ${
+              selectedId === model.id ? "border-white/5 bg-white/5" : ""
+            }`}
+          >
+            <div className="flex min-w-0 items-center gap-3.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-primary/10 text-xs font-black uppercase text-primary shadow-inner">
+                <ModelProviderMark model={model} glyphClassName="w-4 h-4" />
+              </div>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-xs font-bold tracking-tight text-white">
+                  {model.name || model.id}
+                </span>
+                <span className="truncate text-[9px] text-white/35">
+                  {model.id}
+                </span>
+              </div>
+            </div>
+            {selectedId === model.id && <CheckSvg />}
           </div>
-          {m.description && (
-            <div className="text-[10px] text-white/30 mt-0.5 line-clamp-2">{m.description}</div>
-          )}
-        </button>
-      ))}
+        ))}
+      </div>
+      {filtered.length === 0 && (
+        <div className="px-4 py-8 text-center text-xs text-white/35">
+          No compatible models
+        </div>
+      )}
     </div>
   );
 }
