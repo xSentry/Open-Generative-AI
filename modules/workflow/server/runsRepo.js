@@ -104,7 +104,7 @@ export async function claimPendingRuns(limit = 4) {
 }
 
 // Fail runs stuck in a non-terminal state past the timeout (crashed worker /
-// server restart mid-run). Their seeded node-runs are failed too.
+// server restart mid-run). Their queued/running node-runs are failed too.
 export async function reapStaleRuns(timeoutMinutes = 30) {
   const result = await query(
     `update workflow_runs
@@ -119,7 +119,7 @@ export async function reapStaleRuns(timeoutMinutes = 30) {
     await query(
       `update workflow_node_runs
          set status = 'failed', error = 'timeout', updated_at = now(), completed_at = now()
-       where run_id = any($1::uuid[]) and status in ('processing','running')`,
+       where run_id = any($1::uuid[]) and status in ('queued','processing','running')`,
       [runs.map((r) => r.id)]
     );
   }

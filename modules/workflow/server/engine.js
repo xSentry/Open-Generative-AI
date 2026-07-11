@@ -142,46 +142,135 @@ export async function executeGraph({
   nodeRunIds = {},
   inputOverrides = {},
   initialResults = {},
+  nodeConcurrency = Infinity,
   repo,
   executeNode = defaultExecuteNode,
   storeOutputs = async ({ result }) => ({ result, keys: [] }),
 }) {
   let ordered;
+  let graph;
   try {
     ordered = topoSort(nodes, edges);
+    graph = buildGraph(nodes, edges);
   } catch (error) {
     await repo.updateRun(runId, { status: 'failed', error: error.message });
     return { status: 'failed', error: error.message };
   }
 
   const resultsByNodeId = { ...initialResults };
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
+  const ready = ordered
+    .filter((node) => graph.indegree.get(node.id) === 0)
+    .map((node) => node.id);
+  const started = new Set();
+  const completed = new Set();
+  const maxConcurrency =
+    Number.isFinite(Number(nodeConcurrency)) && Number(nodeConcurrency) > 0
+      ? Number(nodeConcurrency)
+      : Infinity;
 
   await repo.updateRun(runId, { status: 'running' });
 
-  for (const node of ordered) {
+  let active = 0;
+  let failure = null;
+
+  async function runNode(node) {
     const nodeRunId = nodeRunIds[node.id];
     const baseParams = applyInputOverride(node, inputOverrides[node.id]);
     const params = resolveParams(baseParams, resultsByNodeId);
 
     try {
+      if (nodeRunId) {
+        await repo.updateNodeRun(nodeRunId, { status: 'running' });
+      }
       const raw = await executeNode({ provider, apiKey, node: { ...node, params } });
       const { result, keys } = await storeOutputs({ result: raw, nodeId: node.id, nodeRunId });
       resultsByNodeId[node.id] = result.outputs || [];
       if (nodeRunId) {
         await repo.updateNodeRun(nodeRunId, { status: 'succeeded', result, outputKeys: keys });
       }
+      completed.add(node.id);
     } catch (error) {
       const result = failureResult(error.message || 'Node execution failed');
       if (nodeRunId) {
         await repo.updateNodeRun(nodeRunId, { status: 'failed', result, error: error.message });
       }
-      await repo.updateRun(runId, { status: 'failed', error: error.message });
-      return { status: 'failed', error: error.message, results: resultsByNodeId };
+      if (!failure) {
+        failure = { status: 'failed', error: error.message, results: resultsByNodeId };
+      }
     }
   }
 
-  await repo.updateRun(runId, { status: 'completed' });
-  return { status: 'completed', results: resultsByNodeId };
+  async function markUnstartedNodesFailed(message) {
+    await Promise.all(nodes.map(async (node) => {
+      if (started.has(node.id) || completed.has(node.id)) return;
+      const nodeRunId = nodeRunIds[node.id];
+      if (!nodeRunId) return;
+      const result = failureResult(message);
+      await repo.updateNodeRun(nodeRunId, { status: 'failed', result, error: message });
+    }));
+  }
+
+  const result = await new Promise((resolve) => {
+    let finalizing = false;
+
+    const sortedReadyPush = (id) => {
+      ready.push(id);
+      ready.sort((a, b) => (nodeIndex.get(a) ?? 0) - (nodeIndex.get(b) ?? 0));
+    };
+
+    const finalize = async () => {
+      if (finalizing) return;
+      finalizing = true;
+      if (failure) {
+        const message = failure.error || 'Workflow failed before this node could run.';
+        await markUnstartedNodesFailed(`Skipped because workflow failed: ${message}`);
+        await repo.updateRun(runId, { status: 'failed', error: failure.error });
+        resolve(failure);
+        return;
+      }
+      await repo.updateRun(runId, { status: 'completed' });
+      resolve({ status: 'completed', results: resultsByNodeId });
+    };
+
+    const schedule = () => {
+      if (failure) {
+        if (active === 0) finalize();
+        return;
+      }
+
+      while (active < maxConcurrency && ready.length > 0) {
+        const id = ready.shift();
+        const node = byId.get(id);
+        if (!node || started.has(id)) continue;
+        started.add(id);
+        active += 1;
+        runNode(node).finally(() => {
+          active -= 1;
+          if (!failure) {
+            for (const target of graph.adjacency.get(id) || []) {
+              graph.indegree.set(target, graph.indegree.get(target) - 1);
+              if (graph.indegree.get(target) === 0) sortedReadyPush(target);
+            }
+          }
+          if ((failure || (ready.length === 0 && active === 0))) {
+            finalize();
+          } else {
+            schedule();
+          }
+        });
+      }
+
+      if (ready.length === 0 && active === 0) {
+        finalize();
+      }
+    };
+
+    schedule();
+  });
+
+  return result;
 }
 
 // Execute a single node within an existing run. Upstream values come from the

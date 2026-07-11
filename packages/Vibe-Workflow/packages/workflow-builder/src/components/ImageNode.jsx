@@ -15,6 +15,7 @@ import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
+import QueuedState from "./QueuedState";
 
 const inputHandles = [
   "imageInput",
@@ -571,7 +572,9 @@ const ImageGeneration = ({ id, data, selected }) => {
         </div>
       ) : (
         <div className="flex items-center flex-grow justify-center w-full h-full rounded transition-all duration-500">
-          {data.isLoading ? (
+          {data.isQueued ? (
+            <QueuedState tone="green" className="aspect-[1/1] rounded-b-2xl" />
+          ) : data.isLoading ? (
             <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1] bg-white/5 animate-pulse rounded-b-2xl">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>

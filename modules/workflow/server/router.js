@@ -341,8 +341,8 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
 // (or subscribes to runs/stream); because the work happens server-side it keeps
 // going even if the user navigates away or refreshes.
 
-// Pre-create one processing node-run per graph node so the UI shows every node
-// as loading and the "all succeeded" poll check sees the full node set.
+// Pre-create one queued node-run per graph node so the UI knows the full run
+// shape, while the engine can flip only actively executing nodes to running.
 async function seedNodeRuns(impl, runId, nodes) {
   const nodeRunIds = {};
   for (const node of nodes) {
@@ -351,6 +351,7 @@ async function seedNodeRuns(impl, runId, nodes) {
       nodeId: node.id,
       model: node.model || null,
       params: node.params || {},
+      status: 'queued',
     });
     nodeRunIds[node.id] = nr.id;
   }

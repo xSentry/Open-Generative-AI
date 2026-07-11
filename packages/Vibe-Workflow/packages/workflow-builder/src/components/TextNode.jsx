@@ -12,6 +12,7 @@ import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
+import QueuedState from "./QueuedState";
 
 const inputHandles = [
   "textInput",
@@ -527,7 +528,9 @@ const TextGeneration = ({ id, data, selected }) => {
         </div>
       ) : (
         <div className="flex items-center justify-center flex-1 w-full h-full bg-black/20">
-          {data.isLoading ? (
+          {data.isQueued ? (
+            <QueuedState tone="blue" className="rounded-xl" />
+          ) : data.isLoading ? (
             <div className="flex flex-col gap-2.5 w-full h-full overflow-hidden animate-pulse">
               <div className="h-2.5 bg-white/5 rounded-full w-full"></div>
               <div className="h-2.5 bg-white/5 rounded-full w-[90%]"></div>

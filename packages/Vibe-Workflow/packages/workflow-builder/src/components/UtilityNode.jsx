@@ -9,6 +9,7 @@ import { TfiText } from "react-icons/tfi";
 import AudioPlayer from "./AudioPlayer";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { getNodeTitle } from "./nodeTitles";
+import QueuedState from "./QueuedState";
 
 const COLOR_CLASS = {
   blue: {
@@ -282,7 +283,9 @@ const UtilityNode = ({ id, data, selected }) => {
         />
       </div>
       <div className="relative flex items-center justify-center w-full h-full min-h-[180px] overflow-hidden rounded-b-2xl bg-zinc-950">
-        {data.isLoading ? (
+        {data.isQueued ? (
+          <QueuedState tone={outputColor} className="rounded-b-2xl" />
+        ) : data.isLoading ? (
           <div className="flex flex-col items-center justify-center gap-2 text-zinc-400">
             <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
             <span className="text-xs">Generating...</span>

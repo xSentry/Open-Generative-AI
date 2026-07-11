@@ -117,6 +117,48 @@ test('executeGraph runs nodes in order and propagates outputs via templates', as
   assert.equal(repo.nodeRuns.get('nr2').result.outputs[0].value, 'img:hello');
 });
 
+test('executeGraph runs independent ready nodes concurrently and waits at joins', async () => {
+  const repo = makeRepo();
+  const nodes = [
+    { id: 'a', category: 'text', params: { prompt: 'A' } },
+    { id: 'b', category: 'text', params: { prompt: 'B' } },
+    { id: 'join', category: 'text', params: { prompt: '{{ a.outputs[0].value }} {{ b.outputs[0].value }}' } },
+  ];
+  const edges = [
+    { source: 'a', target: 'join' },
+    { source: 'b', target: 'join' },
+  ];
+
+  const started = [];
+  let releaseBoth;
+  const bothStarted = new Promise((resolve) => { releaseBoth = resolve; });
+  const executeNode = async ({ node }) => {
+    started.push(node.id);
+    if (node.id === 'a' || node.id === 'b') {
+      if (started.includes('a') && started.includes('b')) releaseBoth();
+      await bothStarted;
+    }
+    return { id: `r-${node.id}`, outputs: [{ type: 'text', value: node.params.prompt, id: 'o' }] };
+  };
+
+  const result = await Promise.race([
+    executeGraph({
+      nodes,
+      edges,
+      runId: 'run-parallel',
+      nodeRunIds: { a: 'nrA', b: 'nrB', join: 'nrJoin' },
+      repo,
+      executeNode,
+    }),
+    new Promise((resolve) => setTimeout(() => resolve({ status: 'timeout' }), 250)),
+  ]);
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(new Set(started.slice(0, 2)), new Set(['a', 'b']));
+  assert.equal(started[2], 'join');
+  assert.equal(repo.nodeRuns.get('nrJoin').result.outputs[0].value, 'A B');
+});
+
 test('executeGraph marks the run failed and stops on a node error', async () => {
   const repo = makeRepo();
   const nodes = [
@@ -143,8 +185,9 @@ test('executeGraph marks the run failed and stops on a node error', async () => 
   assert.match(result.error, /provider exploded/);
   assert.equal(repo.runs.get('run-2').status, 'failed');
   assert.equal(repo.nodeRuns.get('nrA').status, 'failed');
-  // Downstream node b never ran (no succeeded/failed status written).
-  assert.equal(repo.nodeRuns.get('nrB'), undefined);
+  // Downstream node b never ran and is marked failed instead of staying queued forever.
+  assert.equal(repo.nodeRuns.get('nrB').status, 'failed');
+  assert.match(repo.nodeRuns.get('nrB').error, /skipped/i);
   // Failure result carries an error the UI can render (outputs[0].value.error).
   assert.match(repo.nodeRuns.get('nrA').result.outputs[0].value.error, /provider exploded/);
 });

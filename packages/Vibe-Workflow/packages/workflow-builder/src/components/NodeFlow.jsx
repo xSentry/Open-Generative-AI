@@ -235,17 +235,20 @@ const summarizeNodeHistory = (entries = []) => {
   const latest = sorted[sorted.length - 1];
   let errorMsg = null;
   let isLoading = false;
+  let isQueued = false;
   if (latest) {
     if (latest.status === "failed") {
       errorMsg =
         latest.result?.outputs?.[0]?.value?.error ||
         latest.error ||
         "Generation failed";
-    } else if (latest.status === "processing" || latest.status === "running") {
+    } else if (latest.status === "running" || latest.status === "processing") {
       isLoading = true;
+    } else if (latest.status === "queued") {
+      isQueued = true;
     }
   }
-  return { outputHistory, errorMsg, isLoading };
+  return { outputHistory, errorMsg, isLoading, isQueued };
 };
 
 const processWorkflowData = (workflowData, nodeSchemas, id) => {
@@ -256,10 +259,12 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
 
   const runActive = ["processing", "running"].includes(workflowData?.run_status);
   const initialLoadingNodes = {};
+  const initialQueuedNodes = {};
 
   const restoredNodes = workflow.nodes.map(n => {
-    const { outputHistory, errorMsg, isLoading } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
+    const { outputHistory, errorMsg, isLoading, isQueued } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
     if (runActive && isLoading) initialLoadingNodes[n.id] = true;
+    if (runActive && isQueued) initialQueuedNodes[n.id] = true;
     return {
       id: n.id,
       type: n.category === "utility"
@@ -302,6 +307,7 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
     nodes: restoredNodes,
     edges: restoredEdges,
     loadingNodes: initialLoadingNodes,
+    queuedNodes: initialQueuedNodes,
     metadata: {
       workflowId: id,
       runId: workflowData?.run_id,
@@ -332,6 +338,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialState?.edges || initialEdges);
   const [activeHandleColor, setActiveHandleColor] = useState(null);
   const [loadingNodes, setLoadingNodes] = useState(initialState?.loadingNodes || {});
+  const [queuedNodes, setQueuedNodes] = useState(initialState?.queuedNodes || {});
   const [isRunning, setIsRunning] = useState(0);
   const [dropDown, setDropDown] = useState(0);
   const [workflowName, setWorkflowName] = useState(initialState?.metadata?.workflowName || "Untitled");
@@ -556,12 +563,14 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
 
     const runActive = ["processing", "running"].includes(workflowData?.run_status);
     const restoredLoading = {};
+    const restoredQueued = {};
 
     const restoredNodes = workflow.nodes.map(n => {
-      const { outputHistory, errorMsg, isLoading } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
+      const { outputHistory, errorMsg, isLoading, isQueued } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
       // Only keep a node in the loading state if the run is genuinely still in
       // progress (otherwise a crashed/old "processing" row would spin forever).
       if (runActive && isLoading) restoredLoading[n.id] = true;
+      if (runActive && isQueued) restoredQueued[n.id] = true;
       return {
         id: n.id,
         type: n.category === "utility"
@@ -603,6 +612,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     setNodes(restoredNodes);
     setEdges(restoredEdges);
     setLoadingNodes(restoredLoading);
+    setQueuedNodes(restoredQueued);
     setWorkflowId(id);
     setRunId(workflowData?.run_id);
     setRunStatus(workflowData?.run_status || null);
@@ -1767,11 +1777,41 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     const outputs = result?.outputs || [];
     const first = outputs?.[0]?.value || "";
 
-    if (status === "processing" || status === "running") {
-      setLoadingNodes((prev) => ({ ...prev, [id]: true }));
+    if (status === "queued") {
+      setQueuedNodes((prev) => ({ ...prev, [id]: true }));
+      setLoadingNodes((prev) => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      setNodes((prevNodes) => prevNodes.map((node) => {
+        const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
+        if (!nodeIdMatch) return node;
+        return { ...node, data: { ...node.data, isQueued: true, isLoading: false, errorMsg: null } };
+      }));
       return;
     }
 
+    if (status === "processing" || status === "running") {
+      setQueuedNodes((prev) => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      setLoadingNodes((prev) => ({ ...prev, [id]: true }));
+      setNodes((prevNodes) => prevNodes.map((node) => {
+        const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
+        if (!nodeIdMatch) return node;
+        return { ...node, data: { ...node.data, isQueued: false, isLoading: true, errorMsg: null } };
+      }));
+      return;
+    }
+
+    setQueuedNodes((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
     setLoadingNodes((prev) => {
       const copy = { ...prev };
       delete copy[id];
@@ -1816,6 +1856,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
                 outputs,
                 resultUrl: first,
                 isLoading: false,
+                isQueued: false,
                 errorMsg: null,
                 outputHistory: newHistory,
               },
@@ -1834,7 +1875,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       setNodes((prevNodes) => prevNodes.map((node) => {
         const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
         if (!nodeIdMatch) return node;
-        return { ...node, data: { ...node.data, isLoading: false, errorMsg: failMsg } };
+        return { ...node, data: { ...node.data, isLoading: false, isQueued: false, errorMsg: failMsg } };
       }));
     }
   };
@@ -1843,6 +1884,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     if (runWatcherRef.current?.dispose) runWatcherRef.current.dispose();
     runWatcherRef.current = null;
     setLoadingNodes({});
+    setQueuedNodes({});
+    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, isLoading: false, isQueued: false } })));
     setIsRunning(0);
     setRunStatus(failed ? "failed" : "completed");
     if (failed) toast.error("Workflow failed on some nodes");
@@ -1936,11 +1979,12 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       // "processing" events aren't replayed to a brand-new connection — without
       // this optimistic flip the nodes would never show a loading state on
       // "Run All". Terminal SSE events (succeeded/failed) then clear/replace it.
-      const initialLoading = {};
-      nodes.forEach((n) => { initialLoading[n.id] = true; });
-      setLoadingNodes(initialLoading);
+      const initialQueued = {};
+      nodes.forEach((n) => { initialQueued[n.id] = true; });
+      setQueuedNodes(initialQueued);
+      setLoadingNodes({});
       // Clear any error badge left over from a previous run.
-      setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, errorMsg: null } })));
+      setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, errorMsg: null, isQueued: true, isLoading: false } })));
       const savedWorkflowId = await handleSaveWorkFlow();
 
       const response = await axios.post(`/api/workflow/${workflowId}/run`, {
@@ -1963,6 +2007,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
         toast.error(`Error: ${error.message}`);
       }
       setLoadingNodes({});
+      setQueuedNodes({});
+      setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, isLoading: false, isQueued: false } })));
       setIsRunning(0);
     }
   };
@@ -2146,6 +2192,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       onDataChange,
       handleSaveWorkFlow,
       isLoading: loadingNodes[node.id] || false,
+      isQueued: queuedNodes[node.id] || false,
       activeHandleColor,
       triggerRun: node.data.triggerRun || false,
       triggerInputs: node.data.triggerInputs || false,
@@ -3327,10 +3374,12 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
                   type="button"
                   suppressHydrationWarning={true}
                   onClick={() => selectedNode && runNodeFromFlow(selectedNode.id)}
-                  disabled={loadingNodes[selectedNode.id] || selectedNode?.data?.isLoading}
+                  disabled={queuedNodes[selectedNode.id] || loadingNodes[selectedNode.id] || selectedNode?.data?.isQueued || selectedNode?.data?.isLoading}
                   className="text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 group disabled:cursor-not-allowed rounded-lg text-white bg-blue-500 px-4 py-2 border border-blue-500/50 hover:bg-blue-600 w-full transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
                 >
-                  {loadingNodes[selectedNode.id] || selectedNode?.data?.isLoading ? (
+                  {queuedNodes[selectedNode.id] || selectedNode?.data?.isQueued ? (
+                    <>Queued</>
+                  ) : loadingNodes[selectedNode.id] || selectedNode?.data?.isLoading ? (
                     <><div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>{selectedNode.type === "utilityNode" ? "Running..." : "Generating..."}</>
                   ) : (
                     <>
