@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { generateVideo, generateI2V, processV2V, uploadFile } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
+import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import {
   t2vModels,
   i2vModels,
@@ -1395,7 +1396,9 @@ export default function VideoStudio({
     >
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
-        {history.length > 0 ? (
+        {serverGen.active && serverGen.loading && history.length === 0 ? (
+          <StudioHistoryLoading label="Loading your videos" />
+        ) : history.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full pt-4 animate-fade-in-up">
             {history.map((entry, idx) => {
               const isSeedance2 = entry.model === "seedance-v2.0-t2v" || entry.model === "seedance-v2.0-i2v";

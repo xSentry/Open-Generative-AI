@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { generateAudio, uploadFile } from "../muapi.js";
 import { audioModels, getAudioModelById } from "../models.js";
 import { useServerGenerations } from "../useServerGenerations.js";
+import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 
 // ---------------------------------------------------------------------------
 // Upload button states
@@ -1329,8 +1330,12 @@ export default function AudioStudio({
               </div>
             )}
 
+            {serverGen.active && serverGen.loading && history.length === 0 && !isGenerating && !generateError && (
+              <StudioHistoryLoading label="Loading your audio generations" />
+            )}
+
             {/* 3. Empty State (no audio, not loading, no error) */}
-            {view === "input" && !isGenerating && !generateError && (
+            {view === "input" && !serverGen.loading && !isGenerating && !generateError && (
               <div className="flex flex-col items-center gap-6 max-w-md text-center p-8 bg-zinc-900/40 border border-zinc-800 rounded backdrop-blur-sm relative group animate-fade-in-up">
                 {/* Glow behind the icon */}
                 <div className="absolute inset-0 bg-primary/5 blur-3xl rounded-full opacity-25 group-hover:opacity-40 transition-opacity duration-1000 pointer-events-none" />

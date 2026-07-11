@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { uploadFile, generateMarketingStudioAd } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
+import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 
 const SCROLLBAR_STYLE = `
   .custom-scrollbar-thin::-webkit-scrollbar {
@@ -589,7 +590,9 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
       
       {/* ── MAIN CONTENT AREA ── */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-40">
-        {displayHistory.length > 0 ? (
+        {serverActive && serverGen.loading && displayHistory.length === 0 ? (
+          <StudioHistoryLoading label="Loading your marketing videos" />
+        ) : displayHistory.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in-up">
             {displayHistory.map(entry => {
               const status = entry.status;
