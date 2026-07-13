@@ -17,6 +17,7 @@ export function serializeWorkflowSummary(workflow, callerId = null) {
     thumbnail: workflow.thumbnailKey || null,
     published: !!workflow.published,
     is_template: !!workflow.isTemplate,
+    revision: workflow.revision || 1,
     // Lets the UI choose between "edit" (owner) and "use template / clone"
     // (everyone else) on the template and community lists.
     is_owner: callerId != null ? workflow.userId === callerId : undefined,
@@ -37,6 +38,8 @@ export function serializeWorkflowDef(workflow, callerId) {
     data: { nodes: workflow.nodes || [] },
     category: workflow.category || null,
     published: !!workflow.published,
+    revision: workflow.revision || 1,
+    parent_revision: workflow.parentRevision || null,
   };
 }
 

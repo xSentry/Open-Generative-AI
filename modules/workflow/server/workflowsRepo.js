@@ -1,11 +1,14 @@
 // Data-access layer for workflow definitions. Every read/mutation is scoped by
 // user_id (and provider) so ownership and the provider data-space split are
 // enforced at the query level. Mirrors modules/studio/server/generationsRepo.js.
-import { query } from '../../db/server/db.js';
+import { getPool, query } from '../../db/server/db.js';
+import { savedPayloadToWorkflowGraph, workflowGraphToSavedPayload } from '../../workflow-domain/workflowAdapters.js';
+import { assertRevisionMatches, WorkflowRevisionConflict } from '../../workflow-domain/revisionService.js';
 
 const SELECT_COLUMNS = `
   id, user_id, provider, name, category, edges, nodes, published, is_template,
-  thumbnail_key, source_workflow_id, created_at, updated_at
+  thumbnail_key, source_workflow_id, revision, parent_revision, revision_source,
+  proposal_id, compiler_version, catalog_version, created_at, updated_at
 `;
 
 function mapRow(row) {
@@ -22,12 +25,72 @@ function mapRow(row) {
     isTemplate: row.is_template,
     thumbnailKey: row.thumbnail_key,
     sourceWorkflowId: row.source_workflow_id,
+    revision: row.revision || 1,
+    parentRevision: row.parent_revision,
+    revisionSource: row.revision_source || 'manual',
+    proposalId: row.proposal_id,
+    compilerVersion: row.compiler_version,
+    catalogVersion: row.catalog_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-// "My Workflows" — every workflow the caller owns, including ones they have
+function mapRevisionRow(row) {
+  if (!row) return null;
+  const rawGraph = row.graph_json;
+  const graph = rawGraph?.version === 'workflow-graph/v1'
+    ? rawGraph
+    : savedPayloadToWorkflowGraph(rawGraph || {}, { provider: rawGraph?.provider || 'replicate' });
+  return {
+    id: row.id,
+    workflowId: row.workflow_id,
+    revision: row.revision,
+    parentRevision: row.parent_revision,
+    source: row.source,
+    proposalId: row.proposal_id,
+    compilerVersion: row.compiler_version,
+    catalogVersion: row.catalog_version,
+    graph,
+    createdAt: row.created_at,
+  };
+}
+
+function revisionGraphJson(workflow) {
+  return savedPayloadToWorkflowGraph(
+    {
+      workflow_id: workflow.id,
+      revision: workflow.revision || 1,
+      name: workflow.name,
+      category: workflow.category,
+      edges: workflow.edges || [],
+      data: { nodes: workflow.nodes || [] },
+    },
+    { provider: workflow.provider }
+  );
+}
+
+async function insertRevisionSnapshot(client, workflow) {
+  await client.query(
+    `insert into workflow_revisions
+       (workflow_id, revision, parent_revision, source, proposal_id,
+        compiler_version, catalog_version, graph_json)
+     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     on conflict (workflow_id, revision) do nothing`,
+    [
+      workflow.id,
+      workflow.revision || 1,
+      workflow.parentRevision || null,
+      workflow.revisionSource || 'manual',
+      workflow.proposalId || null,
+      workflow.compilerVersion || null,
+      workflow.catalogVersion || null,
+      JSON.stringify(revisionGraphJson(workflow)),
+    ]
+  );
+}
+
+// "My Workflows" - every workflow the caller owns, including ones they have
 // published as templates (those stay listed here; they just become read-only).
 export async function listWorkflows({ userId, provider }) {
   const result = await query(
@@ -71,9 +134,8 @@ export async function getWorkflow(id, { userId, provider }) {
   return mapRow(result.rows[0]);
 }
 
-// Unscoped fetch by id — for background execution (the worker) where ownership
-// has already been established via the run row. Mirrors runsRepo.getRun's
-// optional-scope pattern.
+// Unscoped fetch by id - for background execution (the worker) where ownership
+// has already been established via the run row.
 export async function getWorkflowById(id) {
   const result = await query(
     `select ${SELECT_COLUMNS} from workflows where id = $1`,
@@ -82,9 +144,9 @@ export async function getWorkflowById(id) {
   return mapRow(result.rows[0]);
 }
 
-// Insert or update a workflow definition. When `id` is provided and owned by the
-// caller the row is updated, otherwise a new row is created (upsert semantics
-// matching the MuAPI `create` endpoint).
+// Insert or update a workflow definition. Saves are transactional and append a
+// canonical graph snapshot into workflow_revisions. expectedRevision is optional
+// so the existing autosave path remains compatible; proposal apply should pass it.
 export async function upsertWorkflow({
   id,
   userId,
@@ -94,48 +156,96 @@ export async function upsertWorkflow({
   edges = [],
   nodes = [],
   sourceWorkflowId = null,
+  expectedRevision = null,
+  revisionSource = 'manual',
+  proposalId = null,
+  compilerVersion = null,
+  catalogVersion = null,
 }) {
   const edgesJson = JSON.stringify(edges || []);
   const nodesJson = JSON.stringify(nodes || []);
+  const client = await getPool().connect();
 
-  if (id) {
-    // Templates are frozen: their graph can't be edited once published (so every
-    // user who cloned/uses the template keeps a stable copy). Rename/delete still
-    // work via their own queries. `is_template = false` scopes the update to
-    // editable, owned rows.
-    const updated = await query(
-      `update workflows
-         set name = $3, category = $4, edges = $5::jsonb, nodes = $6::jsonb,
-             updated_at = now()
-       where id = $1 and user_id = $2 and is_template = false
-       returning ${SELECT_COLUMNS}`,
-      [id, userId, name, category, edgesJson, nodesJson]
-    );
-    if (updated.rows[0]) return mapRow(updated.rows[0]);
+  try {
+    await client.query('begin');
 
-    // No row updated: either the id isn't owned by this user (clone-on-save), or
-    // it's an owned template. Distinguish them so we don't create a duplicate
-    // when a (frozen) template happens to be saved.
-    const owned = await query(
-      `select ${SELECT_COLUMNS} from workflows where id = $1 and user_id = $2`,
-      [id, userId]
-    );
-    if (owned.rows[0]) {
-      // Owned template — immutable, return unchanged (no graph overwrite).
-      return mapRow(owned.rows[0]);
+    if (id) {
+      const currentResult = await client.query(
+        `select ${SELECT_COLUMNS} from workflows where id = $1 and user_id = $2 for update`,
+        [id, userId]
+      );
+      const current = mapRow(currentResult.rows[0]);
+
+      if (current) {
+        if (current.isTemplate) {
+          await client.query('commit');
+          return current;
+        }
+
+        assertRevisionMatches(current.revision || 1, expectedRevision);
+        const nextRevision = (current.revision || 1) + 1;
+        const updated = await client.query(
+          `update workflows
+             set name = $3, category = $4, edges = $5::jsonb, nodes = $6::jsonb,
+                 parent_revision = revision, revision = $7, revision_source = $8,
+                 proposal_id = $9, compiler_version = $10, catalog_version = $11,
+                 updated_at = now()
+           where id = $1 and user_id = $2 and is_template = false
+           returning ${SELECT_COLUMNS}`,
+          [
+            id,
+            userId,
+            name,
+            category,
+            edgesJson,
+            nodesJson,
+            nextRevision,
+            revisionSource,
+            proposalId,
+            compilerVersion,
+            catalogVersion,
+          ]
+        );
+        const mapped = mapRow(updated.rows[0]);
+        await insertRevisionSnapshot(client, mapped);
+        await client.query('commit');
+        return mapped;
+      }
+      // Not owned: fall through to insert for clone-on-save of readable workflows.
     }
-    // Not owned → fall through to insert (e.g. a clone of a template/published
-    // workflow that carried its source id).
-  }
 
-  const inserted = await query(
-    `insert into workflows
-       (user_id, provider, name, category, edges, nodes, source_workflow_id)
-     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
-     returning ${SELECT_COLUMNS}`,
-    [userId, provider, name, category, edgesJson, nodesJson, sourceWorkflowId || id || null]
-  );
-  return mapRow(inserted.rows[0]);
+    const inserted = await client.query(
+      `insert into workflows
+         (user_id, provider, name, category, edges, nodes, source_workflow_id,
+          revision, parent_revision, revision_source, proposal_id,
+          compiler_version, catalog_version)
+       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7,
+               1, null, $8, $9, $10, $11)
+       returning ${SELECT_COLUMNS}`,
+      [
+        userId,
+        provider,
+        name,
+        category,
+        edgesJson,
+        nodesJson,
+        sourceWorkflowId || id || null,
+        revisionSource,
+        proposalId,
+        compilerVersion,
+        catalogVersion,
+      ]
+    );
+    const mapped = mapRow(inserted.rows[0]);
+    await insertRevisionSnapshot(client, mapped);
+    await client.query('commit');
+    return mapped;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function renameWorkflow(id, { userId, name }) {
@@ -167,8 +277,7 @@ export async function setPublished(id, { userId, published }) {
   return mapRow(result.rows[0]);
 }
 
-// Mark/unmark a workflow as a provider-wide template. Only the owner can toggle
-// it. Once flagged, listTemplates() surfaces it to every user of the provider.
+// Mark/unmark as a provider-wide template. Only the owner can toggle it.
 export async function setTemplate(id, { userId, isTemplate }) {
   const result = await query(
     `update workflows set is_template = $3, updated_at = now()
@@ -179,29 +288,20 @@ export async function setTemplate(id, { userId, isTemplate }) {
   return mapRow(result.rows[0]);
 }
 
-// Clone a readable workflow (owned, published or template — same provider) into a
-// fresh workflow owned by the caller. The copy is always private (not a template
-// or published) and records source_workflow_id for provenance.
+// Clone a readable workflow into a fresh private workflow owned by the caller.
 export async function cloneWorkflow(id, { userId, provider }) {
   const source = await getWorkflow(id, { userId, provider });
   if (!source) return null;
 
-  const inserted = await query(
-    `insert into workflows
-       (user_id, provider, name, category, edges, nodes, source_workflow_id)
-     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
-     returning ${SELECT_COLUMNS}`,
-    [
-      userId,
-      provider,
-      `${source.name || 'Untitled'} (Copy)`,
-      source.category,
-      JSON.stringify(source.edges || []),
-      JSON.stringify(source.nodes || []),
-      source.id,
-    ]
-  );
-  return mapRow(inserted.rows[0]);
+  return upsertWorkflow({
+    userId,
+    provider,
+    name: `${source.name || 'Untitled'} (Copy)`,
+    category: source.category,
+    edges: source.edges || [],
+    nodes: source.nodes || [],
+    sourceWorkflowId: source.id,
+  });
 }
 
 export async function setThumbnail(id, { userId, thumbnailKey }) {
@@ -214,4 +314,54 @@ export async function setThumbnail(id, { userId, thumbnailKey }) {
   return mapRow(result.rows[0]);
 }
 
+export async function listWorkflowRevisions(workflowId, { userId, provider }) {
+  const result = await query(
+    `select wr.id, wr.workflow_id, wr.revision, wr.parent_revision, wr.source,
+            wr.proposal_id, wr.compiler_version, wr.catalog_version,
+            wr.graph_json, wr.created_at
+       from workflow_revisions wr
+       join workflows w on w.id = wr.workflow_id
+      where wr.workflow_id = $1 and w.provider = $2
+        and (w.user_id = $3 or w.published = true or w.is_template = true)
+      order by wr.revision desc`,
+    [workflowId, provider, userId]
+  );
+  return result.rows.map(mapRevisionRow);
+}
 
+export async function getWorkflowRevision(workflowId, revision, { userId, provider }) {
+  const result = await query(
+    `select wr.id, wr.workflow_id, wr.revision, wr.parent_revision, wr.source,
+            wr.proposal_id, wr.compiler_version, wr.catalog_version,
+            wr.graph_json, wr.created_at
+       from workflow_revisions wr
+       join workflows w on w.id = wr.workflow_id
+      where wr.workflow_id = $1 and wr.revision = $2 and w.provider = $3
+        and (w.user_id = $4 or w.published = true or w.is_template = true)`,
+    [workflowId, revision, provider, userId]
+  );
+  return mapRevisionRow(result.rows[0]);
+}
+
+export async function revertWorkflowToRevision(workflowId, revision, {
+  userId,
+  provider,
+  expectedRevision = null,
+}) {
+  const target = await getWorkflowRevision(workflowId, revision, { userId, provider });
+  if (!target) return null;
+  const payload = workflowGraphToSavedPayload(target.graph);
+  return upsertWorkflow({
+    id: workflowId,
+    userId,
+    provider,
+    name: payload.name,
+    category: payload.category,
+    edges: payload.edges,
+    nodes: payload.data.nodes,
+    expectedRevision,
+    revisionSource: 'revert',
+  });
+}
+
+export { WorkflowRevisionConflict };

@@ -81,6 +81,8 @@ test('get-workflow-def maps rows to the MuAPI envelope with is_owner', async () 
     data: { nodes: [{ id: 'n1' }] },
     category: 'image',
     published: false,
+    revision: 1,
+    parent_revision: null,
     // Enriched load path attaches per-node run history from the DB; empty here.
     run_history: {},
   });
@@ -180,6 +182,53 @@ test('create upserts and returns workflow_id, mapping data.nodes', async () => {
   assert.equal(received.provider, 'replicate');
   assert.deepEqual(received.nodes, [{ id: 'n' }]);
   assert.deepEqual(received.edges, [{ id: 'e' }]);
+  assert.equal(received.expectedRevision, null);
+});
+
+test('create passes expected revision and maps revision conflicts to 409', async () => {
+  let received;
+  const ok = await handleLocalWorkflow(
+    request('http://test.local/api/workflow', {
+      workflow_id: 'wf-1',
+      revision: 4,
+      name: 'Existing',
+      data: { nodes: [] },
+      edges: [],
+    }),
+    routeCtx(['create']),
+    'POST',
+    ctxFor('user-2', 'replicate'),
+    {
+      upsertWorkflow: async (input) => {
+        received = input;
+        return { id: 'wf-1' };
+      },
+    }
+  );
+  assert.equal(ok.status, 200);
+  assert.equal(received.expectedRevision, 4);
+
+  const conflict = new Error('The workflow changed after this operation was started.');
+  conflict.code = 'WORKFLOW_REVISION_CONFLICT';
+  conflict.currentRevision = 5;
+  conflict.expectedRevision = 4;
+  const response = await handleLocalWorkflow(
+    request('http://test.local/api/workflow', {
+      workflow_id: 'wf-1',
+      expected_revision: 4,
+      data: { nodes: [] },
+      edges: [],
+    }),
+    routeCtx(['create']),
+    'POST',
+    ctxFor('user-2', 'replicate'),
+    { upsertWorkflow: async () => { throw conflict; } }
+  );
+  assert.equal(response.status, 409);
+  const body = await readJson(response);
+  assert.equal(body.error.code, 'WORKFLOW_REVISION_CONFLICT');
+  assert.equal(body.error.current_revision, 5);
+  assert.equal(body.error.expected_revision, 4);
 });
 
 test('delete-workflow-def returns deleted flag', async () => {

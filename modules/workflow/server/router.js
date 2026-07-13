@@ -196,6 +196,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
         edges: body.edges || [],
         nodes: body.data?.nodes || [],
         sourceWorkflowId: body.source_workflow_id || null,
+        expectedRevision: body.expected_revision ?? body.revision ?? null,
       });
       return json({ workflow_id: wf.id });
     }
@@ -302,6 +303,16 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
 
     return json({ error: `Unknown workflow endpoint: ${method} ${p}` }, 404);
   } catch (error) {
+    if (error?.code === 'WORKFLOW_REVISION_CONFLICT') {
+      return json({
+        error: {
+          code: 'WORKFLOW_REVISION_CONFLICT',
+          message: error.message,
+          current_revision: error.currentRevision,
+          expected_revision: error.expectedRevision,
+        },
+      }, 409);
+    }
     console.error('[workflow] local handler error:', error);
     return json({ error: error.message || 'Internal error' }, 500);
   }
