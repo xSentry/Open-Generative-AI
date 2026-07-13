@@ -198,7 +198,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
         sourceWorkflowId: body.source_workflow_id || null,
         expectedRevision: body.expected_revision ?? body.revision ?? null,
       });
-      return json({ workflow_id: wf.id });
+      return json({ workflow_id: wf.id, revision: wf.revision || 1 });
     }
     if (method === 'POST' && path[0] === 'update-name' && path[1]) {
       const body = await readBody(request);
@@ -242,7 +242,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     if (method === 'POST' && path[1] === 'clone') {
       const wf = await cloneWorkflow(path[0], scope);
       if (!wf) return json({ error: 'Not found' }, 404);
-      return json({ workflow_id: wf.id });
+      return json({ workflow_id: wf.id, revision: wf.revision || 1 });
     }
 
     // ---- Schemas (Phase 2) ----

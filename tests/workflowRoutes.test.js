@@ -177,7 +177,7 @@ test('create upserts and returns workflow_id, mapping data.nodes', async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.deepEqual(await readJson(response), { workflow_id: 'wf-new' });
+  assert.deepEqual(await readJson(response), { workflow_id: 'wf-new', revision: 1 });
   assert.equal(received.userId, 'user-2');
   assert.equal(received.provider, 'replicate');
   assert.deepEqual(received.nodes, [{ id: 'n' }]);
@@ -290,7 +290,7 @@ test('clone endpoint copies a readable workflow and returns the new id', async (
     { cloneWorkflow: async (id, s) => { scope = { id, ...s }; return { id: 'wf-copy' }; } }
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(await readJson(response), { workflow_id: 'wf-copy' });
+  assert.deepEqual(await readJson(response), { workflow_id: 'wf-copy', revision: 1 });
   assert.deepEqual(scope, { id: 'tmpl-1', userId: 'user-2', provider: 'replicate' });
 });
 
