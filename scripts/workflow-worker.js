@@ -3,7 +3,6 @@ import { loadAppEnv } from './load-env.js';
 import { getBullMqPrefix, getRedisConnection, closeRedisConnection } from '../modules/queue/server/redis.js';
 import { createFinalAttemptWorkerLog } from '../modules/queue/server/workerLogs.js';
 import { processRun } from '../modules/workflow/server/runProcessor.js';
-import { processArchitectRequest } from '../modules/workflow/server/architectProcessor.js';
 import {
   publishUserEvent,
   workflowRunEvent,
@@ -34,21 +33,6 @@ const worker = new Worker(
   queueName,
   async (job) => {
     const started = Date.now();
-    if (job.name === 'process-architect') {
-      console.log('[workflow-worker] architect job start', {
-        jobId: job.id,
-        requestId: job.data.requestId,
-        attempt: job.attemptsMade + 1,
-      });
-      await processArchitectRequest(job.data.requestId, { history: job.data.history || [] });
-      console.log('[workflow-worker] architect job success', {
-        jobId: job.id,
-        requestId: job.data.requestId,
-        durationMs: Date.now() - started,
-      });
-      return;
-    }
-
     console.log('[workflow-worker] job start', {
       jobId: job.id,
       runId: job.data.runId,
@@ -81,18 +65,6 @@ const worker = new Worker(
 );
 
 worker.on('failed', async (job, error) => {
-  if (job?.name === 'process-architect') {
-    const logData = {
-      jobId: job?.id,
-      requestId: job?.data?.requestId,
-      attempt: job?.attemptsMade,
-      error: error?.message || error,
-    };
-    await saveFinalFailureLog(job, logData);
-    console.error('[workflow-worker] architect job failed', logData);
-    return;
-  }
-
   publishUserEvent(job?.data?.userId, workflowRunEvent({
     userId: job?.data?.userId,
     workflowId: job?.data?.workflowId,

@@ -124,14 +124,6 @@ async def get_workflow_last_run(workflow_id: str):
     url = f"https://api.muapi.ai/workflow/get-workflow-last-run/{workflow_id}"
     return await proxy_request_helper("GET", url)
 
-async def architect_workflow_helper(payload: dict):
-    url = "https://api.muapi.ai/workflow/architect"
-    return await proxy_request_helper("POST", url, payload)
-
-async def poll_architect_result_helper(id: str):
-    url = f"https://api.muapi.ai/workflow/poll-architect/{id}/result"
-    return await proxy_request_helper("GET", url)
-
 async def delete_node_run_by_id_helper(node_run_id: str):
     url = f"https://api.muapi.ai/workflow/node-run/{node_run_id}"
     return await proxy_request_helper("DELETE", url)

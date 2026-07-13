@@ -12,7 +12,6 @@ import {
   getS3Config,
 } from '@/modules/storage/server/s3';
 import {
-  enqueueWorkflowArchitectJob,
   enqueueWorkflowRunJob,
 } from '@/modules/workflow/server/runQueue';
 import {
@@ -32,7 +31,6 @@ const executionDeps = {
   createPresignedGetUrl,
   deleteObject,
   enqueueRun: (run) => enqueueWorkflowRunJob(run),
-  enqueueArchitect: (request, options) => enqueueWorkflowArchitectJob(request, options),
   publishWorkflowEvent: (event) =>
     publishUserEvent(event.userId, workflowRunEvent(event)),
 };
@@ -52,6 +50,13 @@ async function dispatch(request, ctx, method) {
   const { user, provider, apiKey } = active;
   const routeParams = await ctx.params;
   const path = routeParams?.path || [];
+
+  if (
+    path[0] === 'architect' ||
+    (path[0] === 'poll-architect' && path[2] === 'result')
+  ) {
+    return NextResponse.json({ error: 'Unknown workflow endpoint' }, { status: 404 });
+  }
 
   // Node schemas are a mixed catalog: provider-backed generation models plus
   // local utility nodes. Keep this local for every provider so provider-

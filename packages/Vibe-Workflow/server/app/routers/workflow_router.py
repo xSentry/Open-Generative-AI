@@ -15,8 +15,6 @@ from app.utils.workflow_helper import (
     delete_workflow_def_by_id,
     update_workflow_name_helper,
     get_workflow_last_run,
-    architect_workflow_helper,
-    poll_architect_result_helper,
     delete_node_run_by_id_helper,
     update_workflow_category_helper,
     get_workflow_api_inputs_helper,
@@ -152,24 +150,6 @@ async def get_workflow_last_run_endpoint(
     try:
         return await get_workflow_last_run(workflow_id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/architect")
-async def architect_workflow_endpoint(
-    request: Request,
-):
-    try:
-        payload = await request.json()
-        return await architect_workflow_helper(payload)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/poll-architect/{id}/result")
-async def poll_architect_result(id: str):
-    try:
-        return await poll_architect_result_helper(id)
-    except Exception as e:
-        if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/node-run/{node_run_id}")

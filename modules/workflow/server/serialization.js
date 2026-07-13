@@ -105,14 +105,3 @@ export function serializeApiOutputs(run, outputs = [], nodeRuns = []) {
   };
 }
 
-// Projection for poll-architect/{id}/result. The UI reads `status` plus the
-// spread result fields (`message`, `suggestions`, `workflow`).
-export function serializeArchitectResult(request) {
-  if (!request) return { status: 'failed', error: 'Not found' };
-  return {
-    status: request.status,
-    error: request.error || null,
-    ...(request.result || {}),
-  };
-}
-

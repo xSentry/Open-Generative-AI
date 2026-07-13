@@ -6,14 +6,12 @@
 // `ctx.provider` so provider switching also switches the visible data space.
 import * as workflowsRepo from './workflowsRepo.js';
 import * as runsRepo from './runsRepo.js';
-import * as architectRepo from './architectRepo.js';
 import {
   serializeWorkflowSummary,
   serializeWorkflowDef,
   serializeRunStatus,
   serializeRunHistory,
   serializeApiOutputs,
-  serializeArchitectResult,
 } from './serialization.js';
 import {
   buildNodeSchemas,
@@ -27,7 +25,6 @@ import {
   collectTerminalOutputs,
 } from './engine.js';
 import { signResultOutputs, signNodeOutputs } from './outputStorage.js';
-import { generateWorkflowDef } from './architect.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -90,12 +87,9 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
   const impl = {
     ...workflowsRepo,
     ...runsRepo,
-    ...architectRepo,
     executeGraph,
     executeSingleNode,
-    generateWorkflowDef,
     enqueueRun: defaultEnqueueRun,
-    enqueueArchitect: defaultEnqueueRun,
     ...deps,
   };
   const {
@@ -304,17 +298,6 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     if (method === 'POST' && path[1] === 'thumbnail') {
       const body = await readBody(request);
       return saveThumbnail(impl, ctx, path[0], body);
-    }
-
-    // ---- AI generation (Phase 5) ----
-    // POST architect — generate a workflow graph from a prompt via an LLM.
-    if (method === 'POST' && p === 'architect') {
-      const body = await readBody(request);
-      return architect(impl, ctx, body);
-    }
-    // GET poll-architect/{request_id}/result — poll the generated result.
-    if (method === 'GET' && path[0] === 'poll-architect' && path[2] === 'result') {
-      return architectResult(impl, ctx, path[1]);
     }
 
     return json({ error: `Unknown workflow endpoint: ${method} ${p}` }, 404);
@@ -554,10 +537,6 @@ function streamRuns(impl, ctx, request) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Thumbnail + AI architect handlers (Phase 5)
-// ---------------------------------------------------------------------------
-
 async function saveThumbnail(impl, ctx, workflowId, body) {
   const thumbnail = body?.thumbnail;
   if (!thumbnail) return json({ error: 'Thumbnail URL is required' }, 400);
@@ -568,36 +547,4 @@ async function saveThumbnail(impl, ctx, workflowId, body) {
   if (!wf) return json({ error: 'Not found' }, 404);
   return json({ success: true });
 }
-
-// Generate a workflow graph from a prompt. The route only persists the request
-// and enqueues work; the BullMQ workflow worker completes/fails it.
-async function architect(impl, ctx, body) {
-  const prompt = body?.prompt;
-  if (!prompt || !String(prompt).trim()) {
-    return json({ error: 'A prompt is required' }, 400);
-  }
-  const req = await impl.createArchitectRequest({
-    userId: ctx.user.id,
-    provider: ctx.provider,
-    workflowId: body?.workflow_id || null,
-    prompt,
-  });
-
-  try {
-    await impl.enqueueArchitect(req, { history: body?.history || [] });
-  } catch (error) {
-    await impl.updateArchitectRequest(req.id, { status: 'failed', error: error.message });
-  }
-
-  return json({ request_id: req.id, status: 'processing' });
-}
-
-async function architectResult(impl, ctx, requestId) {
-  const req = await impl.getArchitectRequest(requestId, { userId: ctx.user.id });
-  if (!req) return json({ error: 'Not found' }, 404);
-  return json(serializeArchitectResult(req));
-}
-
-
-
 
