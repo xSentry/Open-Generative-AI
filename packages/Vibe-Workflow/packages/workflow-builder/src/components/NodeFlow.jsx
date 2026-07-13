@@ -3410,7 +3410,6 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
         <WorkflowArchitectButton
           workflowId={workflowId}
           workflowRevision={workflowRevision}
-          workflowName={workflowName}
           disabled={!interactionMode || isRestoring}
           onApplied={handleArchitectApplied}
         />

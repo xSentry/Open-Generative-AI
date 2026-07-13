@@ -65,6 +65,16 @@ function fixtureProposalsEnabled(env = process.env) {
   return env.NODE_ENV !== 'production' || env.WORKFLOW_ARCHITECT_FIXTURES === 'true';
 }
 
+function redactArchitectRequestText(text) {
+  return String(text || '')
+    .replace(/(https?:\/\/[^\s?#]+)\?[^\s]+/gi, '$1?[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{12,}\b/g, 'Bearer [redacted]')
+    .replace(/\b(sk|r8)_[A-Za-z0-9_-]{12,}\b/g, '[redacted]')
+    .replace(/\b[A-Za-z0-9+/]{32,}={0,2}\b/g, '[redacted]')
+    .trim()
+    .slice(0, 2000);
+}
+
 export async function handleWorkflowArchitect(request, { params }, method, ctx, deps = {}) {
   const impl = {
     ...repository,
@@ -82,9 +92,18 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
     if (method === 'POST' && p === 'jobs') {
       const body = await readBody(request);
       const fixtureRequest = body.fixture_proposal || null;
+      const requestText = redactArchitectRequestText(body.request_text || body.prompt || body.message || '');
       if (fixtureRequest) {
         if (!fixtureProposalsEnabled()) return json({ error: 'Fixture proposals are disabled.' }, 404);
         if (!fixtureRequest.patch) return json({ error: 'fixture_proposal.patch is required' }, 400);
+      }
+      if (!fixtureRequest && body.operation === 'create' && requestText.length < 2) {
+        return json({
+          error: {
+            code: 'ARCHITECT_REQUEST_REQUIRED',
+            message: 'Describe the workflow to create.',
+          },
+        }, 400);
       }
       const job = await impl.createArchitectJob({
         userId,
@@ -100,7 +119,12 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
               summary: fixtureRequest.summary || null,
               validation: fixtureRequest.validation || null,
             }
-          : {},
+          : requestText
+            ? {
+                type: 'create_workflow',
+                prompt_redacted: requestText,
+              }
+            : {},
       });
       await impl.appendArchitectEvent?.({
         jobId: job.id,

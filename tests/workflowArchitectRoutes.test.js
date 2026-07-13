@@ -112,6 +112,48 @@ test('POST jobs accepts fixture proposal payload for async Phase 1 processing', 
   assert.deepEqual(received.request.patch, patch);
 });
 
+test('POST jobs accepts a create workflow request for Phase 2 processing', async () => {
+  let received;
+  const deps = {
+    createArchitectJob: async (input) => {
+      received = input;
+      return {
+        id: 'job-create',
+        userId: input.userId,
+        workflowId: input.workflowId,
+        baseRevision: input.baseRevision,
+        operation: input.operation,
+        status: 'queued',
+        provider: input.provider,
+        catalogVersion: 'cat',
+        schemaVersion: 'schema',
+      };
+    },
+    appendArchitectEvent: async () => {},
+    enqueueJob: async () => {},
+  };
+
+  const response = await handleWorkflowArchitect(
+    request('http://test.local/api/workflow-architect/jobs', {
+      workflow_id: 'wf-empty',
+      base_revision: 1,
+      operation: 'create',
+      request_text: 'Create an image workflow for neon product photos.',
+    }),
+    routeCtx(['jobs']),
+    'POST',
+    ctxFor(),
+    deps
+  );
+
+  assert.equal(response.status, 202);
+  assert.equal(received.operation, 'create');
+  assert.deepEqual(received.request, {
+    type: 'create_workflow',
+    prompt_redacted: 'Create an image workflow for neon product photos.',
+  });
+});
+
 test('GET jobs returns completed proposal when one exists', async () => {
   const deps = {
     getArchitectJob: async (id, input) => ({
@@ -400,7 +442,62 @@ test('phase 1 worker creates proposals for fixture jobs', async () => {
   assert.deepEqual(events.map((event) => event.stage), ['running', 'compiling_fixture', 'completed']);
 });
 
-test('phase 1 worker records progress and fails non-fixture generation jobs', async () => {
+test('phase 2 worker creates a proposal for an empty workflow create job', async () => {
+  const events = [];
+  const result = await processArchitectJob('job-create', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-empty',
+      baseRevision: 1,
+      operation: 'create',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'create_workflow',
+        prompt_redacted: 'Create an image workflow for neon product photos.',
+      },
+    }),
+    appendArchitectEvent: async (event) => events.push(event),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-empty',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Untitled',
+      category: null,
+      edges: [],
+      nodes: [],
+      isTemplate: false,
+      revision: 1,
+    }),
+    generateCreateWorkflowIr: async () => ({
+      operation: 'create_workflow',
+      workflow_name: 'Neon product photos',
+      target_category: 'image',
+      model_id: 'flux-schnell',
+      prompt: 'Neon product photo on a glossy black surface',
+      parameters: { aspect_ratio: '1:1' },
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-create',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      diff: { nodes_added: input.patch.operations.filter((op) => op.op === 'add_node') },
+      patch: input.patch,
+      validation: input.validation,
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  assert.equal(result.job.status, 'completed');
+  assert.equal(result.proposal.id, 'proposal-create');
+  assert.equal(result.proposal.validation.valid, true);
+  assert.deepEqual(events.map((event) => event.stage), ['running', 'calling_model', 'normalizing_ir', 'completed']);
+  assert.equal(result.proposal.patch.operations.filter((op) => op.op === 'add_node').length, 2);
+  assert.equal(result.proposal.patch.operations.some((op) => op.op === 'connect'), true);
+});
+
+test('phase 2 worker records progress and fails unsupported generation jobs', async () => {
   const events = [];
   const failed = [];
   const result = await processArchitectJob('job-1', {
@@ -413,6 +510,6 @@ test('phase 1 worker records progress and fails non-fixture generation jobs', as
   });
 
   assert.equal(result.status, 'failed');
-  assert.equal(failed[0].error.code, 'ARCHITECT_GENERATION_NOT_IMPLEMENTED');
-  assert.deepEqual(events.map((event) => event.stage), ['running', 'generation_not_enabled']);
+  assert.equal(failed[0].error.code, 'ARCHITECT_OPERATION_UNSUPPORTED');
+  assert.deepEqual(events.map((event) => event.stage), ['running', 'failed']);
 });

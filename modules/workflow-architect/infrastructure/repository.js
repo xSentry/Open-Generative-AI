@@ -6,8 +6,8 @@ import { WORKFLOW_PATCH_VERSION } from '../../workflow-domain/patchSchema.js';
 import { summarizePatchDiff, defaultProposalSummary } from '../domain/proposalDiff.js';
 
 export const ARCHITECT_SCHEMA_VERSION = 'workflow-architect/v1';
-export const ARCHITECT_COMPILER_VERSION = 'fixture-compiler/v1';
-export const DEFAULT_CATALOG_VERSION = 'replicate-catalog/local';
+export const ARCHITECT_COMPILER_VERSION = 'workflow-architect-compiler/v1';
+export const DEFAULT_CATALOG_VERSION = 'replicate-architect-catalog/v1';
 
 const JOB_COLUMNS = `
   id, user_id, workflow_id, base_revision, operation, status, provider,
@@ -173,6 +173,16 @@ export async function getArchitectJob(id, { userId }) {
     [id, userId]
   );
   return mapJob(result.rows[0]);
+}
+
+export async function getArchitectWorkflow(id, { userId, provider }) {
+  const result = await query(
+    `select ${WORKFLOW_COLUMNS}
+       from workflows
+      where id = $1 and user_id = $2 and provider = $3`,
+    [id, userId, provider]
+  );
+  return mapWorkflow(result.rows[0]);
 }
 
 export async function markArchitectJobRunning(id) {

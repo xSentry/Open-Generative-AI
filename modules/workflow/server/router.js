@@ -103,6 +103,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     setPublished,
     setTemplate,
     cloneWorkflow,
+    revertWorkflowToRevision,
   } = impl;
 
   const slug = await params;
@@ -243,6 +244,32 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
       const wf = await cloneWorkflow(path[0], scope);
       if (!wf) return json({ error: 'Not found' }, 404);
       return json({ workflow_id: wf.id, revision: wf.revision || 1 });
+    }
+    // POST {id}/revert — create a new server revision from a previous revision
+    // snapshot. Defaults to one-step revert (current revision - 1).
+    if (method === 'POST' && path[1] === 'revert') {
+      const body = await readBody(request);
+      const current = await getWorkflow(path[0], scope);
+      if (!current || current.userId !== ctx.user.id || current.isTemplate) {
+        return json({ error: 'Not found' }, 404);
+      }
+      const currentRevision = current.revision || 1;
+      const targetRevision = Number(body.target_revision ?? body.revision ?? currentRevision - 1);
+      if (!Number.isInteger(targetRevision) || targetRevision < 1 || targetRevision >= currentRevision) {
+        return json({
+          error: {
+            code: 'INVALID_REVERT_REVISION',
+            message: 'A previous workflow revision is required for revert.',
+          },
+        }, 400);
+      }
+      const wf = await revertWorkflowToRevision(path[0], targetRevision, {
+        userId: ctx.user.id,
+        provider: ctx.provider,
+        expectedRevision: body.expected_revision ?? body.current_revision ?? currentRevision,
+      });
+      if (!wf) return json({ error: 'Revision not found' }, 404);
+      return json(serializeWorkflowDef(wf, callerId));
     }
 
     // ---- Schemas (Phase 2) ----
