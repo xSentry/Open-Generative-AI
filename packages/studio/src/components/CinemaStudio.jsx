@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { generateImage, uploadFile } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
+import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 
 // ─── Constants (inlined from promptUtils) ───────────────────────────────────
 
@@ -552,6 +553,23 @@ export default function CinemaStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_cinema_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "nano-banana-2",
+    options: {
+      prompt: "",
+      aspect_ratio: "16:9",
+      camera: "Modular 8K Digital",
+      lens: "Creative Tilt Lens",
+      focal: 35,
+      aperture: "f/1.4",
+      resolution: "2K",
+    },
+    uploads: {
+      image_url: null,
+    },
+  };
 
   // ── Provider-aware model selection ──
   // When Replicate is active, the user picks any "cinema"-capable model
@@ -678,17 +696,16 @@ export default function CinemaStudio({
     if (!modelsByMode) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) return;
-        skipNextConfigSaveRef.current = true;
-        if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
-        if (data.settings || data.options) setSettings((prev) => ({ ...prev, ...(data.settings || data.options) }));
-        if (data.resolution || data.options?.resolution) setResolution(data.resolution || data.options.resolution);
-        if (data.uploads?.image_url || data.uploadedImage) setUploadedImage(data.uploads?.image_url || data.uploadedImage);
-        suppressProviderDefaultRef.current = true;
-      }
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) return;
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      if (data.selectedModelId) setSelectedModelId(data.selectedModelId);
+      if (data.settings || data.options) setSettings((prev) => ({ ...prev, ...(data.settings || data.options) }));
+      if (data.resolution || data.options?.resolution) setResolution(data.resolution || data.options.resolution);
+      if (data.uploads?.image_url || data.uploadedImage) setUploadedImage(data.uploads?.image_url || data.uploadedImage);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load CinemaStudio persistence:", err);
     } finally {
@@ -926,7 +943,9 @@ export default function CinemaStudio({
       
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
-        {history.length > 0 ? (
+        {serverActive && serverGen.loading && history.length === 0 ? (
+          <StudioHistoryLoading label="Loading your cinema shots" />
+        ) : history.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full pt-4 animate-fade-in-up">
             {history.map((entry, idx) => {
               const status = entry.status;

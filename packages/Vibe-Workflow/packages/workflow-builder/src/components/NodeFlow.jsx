@@ -38,7 +38,6 @@ import ApiNode from "./ApiNode";
 import RenderApiField from "./RenderApiField";
 import AudioGeneration from "./AudioNode";
 import NodesNavbar from "./NodesNavbar"
-import ChatWidget from "./ChatWidget";
 import { AiOutlineAudio } from "react-icons/ai";
 import VideoCombiner from "./VideoCombiner";
 import UtilityNode from "./UtilityNode";
@@ -354,7 +353,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
   const connectionMadeRef = useRef(false);
   const onConnectRef = useRef(null);
   const runWatcherRef = useRef(null);
-  const staleUtilityDeleteIdsRef = useRef(new Set());
+  const staleReplaceDeleteIdsRef = useRef(new Set());
   const autosaveTimerRef = useRef(null);
   const lastAutosaveSignatureRef = useRef(null);
   const autosaveArmedRef = useRef(false);
@@ -393,9 +392,6 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     }
   }, [id, initialState]);
 
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [isChatLoading, setIsChatLoading] = useState(false);
   const [workflowCategory, setWorkflowCategory] = useState(initialState?.metadata?.category || "General");
   const [categoryInput, setCategoryInput] = useState(initialState?.metadata?.category || "General");
   const [isCategoryPopupOpen, setIsCategoryPopupOpen] = useState(false);
@@ -1056,171 +1052,6 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     [nodes, nodeSchemas]
   );
 
-  const pollArchitectStatus = (request_id) => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await axios.get(`/api/workflow/poll-architect/${request_id}/result`);
-        const finalData = response.data;
-        const status = finalData.status;
-
-        if (status === "completed") {
-          clearInterval(interval);
-          const { message, suggestions, workflow } = finalData;
-
-          const newAgentMessage = {
-            role: "agent",
-            content: message || "Tasks complete. Your workflow has been updated.",
-            suggestions: suggestions || [],
-            timestamp: new Date().toISOString()
-          };
-          setChatMessages((prev) => [...prev, newAgentMessage]);
-
-          if (workflow && workflow.nodes) {
-            const idMapping = {};
-            const counts = { text: 0, image: 0, video: 0, audio: 0 };
-
-            const newNodes = workflow.nodes.map((n) => {
-              let newId = n.id;
-              const category = n.category;
-
-              if (["user_text", "prompt_gen"].includes(n.id) || category === "text") {
-                counts.text++;
-                newId = `text${counts.text}`;
-              } else if (n.id === "image_gen" || category === "image") {
-                counts.image++;
-                newId = `image${counts.image}`;
-              } else if (category === "video") {
-                counts.video++;
-                newId = `video${counts.video}`;
-              } else if (category === "audio") {
-                counts.audio++;
-                newId = `audio${counts.audio}`;
-              }
-
-              idMapping[n.id] = newId;
-              const existingNode = nodes.find((en) => en.id === newId);
-
-              return {
-                id: newId,
-                type: n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`,
-                position: existingNode?.position || {
-                  x: n.position?.x ?? 350,
-                  y: n.position?.y ?? 0
-                },
-                data: {
-                  ...existingNode?.data,
-                  nodeSchemas,
-                  title: n.title || existingNode?.data?.title || getGeneratedNodeTitle(newId, n.category === "utility" ? getUtilityNodeType(n.model, nodeSchemas) : `${n.category}Node`, n.category),
-                  modelId: n.model,
-                  selectedModel: getModelObj(n.category, n.model),
-                  outputs: n.output_params?.outputs || [],
-                  resultUrl: n.output_params?.resultUrl || null,
-                  formValues: n.input_params || n.params || {},
-                  outputHistory: existingNode?.data?.outputHistory || [],
-                }
-              };
-            });
-
-            setNodes(newNodes);
-
-            if (workflow.edges && workflow.edges.length > 0) {
-              const newEdges = workflow.edges.map((e) => {
-                const source = idMapping[e.source] || e.source;
-                const target = idMapping[e.target] || e.target;
-
-                const sourceNode = newNodes.find(n => n.id === source);
-                const targetNode = newNodes.find(n => n.id === target);
-
-                let sourceHandle = e.sourceHandle;
-                let targetHandle = e.targetHandle;
-
-                if ((!sourceHandle || sourceHandle === 'output') && sourceNode) {
-                  if (sourceNode.type === 'textNode') sourceHandle = 'textOutput';
-                  else if (sourceNode.type === 'imageNode') sourceHandle = 'imageOutput';
-                  else if (sourceNode.type === 'videoNode') sourceHandle = 'videoOutput';
-                  else if (sourceNode.type === 'audioNode') sourceHandle = 'audioOutput';
-                  else if (sourceNode.type === 'concatNode') sourceHandle = 'concatOutput';
-                }
-
-                if ((!targetHandle || targetHandle === 'prompt') && targetNode) {
-                  if (targetNode.type === 'textNode') targetHandle = 'textInput';
-                  else if (targetNode.type === 'imageNode') targetHandle = 'imageInput';
-                  else if (targetNode.type === 'videoNode') targetHandle = 'videoInput';
-                  else if (targetNode.type === 'audioNode') targetHandle = 'audioInput2';
-                  else if (targetNode.type === 'concatNode') targetHandle = 'concatInput';
-                }
-
-                let edgeColor = getEdgeColor(sourceHandle, targetHandle, sourceNode, targetNode);
-
-                return {
-                  id: `e-${source}-${target}`,
-                  source,
-                  target,
-                  sourceHandle,
-                  targetHandle,
-                  style: edgeStyles[edgeColor],
-                };
-              });
-
-              setEdges(newEdges);
-            }
-          }
-          setIsChatLoading(false);
-        } else if (status === "failed") {
-          clearInterval(interval);
-          throw new Error("Architect processing failed");
-        }
-      } catch (error) {
-        clearInterval(interval);
-        console.error("Polling error:", error);
-        const errorMessage = {
-          role: "agent",
-          content: "Sorry, I encountered an error while updating your workflow.",
-          timestamp: new Date().toISOString()
-        };
-        setChatMessages((prev) => [...prev, errorMessage]);
-        setIsChatLoading(false);
-      }
-    }, 3000);
-  };
-
-  const handleSendMessage = async (content) => {
-    const newMessage = {
-      role: "user",
-      content,
-      timestamp: new Date().toISOString()
-    };
-    setChatMessages((prev) => [...prev, newMessage]);
-
-    setIsChatLoading(true);
-    try {
-      const savedWorkflowId = await handleSaveWorkFlow();
-
-      const history = chatMessages.map(msg => ({
-        role: msg.role === "agent" ? "assistant" : msg.role,
-        content: msg.content
-      }));
-
-      const response = await axios.post("/api/workflow/architect", {
-        prompt: content,
-        workflow_id: savedWorkflowId,
-        history: history,
-      });
-
-      const { request_id, status } = response.data;
-      pollArchitectStatus(request_id);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      const errorMessage = {
-        role: "agent",
-        content: "Sorry, I encountered an error processing your request.",
-        timestamp: new Date().toISOString()
-      };
-      setChatMessages((prev) => [...prev, errorMessage]);
-      setIsChatLoading(false);
-    }
-  };
-
   useEffect(() => {
     onConnectRef.current = onConnect;
   }, [onConnect]);
@@ -1828,17 +1659,17 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
             const currentHistory = node.data.outputHistory || [];
             let newHistory;
 
-            if (node.type === "utilityNode") {
+            if (node.type === "utilityNode" || node.type === "vidConcatNode") {
               const staleRuns = currentHistory.filter((h) =>
                 h.node_run_id && h.node_run_id !== latestRun.node_run_id
               );
               staleRuns.forEach((h) => {
-                if (staleUtilityDeleteIdsRef.current.has(h.node_run_id)) return;
-                staleUtilityDeleteIdsRef.current.add(h.node_run_id);
+                if (staleReplaceDeleteIdsRef.current.has(h.node_run_id)) return;
+                staleReplaceDeleteIdsRef.current.add(h.node_run_id);
                 axios.delete(`/api/workflow/node-run/${h.node_run_id}`).catch((error) => {
-                  console.error("Failed to delete stale utility output", error);
+                  console.error("Failed to delete stale replaced node output", error);
                 }).finally(() => {
-                  staleUtilityDeleteIdsRef.current.delete(h.node_run_id);
+                  staleReplaceDeleteIdsRef.current.delete(h.node_run_id);
                 });
               });
               newHistory = [latestRun];
@@ -3517,16 +3348,6 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
             </button>
           </div>
         </div>
-      )}
-      {interactionMode && (
-        <ChatWidget
-          isOpen={isChatOpen}
-          toggleChat={() => setIsChatOpen(!isChatOpen)}
-          messages={chatMessages}
-          onSendMessage={handleSendMessage}
-          isLoading={isChatLoading}
-          onClearHistory={() => setChatMessages([])}
-        />
       )}
       {isCategoryPopupOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">

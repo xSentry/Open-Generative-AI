@@ -7,6 +7,7 @@ import {
 } from '../../providers/replicate/server/catalog.js';
 import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
 import * as repo from './repo.js';
+import { enqueueDesignAgentJob } from './jobQueue.js';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
@@ -314,7 +315,7 @@ async function buildTool(job, scope, apiKey) {
   };
 }
 
-async function processJob(jobId) {
+export async function processDesignAgentJob(jobId) {
   const job = await repo.getJobForProcessing(jobId);
   if (!job || job.status !== 'pending') return;
 
@@ -423,8 +424,6 @@ export function listSkills() {
   return SKILLS;
 }
 
-export function enqueueJob(jobId) {
-  Promise.resolve()
-    .then(() => processJob(jobId))
-    .catch((error) => console.error('[design-agent] job failed:', error));
+export function enqueueJob(job, options = {}) {
+  return enqueueDesignAgentJob(job, options);
 }

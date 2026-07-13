@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { processRecast, uploadFile } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
+import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import {
   recastModels,
 } from "../models.js";
@@ -16,6 +17,22 @@ const UPLOAD_STATE = {
   UPLOADING: "uploading",
   READY: "ready",
 };
+
+function CheckSvg() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      className="text-primary"
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
 
 function MediaPickerButton({
   accept,
@@ -132,6 +149,82 @@ function MediaPickerButton({
         </div>
       )}
     </button>
+  );
+}
+
+function ModelDropdown({ models, selectedModel, onSelect, onClose }) {
+  const [search, setSearch] = useState("");
+  const needle = search.toLowerCase();
+  const filtered = models.filter((model) =>
+    String(model.name || "").toLowerCase().includes(needle) ||
+    String(model.id || "").toLowerCase().includes(needle)
+  );
+
+  return (
+    <div className="flex max-h-[70vh] flex-col">
+      <div className="mb-2 shrink-0 border-b border-white/5 px-2 pb-3">
+        <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-4 py-2.5 transition-colors focus-within:border-primary/50">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            className="text-muted"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search models..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full border-none bg-transparent p-0 text-xs text-white outline-none focus:ring-0"
+          />
+        </div>
+      </div>
+      <div className="shrink-0 px-3 py-2 text-xs font-bold text-secondary">
+        Body swap models
+      </div>
+      <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-2">
+        {filtered.map((model) => (
+          <div
+            key={model.id}
+            className={`flex cursor-pointer items-center justify-between rounded-2xl border border-transparent p-3.5 transition-all hover:border-white/5 hover:bg-white/5 ${
+              selectedModel === model.id ? "border-white/5 bg-white/5" : ""
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(model);
+              onClose();
+            }}
+          >
+            <div className="flex min-w-0 items-center gap-3.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-primary/10 text-xs font-black uppercase text-primary shadow-inner">
+                <ModelProviderMark model={model} glyphClassName="w-4 h-4" />
+              </div>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-xs font-bold tracking-tight text-white">
+                  {model.name}
+                </span>
+                <span className="truncate text-[9px] text-white/35">
+                  {model.id}
+                </span>
+              </div>
+            </div>
+            {selectedModel === model.id && <CheckSvg />}
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="px-4 py-8 text-center text-xs text-white/35">
+            No models found
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -273,6 +366,21 @@ export default function RecastStudio({
   modelsByMode,
 }) {
   const PERSIST_KEY = "hg_recast_studio_persistent";
+  const DEFAULT_PERSISTENCE = {
+    version: 1,
+    provider: "replicate",
+    selectedModelId: "seedance-2-0-mini",
+    options: {
+      aspect_ratio: "16:9",
+    },
+    uploads: {
+      video_url: null,
+      video_name: "",
+      image_url: null,
+      image_name: "",
+    },
+    prompt: "",
+  };
 
   // ── Provider-aware model catalog ──────────────────────────────────────────
   // When the active provider is Replicate, the shell passes provider-correct
@@ -317,8 +425,8 @@ export default function RecastStudio({
 
   // ── Dropdown state ────────────────────────────────────────────────────────
   const [openDropdown, setOpenDropdown] = useState(null); // 'model' | 'aspect' | null
-  const modelBtnRef = useRef(null);
   const aspectBtnRef = useRef(null);
+  const dropdownRef = useRef(null);
   const hasRestored = useRef(false);
   const appliedProviderDefaultRef = useRef(new Set());
   const suppressProviderDefaultRef = useRef(false);
@@ -327,41 +435,51 @@ export default function RecastStudio({
   const skipNextConfigSaveRef = useRef(false);
   const hasProviderCatalog = provider === "muapi" || !!modelsByMode?.recast?.length;
 
+  useEffect(() => {
+    if (openDropdown !== "model") return;
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpenDropdown(null);
+      }
+    };
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [openDropdown]);
+
   // ── Persistence: Load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!modelsByMode || !hasProviderCatalog) return;
     if (hasRestored.current) return;
     try {
       const stored = localStorage.getItem(PERSIST_KEY);
-      if (stored) {
-        const data = JSON.parse(stored);
-        const storedProvider = data.provider || "replicate";
-        if (storedProvider !== provider) {
-          restoredPersistentModelRef.current = false;
-          restoredPersistentModelIdRef.current = null;
-          return;
-        }
-        skipNextConfigSaveRef.current = true;
-        const options = data.options || data;
-        const restoredModelId = data.selectedModelId || data.selectedModel;
-        const restoredModel = effectiveRecastModels.find((model) => model.id === restoredModelId);
-        restoredPersistentModelRef.current = !!restoredModel;
-        restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
-        if (restoredModelId) setSelectedModelId(restoredModelId);
-        if (options.aspect_ratio || data.selectedAspectRatio) setSelectedAspectRatio(options.aspect_ratio || data.selectedAspectRatio);
-        if (data.uploads?.video_url || data.videoUrl) {
-          setVideoUrl(data.uploads?.video_url || data.videoUrl);
-          setVideoState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.image_url || data.imageUrl) {
-          setImageUrl(data.uploads?.image_url || data.imageUrl);
-          setImageState(UPLOAD_STATE.READY);
-        }
-        if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
-        if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
-        if (data.prompt) setPrompt(data.prompt);
-        suppressProviderDefaultRef.current = true;
+      const data = stored ? JSON.parse(stored) : DEFAULT_PERSISTENCE;
+      const storedProvider = data.provider || "replicate";
+      if (storedProvider !== provider) {
+        restoredPersistentModelRef.current = false;
+        restoredPersistentModelIdRef.current = null;
+        return;
       }
+      if (!stored) localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+      skipNextConfigSaveRef.current = true;
+      const options = data.options || data;
+      const restoredModelId = data.selectedModelId || data.selectedModel;
+      const restoredModel = effectiveRecastModels.find((model) => model.id === restoredModelId);
+      restoredPersistentModelRef.current = !!restoredModel;
+      restoredPersistentModelIdRef.current = restoredModel ? restoredModel.id : null;
+      if (restoredModelId) setSelectedModelId(restoredModelId);
+      if (options.aspect_ratio || data.selectedAspectRatio) setSelectedAspectRatio(options.aspect_ratio || data.selectedAspectRatio);
+      if (data.uploads?.video_url || data.videoUrl) {
+        setVideoUrl(data.uploads?.video_url || data.videoUrl);
+        setVideoState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.image_url || data.imageUrl) {
+        setImageUrl(data.uploads?.image_url || data.imageUrl);
+        setImageState(UPLOAD_STATE.READY);
+      }
+      if (data.uploads?.video_name || data.videoName) setVideoName(data.uploads?.video_name || data.videoName);
+      if (data.uploads?.image_name || data.imageName) setImageName(data.uploads?.image_name || data.imageName);
+      if (data.prompt) setPrompt(data.prompt);
+      suppressProviderDefaultRef.current = true;
     } catch (err) {
       console.warn("Failed to load RecastStudio persistence:", err);
     } finally {
@@ -625,7 +743,9 @@ export default function RecastStudio({
 
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
-        {history.length > 0 ? (
+        {serverGen.active && serverGen.loading && history.length === 0 ? (
+          <StudioHistoryLoading label="Loading your body swap videos" />
+        ) : history.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full pt-4 animate-fade-in-up">
             {history.map((entry, idx) => (
               <div
@@ -836,7 +956,6 @@ export default function RecastStudio({
               {/* Model selector */}
               <div className="relative">
                 <button
-                  ref={modelBtnRef}
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -865,14 +984,20 @@ export default function RecastStudio({
                     <path d="M6 9l6 6 6-6" />
                   </svg>
                 </button>
-                <Dropdown
-                  isOpen={openDropdown === "model"}
-                  items={effectiveRecastModels}
-                  selectedId={selectedModelId}
-                  onSelect={handleModelSelect}
-                  onClose={() => setOpenDropdown(null)}
-                  anchorRef={modelBtnRef}
-                />
+                {openDropdown === "model" && (
+                  <div
+                    ref={dropdownRef}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute bottom-[calc(100%+12px)] left-0 z-50 w-[calc(100vw-3rem)] max-w-xs rounded-[1.5rem] border border-white/[0.05] bg-[#0a0a0a] p-3 shadow-2xl"
+                  >
+                    <ModelDropdown
+                      models={effectiveRecastModels}
+                      selectedModel={selectedModelId}
+                      onSelect={handleModelSelect}
+                      onClose={() => setOpenDropdown(null)}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Aspect ratio selector */}

@@ -108,8 +108,8 @@ export async function executeNode({ provider, apiKey, node, runModel = defaultRu
     return { id: newId(), outputs: normalizeOutputs(providerResult, category) };
   }
 
-  // API / video-combiner and other externally-backed utility nodes are not part
-  // of Phase 3. Fail clearly so the UI surfaces an actionable message.
+  // API nodes and any utility that is only schema-registered are not part of
+  // the local engine. Fail clearly so the UI surfaces an actionable message.
   throw new Error(`Node type not supported by the local engine yet (category="${category}", model="${model}").`);
 }
 

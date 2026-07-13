@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { loadAppEnv } from './load-env.js';
 import { getBullMqPrefix, getRedisConnection, closeRedisConnection } from '../modules/queue/server/redis.js';
+import { createFinalAttemptWorkerLog } from '../modules/queue/server/workerLogs.js';
 import { processRun } from '../modules/workflow/server/runProcessor.js';
 import {
   publishUserEvent,
@@ -12,6 +13,17 @@ loadAppEnv();
 function readConcurrency(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 2;
+}
+
+async function saveFinalFailureLog(job, data) {
+  try {
+    await createFinalAttemptWorkerLog(job, { type: 'error', data });
+  } catch (error) {
+    console.error('[workflow-worker] failed to persist worker log', {
+      jobId: job?.id,
+      error: error?.message || error,
+    });
+  }
 }
 
 const env = process.env;
@@ -52,7 +64,7 @@ const worker = new Worker(
   }
 );
 
-worker.on('failed', (job, error) => {
+worker.on('failed', async (job, error) => {
   publishUserEvent(job?.data?.userId, workflowRunEvent({
     userId: job?.data?.userId,
     workflowId: job?.data?.workflowId,
@@ -60,12 +72,14 @@ worker.on('failed', (job, error) => {
     queueStatus: 'failed',
     error: error?.message || String(error),
   }), env).catch(() => {});
-  console.error('[workflow-worker] job failed', {
+  const logData = {
     jobId: job?.id,
     runId: job?.data?.runId,
     attempt: job?.attemptsMade,
     error: error?.message || error,
-  });
+  };
+  await saveFinalFailureLog(job, logData);
+  console.error('[workflow-worker] job failed', logData);
 });
 
 console.log('[workflow-worker] started', {

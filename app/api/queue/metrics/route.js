@@ -4,6 +4,7 @@ import { errorResponse } from '@/modules/auth/server/errors';
 import { collectQueueMetricsSnapshot } from '@/modules/queue/server/metrics';
 import { getStudioGenerationQueue } from '@/modules/studio/server/generationQueue';
 import { getWorkflowRunQueue } from '@/modules/workflow/server/runQueue';
+import { getDesignAgentQueue } from '@/modules/design-agent/server/jobQueue';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,11 @@ export async function GET(request) {
           name: process.env.WORKFLOW_QUEUE_NAME || 'workflow-runs',
           queue: getWorkflowRunQueue(),
           configuredConcurrency: positiveNumber(process.env.WORKFLOW_WORKER_CONCURRENCY, 2),
+        },
+        {
+          name: process.env.DESIGN_AGENT_QUEUE_NAME || 'design-agent-jobs',
+          queue: getDesignAgentQueue(),
+          configuredConcurrency: positiveNumber(process.env.DESIGN_AGENT_WORKER_CONCURRENCY, 2),
         },
       ],
     });

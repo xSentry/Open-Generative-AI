@@ -37,8 +37,8 @@ test('POST {id}/run seeds one node-run per node and enqueues the run', async () 
       created.push(nodeId);
       return { id: `nr-${nodeId}` };
     },
-    enqueueRun: async (runId) => {
-      enqueued.push(runId);
+    enqueueRun: async (run) => {
+      enqueued.push(run);
     },
   };
 
@@ -54,7 +54,7 @@ test('POST {id}/run seeds one node-run per node and enqueues the run', async () 
   assert.deepEqual(await readJson(response), { run_id: 'run-1' });
   assert.deepEqual(created, ['text-1', 'img-1']);
   assert.equal(createdRun.provider, 'replicate');
-  assert.deepEqual(enqueued, ['run-1']);
+  assert.deepEqual(enqueued, [{ id: 'run-1' }]);
 });
 
 test('GET run/{id}/status returns the MuAPI-compatible envelope', async () => {
@@ -124,7 +124,7 @@ test('POST {id}/api-execute stores inputs on the run and enqueues it', async () 
     getWorkflow: async () => ({ id: 'wf-1', nodes: [{ id: 'text-1' }], edges: [] }),
     createRun: async (args) => { createdRun = args; return { id: 'run-9', inputs: args.inputs }; },
     createNodeRun: async ({ nodeId }) => ({ id: `nr-${nodeId}` }),
-    enqueueRun: async (runId) => { enqueued.push(runId); },
+    enqueueRun: async (run) => { enqueued.push(run); },
   };
 
   const response = await handleLocalWorkflow(
@@ -138,7 +138,7 @@ test('POST {id}/api-execute stores inputs on the run and enqueues it', async () 
   assert.equal(response.status, 200);
   assert.deepEqual(await readJson(response), { run_id: 'run-9' });
   assert.deepEqual(createdRun.inputs, { 'text-1': { prompt: 'hi' } });
-  assert.deepEqual(enqueued, ['run-9']);
+  assert.deepEqual(enqueued, [{ id: 'run-9', inputs: { 'text-1': { prompt: 'hi' } } }]);
 });
 
 test('GET run/{id}/api-outputs returns terminal outputs with run status', async () => {
@@ -178,7 +178,7 @@ test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async
     getWorkflow: async () => ({ id: 'wf-1', nodes: [{ id: 'img-1', model: 'flux', params: {} }], edges: [] }),
     createRun: async (args) => { createdRun = args; return { id: 'run-node' }; },
     createNodeRun: async (args) => { nodeRunArgs = args; return { id: 'nr-new' }; },
-    enqueueRun: async (runId) => { enqueued.push(runId); },
+    enqueueRun: async (run) => { enqueued.push(run); },
   };
 
   const response = await handleLocalWorkflow(
@@ -199,7 +199,7 @@ test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async
   assert.equal(createdRun.targetNodeId, 'img-1');
   assert.equal(nodeRunArgs.nodeId, 'img-1');
   assert.deepEqual(nodeRunArgs.params, { prompt: 'p' });
-  assert.deepEqual(enqueued, ['run-node']);
+  assert.deepEqual(enqueued, [{ id: 'run-node' }]);
 });
 
 test('DELETE node-run/{id} reports deletion and 404 when missing', async () => {

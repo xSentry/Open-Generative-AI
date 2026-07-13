@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { loadAppEnv } from './load-env.js';
 import { getBullMqPrefix, getRedisConnection, closeRedisConnection } from '../modules/queue/server/redis.js';
+import { createFinalAttemptWorkerLog } from '../modules/queue/server/workerLogs.js';
 import { processGeneration } from '../modules/studio/server/processGeneration.js';
 import { withStudioConcurrencyLimits } from '../modules/studio/server/concurrencyLimits.js';
 import {
@@ -55,6 +56,14 @@ worker.on('failed', async (job, error) => {
   const attempts = Number(job?.opts?.attempts || 1);
   const exhausted = Number(job?.attemptsMade || 0) >= attempts;
   const message = error?.message || String(error);
+  const logData = {
+    jobId: job?.id,
+    generationId: job?.data?.generationId,
+    attempt: job?.attemptsMade,
+    attempts,
+    exhausted,
+    error: message,
+  };
 
   if (exhausted && job?.data?.generationId) {
     try {
@@ -68,6 +77,15 @@ worker.on('failed', async (job, error) => {
     }
   }
 
+  try {
+    await createFinalAttemptWorkerLog(job, { type: 'error', data: logData });
+  } catch (logError) {
+    console.error('[studio-worker] failed to persist worker log', {
+      jobId: job?.id,
+      error: logError?.message || logError,
+    });
+  }
+
   publishUserEvent(job?.data?.userId, studioGenerationEvent({
     userId: job?.data?.userId,
     id: job?.data?.generationId,
@@ -75,14 +93,7 @@ worker.on('failed', async (job, error) => {
     queueStatus: 'failed',
     error: message,
   }), env).catch(() => {});
-  console.error('[studio-worker] job failed', {
-    jobId: job?.id,
-    generationId: job?.data?.generationId,
-    attempt: job?.attemptsMade,
-    attempts,
-    exhausted,
-    error: message,
-  });
+  console.error('[studio-worker] job failed', logData);
 });
 
 console.log('[studio-worker] started', {

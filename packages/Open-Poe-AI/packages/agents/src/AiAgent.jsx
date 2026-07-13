@@ -188,7 +188,8 @@ function AgentModelDropdown({ title, children }) {
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-[calc(100%+10px)] right-0 z-[70] w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border border-[var(--border-color)] bg-[var(--header-bg)]/95 shadow-2xl backdrop-blur-2xl p-3.5"
+      className="absolute top-[calc(100%+10px)] right-0 z-[70] w-[calc(100vw-2rem)] max-w-[420px] rounded-xl border border-[var(--border-color)] shadow-2xl backdrop-blur-2xl p-3.5"
+      style={{ backgroundColor: "var(--header-bg, #0a0a0a)" }}
     >
       <div className="px-2 pb-3 mb-2 border-b border-[var(--border-color)]">
         <div className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
@@ -342,6 +343,10 @@ const ChatPage = ({
   const [selectedToolModel, setSelectedToolModel] = useState("");
   const [openAgentModelMenu, setOpenAgentModelMenu] = useState(null);
   const [hasHydratedAgentModel, setHasHydratedAgentModel] = useState(false);
+  const DEFAULT_AGENT_MODEL_CONFIG = {
+    conversation_model: "gpt-5-mini",
+    tool_model: "nano-banana-2",
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -375,7 +380,11 @@ const ChatPage = ({
     let stored = "";
     let storedTool = "";
     try {
-      const parsed = JSON.parse(localStorage.getItem("hg_agents_model_config") || "{}");
+      const rawConfig = localStorage.getItem("hg_agents_model_config");
+      const parsed = rawConfig ? JSON.parse(rawConfig) : DEFAULT_AGENT_MODEL_CONFIG;
+      if (!rawConfig) {
+        localStorage.setItem("hg_agents_model_config", JSON.stringify(parsed));
+      }
       stored = typeof parsed.conversation_model === "string" ? parsed.conversation_model : "";
       storedTool = typeof parsed.tool_model === "string" ? parsed.tool_model : "";
     } catch {
