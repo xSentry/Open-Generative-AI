@@ -75,6 +75,32 @@ function redactArchitectRequestText(text) {
     .slice(0, 2000);
 }
 
+function selectedNodeIdFromBody(body) {
+  return body.selected_node_id || body.selectedNodeId || body.selection?.node_id || body.selection?.nodeId || null;
+}
+
+function architectRequestForBody(body, requestText) {
+  const operation = body.operation || 'edit';
+  if (operation === 'create') {
+    return requestText ? { type: 'create_workflow', prompt_redacted: requestText } : {};
+  }
+  if (operation === 'explain') {
+    return { type: 'explain_workflow', prompt_redacted: requestText };
+  }
+  if (operation === 'validate') {
+    return { type: 'validate_workflow', prompt_redacted: requestText };
+  }
+  return {
+    type: 'bounded_edit',
+    prompt_redacted: requestText,
+    selected_node_id: selectedNodeIdFromBody(body),
+    parameter_updates: body.parameter_updates || body.parameters || null,
+    replacement_model_id: body.replacement_model_id || body.model_id || null,
+    insert_node: body.insert_node || null,
+    position: body.position || body.insert_position || null,
+  };
+}
+
 export async function handleWorkflowArchitect(request, { params }, method, ctx, deps = {}) {
   const impl = {
     ...repository,
@@ -105,6 +131,14 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
           },
         }, 400);
       }
+      if (!fixtureRequest && (body.operation || 'edit') === 'edit' && !selectedNodeIdFromBody(body)) {
+        return json({
+          error: {
+            code: 'ARCHITECT_SELECTED_NODE_REQUIRED',
+            message: 'Select a node before requesting a bounded edit.',
+          },
+        }, 400);
+      }
       const job = await impl.createArchitectJob({
         userId,
         provider,
@@ -119,12 +153,7 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
               summary: fixtureRequest.summary || null,
               validation: fixtureRequest.validation || null,
             }
-          : requestText
-            ? {
-                type: 'create_workflow',
-                prompt_redacted: requestText,
-              }
-            : {},
+          : architectRequestForBody(body, requestText),
       });
       await impl.appendArchitectEvent?.({
         jobId: job.id,

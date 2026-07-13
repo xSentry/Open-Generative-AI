@@ -48,6 +48,8 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
       base_revision: 4,
       operation: 'edit',
       idempotency_key: 'idem-1',
+      selected_node_id: 'node-1',
+      parameter_updates: { duration: 6 },
     }),
     routeCtx(['jobs']),
     'POST',
@@ -62,7 +64,15 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
   assert.deepEqual(calls.map((call) => call[0]), ['create', 'event', 'enqueue']);
   assert.equal(calls[0][1].userId, 'user-9');
   assert.equal(calls[0][1].provider, 'replicate');
-  assert.deepEqual(calls[0][1].request, {});
+  assert.deepEqual(calls[0][1].request, {
+    type: 'bounded_edit',
+    prompt_redacted: '',
+    selected_node_id: 'node-1',
+    parameter_updates: { duration: 6 },
+    replacement_model_id: null,
+    insert_node: null,
+    position: null,
+  });
 });
 
 test('POST jobs accepts fixture proposal payload for async Phase 1 processing', async () => {
@@ -152,6 +162,69 @@ test('POST jobs accepts a create workflow request for Phase 2 processing', async
     type: 'create_workflow',
     prompt_redacted: 'Create an image workflow for neon product photos.',
   });
+});
+
+test('POST jobs accepts deterministic explain and validate requests for Phase 3', async () => {
+  const received = [];
+  const deps = {
+    createArchitectJob: async (input) => {
+      received.push(input);
+      return {
+        id: `job-${input.operation}`,
+        userId: input.userId,
+        workflowId: input.workflowId,
+        baseRevision: input.baseRevision,
+        operation: input.operation,
+        status: 'queued',
+        provider: input.provider,
+        catalogVersion: 'cat',
+        schemaVersion: 'schema',
+      };
+    },
+    appendArchitectEvent: async () => {},
+    enqueueJob: async () => {},
+  };
+
+  for (const operation of ['explain', 'validate']) {
+    const response = await handleWorkflowArchitect(
+      request('http://test.local/api/workflow-architect/jobs', {
+        workflow_id: 'wf-1',
+        base_revision: 3,
+        operation,
+      }),
+      routeCtx(['jobs']),
+      'POST',
+      ctxFor(),
+      deps
+    );
+    assert.equal(response.status, 202);
+  }
+
+  assert.equal(received[0].request.type, 'explain_workflow');
+  assert.equal(received[1].request.type, 'validate_workflow');
+});
+
+test('POST edit jobs require a selected node', async () => {
+  const response = await handleWorkflowArchitect(
+    request('http://test.local/api/workflow-architect/jobs', {
+      workflow_id: 'wf-1',
+      base_revision: 3,
+      operation: 'edit',
+      request_text: 'Set duration to 8.',
+    }),
+    routeCtx(['jobs']),
+    'POST',
+    ctxFor(),
+    {
+      createArchitectJob: async () => {
+        throw new Error('should not create job');
+      },
+    }
+  );
+
+  assert.equal(response.status, 400);
+  const body = await readJson(response);
+  assert.equal(body.error.code, 'ARCHITECT_SELECTED_NODE_REQUIRED');
 });
 
 test('GET jobs returns completed proposal when one exists', async () => {
@@ -495,6 +568,425 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
   assert.deepEqual(events.map((event) => event.stage), ['running', 'calling_model', 'normalizing_ir', 'completed']);
   assert.equal(result.proposal.patch.operations.filter((op) => op.op === 'add_node').length, 2);
   assert.equal(result.proposal.patch.operations.some((op) => op.op === 'connect'), true);
+});
+
+test('phase 3 worker explains and validates an existing workflow deterministically', async () => {
+  const events = [];
+  const result = await processArchitectJob('job-explain', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 2,
+      operation: 'explain',
+      provider: 'replicate',
+      status: 'running',
+      request: { type: 'explain_workflow' },
+    }),
+    appendArchitectEvent: async (event) => events.push(event),
+    buildNodeSchemas: () => ({
+      categories: {
+        text: { models: { 'text-passthrough': { input_schema: { prompt: {} } } } },
+        image: { models: { 'flux-schnell': { input_schema: { prompt: {}, aspect_ratio: {} } } } },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Product image',
+      category: 'image',
+      edges: [],
+      nodes: [
+        {
+          id: 'image-1',
+          title: 'Image',
+          category: 'image',
+          model: 'flux-schnell',
+          input_params: { prompt: 'A watch', make_output: true },
+          params: { prompt: 'A watch' },
+        },
+      ],
+      isTemplate: false,
+      revision: 2,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-explain',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: {},
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  assert.equal(result.job.status, 'completed');
+  assert.equal(result.proposal.patch.operations.length, 0);
+  assert.equal(result.proposal.summary.workflow.steps[0].node_id, 'image-1');
+  assert.equal(result.proposal.validation.valid, true);
+  assert.equal(result.proposal.summary.workflow.steps.length, 1);
+  assert.deepEqual(events.map((event) => event.stage), ['running', 'completed']);
+});
+
+test('phase 3 worker creates a bounded selected-node parameter edit proposal', async () => {
+  const result = await processArchitectJob('job-edit', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 4,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'video-1',
+        prompt_redacted: 'Set duration to 8.',
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        video: {
+          models: {
+            'seedance-2-0-mini': {
+              input_schema: { prompt: {}, duration: {}, aspect_ratio: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Video flow',
+      category: 'video',
+      edges: [],
+      nodes: [
+        {
+          id: 'video-1',
+          title: 'Video',
+          category: 'video',
+          model: 'seedance-2-0-mini',
+          input_params: { prompt: 'A skyline', duration: 5 },
+          params: { prompt: 'A skyline', duration: 5 },
+        },
+      ],
+      isTemplate: false,
+      revision: 4,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-edit',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: {},
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  assert.equal(result.job.status, 'completed');
+  assert.deepEqual(result.proposal.patch.preconditions[0], { type: 'workflow_revision_equals', revision: 4 });
+  assert.deepEqual(result.proposal.patch.operations, [
+    {
+      op: 'set_node_parameter',
+      node_id: 'video-1',
+      parameter: 'duration',
+      value: 8,
+      expected_previous_value: 5,
+    },
+  ]);
+  assert.equal(result.proposal.validation.valid, true);
+});
+
+test('phase 3 worker creates a curated selected-model replacement proposal', async () => {
+  const result = await processArchitectJob('job-model-edit', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 5,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'image-1',
+        replacement_model_id: 'imagen-4-fast',
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        text: {
+          models: {
+            'text-passthrough': {
+              input_schema: { prompt: {} },
+            },
+          },
+        },
+        image: {
+          models: {
+            'flux-schnell': {
+              input_schema: { prompt: {}, aspect_ratio: {}, output_format: {} },
+            },
+            'imagen-4-fast': {
+              input_schema: { prompt: {}, aspect_ratio: {}, output_format: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Image flow',
+      category: 'image',
+      edges: [],
+      nodes: [
+        {
+          id: 'image-1',
+          title: 'Image',
+          category: 'image',
+          model: 'flux-schnell',
+          input_params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+        },
+      ],
+      isTemplate: false,
+      revision: 5,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-model-edit',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: {},
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  assert.equal(result.job.status, 'completed');
+  assert.deepEqual(result.proposal.patch.operations, [
+    {
+      op: 'set_node_model',
+      node_id: 'image-1',
+      model_id: 'imagen-4-fast',
+    },
+  ]);
+  assert.equal(result.proposal.validation.valid, true);
+});
+
+test('phase 3 worker adds one curated node after the selected node', async () => {
+  const result = await processArchitectJob('job-insert-after', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 6,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'image-1',
+        insert_node: {
+          position: 'after',
+          category: 'video',
+          model_id: 'seedance-2-0-mini',
+          parameters: { prompt: 'Animate the product with slow camera motion.' },
+        },
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        text: {
+          models: {
+            'text-passthrough': {
+              input_schema: { prompt: {} },
+            },
+          },
+        },
+        image: {
+          models: {
+            'flux-schnell': {
+              input_schema: { prompt: {}, aspect_ratio: {}, output_format: {} },
+            },
+          },
+        },
+        video: {
+          models: {
+            'seedance-2-0-mini': {
+              input_schema: { prompt: {}, image_url: {}, duration: {}, aspect_ratio: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Image flow',
+      category: 'image',
+      edges: [],
+      nodes: [
+        {
+          id: 'image-1',
+          title: 'Image',
+          category: 'image',
+          model: 'flux-schnell',
+          input_params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          position: { x: 100, y: 200 },
+        },
+      ],
+      isTemplate: false,
+      revision: 6,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-insert-after',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: {},
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  const addNode = result.proposal.patch.operations.find((operation) => operation.op === 'add_node');
+  const connect = result.proposal.patch.operations.find((operation) => operation.op === 'connect');
+  assert.equal(result.job.status, 'completed');
+  assert.equal(addNode.node.category, 'video');
+  assert.equal(connect.source.node_id, 'image-1');
+  assert.equal(connect.source.port, 'image');
+  assert.equal(connect.target.node_id, addNode.node.id);
+  assert.equal(connect.target.port, 'image_url');
+  assert.equal(result.proposal.validation.valid, true);
+});
+
+test('phase 3 worker adds one curated node before the selected node with selected-subgraph context', async () => {
+  const result = await processArchitectJob('job-insert-before', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 7,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'video-1',
+        insert_node: {
+          position: 'before',
+          category: 'image',
+          model_id: 'flux-schnell',
+          parameters: { prompt: 'A cinematic establishing frame.' },
+        },
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        text: {
+          models: {
+            'text-passthrough': {
+              input_schema: { prompt: {} },
+            },
+          },
+        },
+        image: {
+          models: {
+            'flux-schnell': {
+              input_schema: { prompt: {}, aspect_ratio: {}, output_format: {} },
+            },
+          },
+        },
+        video: {
+          models: {
+            'seedance-2-0-mini': {
+              input_schema: { prompt: {}, image_url: {}, duration: {}, aspect_ratio: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Video flow',
+      category: 'video',
+      edges: [
+        {
+          id: 'edge-prompt-video-prompt',
+          source: 'prompt-1',
+          target: 'video-1',
+          sourceHandle: 'textOutput',
+          targetHandle: 'videoInput',
+        },
+      ],
+      nodes: [
+        {
+          id: 'prompt-1',
+          title: 'Prompt',
+          category: 'text',
+          model: 'text-passthrough',
+          input_params: { prompt: 'A skyline' },
+          params: { prompt: 'A skyline' },
+        },
+        {
+          id: 'video-1',
+          title: 'Video',
+          category: 'video',
+          model: 'seedance-2-0-mini',
+          input_params: { duration: 5 },
+          params: { duration: 5 },
+          position: { x: 500, y: 200 },
+        },
+      ],
+      isTemplate: false,
+      revision: 7,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-insert-before',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: {},
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  const addNode = result.proposal.patch.operations.find((operation) => operation.op === 'add_node');
+  const connect = result.proposal.patch.operations.find((operation) => operation.op === 'connect');
+  assert.equal(result.job.status, 'completed');
+  assert.equal(addNode.node.category, 'image');
+  assert.equal(connect.source.node_id, addNode.node.id);
+  assert.equal(connect.source.port, 'image');
+  assert.equal(connect.target.node_id, 'video-1');
+  assert.equal(connect.target.port, 'image_url');
+  assert.equal(result.proposal.summary.selected_subgraph.selected.id, 'video-1');
+  assert.equal(result.proposal.summary.selected_subgraph.incoming[0].source.id, 'prompt-1');
+  assert.equal(result.proposal.validation.valid, true);
 });
 
 test('phase 2 worker records progress and fails unsupported generation jobs', async () => {

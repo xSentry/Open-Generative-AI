@@ -9,9 +9,16 @@ import {
 import { buildNodeSchemas } from '../../workflow/server/schemas.js';
 import { applyWorkflowPatch } from '../../workflow-domain/applyPatch.js';
 import { buildArchitectCapabilityCatalog } from '../domain/capabilityCatalog.js';
-import { buildCreateWorkflowContext } from '../domain/contextBuilder.js';
-import { compileCreateWorkflowIrToPatch, summarizeCreateWorkflowProposal } from '../domain/compiler.js';
-import { normalizeCreateWorkflowIr } from '../domain/normalizer.js';
+import { buildCreateWorkflowContext, buildWorkflowContext } from '../domain/contextBuilder.js';
+import {
+  buildWorkflowExplanation,
+  compileBoundedEditToPatch,
+  createNoopPatchForContext,
+  summarizeBoundedEditProposal,
+  summarizeCreateWorkflowProposal,
+  compileCreateWorkflowIrToPatch,
+} from '../domain/compiler.js';
+import { normalizeBoundedEditRequest, normalizeCreateWorkflowIr } from '../domain/normalizer.js';
 import { generateCreateWorkflowIr } from './models/replicateStructuredModel.js';
 
 export async function processArchitectJob(jobId, deps = {}) {
@@ -64,8 +71,99 @@ export async function processArchitectJob(jobId, deps = {}) {
       return { job: completed, proposal };
     }
 
+    if (job.request?.type === 'explain_workflow' || job.request?.type === 'validate_workflow') {
+      if (!job.workflowId) {
+        const error = new Error('Workflow Architect jobs require a saved workflow.');
+        error.code = 'WORKFLOW_REQUIRED';
+        throw error;
+      }
+      const fullCatalog = buildSchemas(job.provider || 'replicate');
+      const workflow = await getWorkflow(job.workflowId, {
+        userId: job.userId,
+        provider: job.provider || 'replicate',
+      });
+      const context = buildWorkflowContext(job, workflow, { catalog: fullCatalog });
+      const patch = createNoopPatchForContext(context);
+      const summary = job.request.type === 'explain_workflow'
+        ? buildWorkflowExplanation(context)
+        : {
+            title: context.summary.name || 'Workflow validation',
+            message: context.validation.valid
+              ? 'Workflow passed deterministic validation.'
+              : `Workflow has ${context.validation.errors.length} validation error${context.validation.errors.length === 1 ? '' : 's'}.`,
+            assumptions: [],
+            warnings: context.validation.warnings || [],
+            graph: {
+              node_count: context.graph.nodes.length,
+              edge_count: context.graph.edges.length,
+            },
+          };
+
+      const proposal = await createProposal(job, {
+        patch,
+        summary,
+        validation: context.validation,
+      });
+      const completed = await completeJob(jobId);
+      await appendEvent({
+        jobId,
+        eventType: 'proposal',
+        stage: 'completed',
+        payloadRedacted: {
+          proposal_id: proposal?.id,
+          diff: proposal?.diff || {},
+        },
+      });
+      return { job: completed, proposal };
+    }
+
+    if (job.request?.type === 'bounded_edit') {
+      if (!job.workflowId) {
+        const error = new Error('Bounded edit jobs require a saved workflow.');
+        error.code = 'WORKFLOW_REQUIRED';
+        throw error;
+      }
+      const fullCatalog = buildSchemas(job.provider || 'replicate');
+      const workflow = await getWorkflow(job.workflowId, {
+        userId: job.userId,
+        provider: job.provider || 'replicate',
+      });
+      const context = buildWorkflowContext(job, workflow, {
+        catalog: fullCatalog,
+        selectedNodeId: job.request.selected_node_id,
+      });
+      const edit = normalizeBoundedEditRequest(job.request, context);
+      const patch = compileBoundedEditToPatch(edit, context);
+      const nextGraph = applyWorkflowPatch(context.graph, patch, { catalog: fullCatalog });
+      const validation = {
+        valid: true,
+        warnings: [],
+        errors: [],
+        graph: {
+          node_count: nextGraph.nodes.length,
+          edge_count: nextGraph.edges.length,
+        },
+      };
+      const proposal = await createProposal(job, {
+        patch,
+        summary: summarizeBoundedEditProposal(edit, context),
+        validation,
+      });
+      const completed = await completeJob(jobId);
+      await appendEvent({
+        jobId,
+        eventType: 'proposal',
+        stage: 'completed',
+        payloadRedacted: {
+          proposal_id: proposal?.id,
+          diff: proposal?.diff || {},
+        },
+      });
+      return { job: completed, proposal };
+    }
+
     if (job.request?.type !== 'create_workflow') {
-      const error = new Error('Phase 2 supports create workflow jobs only.');
+      const error = new Error('Unsupported Workflow Architect job type.');
       error.code = 'ARCHITECT_OPERATION_UNSUPPORTED';
       throw error;
     }

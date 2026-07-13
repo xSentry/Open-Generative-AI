@@ -68,6 +68,100 @@ export function normalizeCreateWorkflowIr(rawIr, { userRequest, catalog }) {
   return normalized;
 }
 
+function coerceScalar(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (/^(true|false)$/i.test(trimmed)) return trimmed.toLowerCase() === 'true';
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
+}
+
+function parseParameterUpdates(text, selectedNode) {
+  const updates = {};
+  const request = String(text || '');
+  const known = Object.keys(selectedNode?.parameters || {});
+  for (const key of known) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = request.match(new RegExp(`\\b${escaped}\\b\\s*(?:to|=|:)\\s*([^,.;]+)`, 'i'));
+    if (match) updates[key] = coerceScalar(match[1]);
+  }
+  return updates;
+}
+
+function prunePlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (['__proto__', 'prototype', 'constructor'].includes(key)) continue;
+    if (child == null || child === '') continue;
+    if (['string', 'number', 'boolean'].includes(typeof child) || Array.isArray(child)) {
+      out[key] = child;
+    }
+  }
+  return out;
+}
+
+function normalizeInsertNode(request = {}) {
+  const raw = request.insert_node && typeof request.insert_node === 'object' ? request.insert_node : null;
+  if (!raw) return null;
+  const category = TARGET_CATEGORIES.has(raw.category) ? raw.category : inferCategory(`${raw.model_id || ''} ${request.prompt_redacted || ''}`);
+  const fallbackProfile = defaultArchitectModelProfile(category);
+  const requestedModelId = typeof raw.model_id === 'string' ? raw.model_id.trim() : null;
+  if (requestedModelId && !getArchitectModelProfile(category, requestedModelId)) {
+    const error = new Error(`Model "${requestedModelId}" is not a curated ${category} insertion model.`);
+    error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
+    throw error;
+  }
+  const modelId = requestedModelId || fallbackProfile?.modelId;
+  const position = raw.position === 'before' || raw.position === 'after'
+    ? raw.position
+    : request.position === 'before'
+      ? 'before'
+      : 'after';
+
+  return {
+    position,
+    category,
+    model_id: modelId,
+    title: typeof raw.title === 'string' ? raw.title.trim().slice(0, MAX_NAME_LENGTH) : null,
+    node_id: typeof raw.node_id === 'string' ? raw.node_id.trim() : null,
+    parameters: {
+      ...(fallbackProfile?.defaultParameters || {}),
+      ...prunePlainObject(raw.parameters),
+    },
+  };
+}
+
+export function normalizeBoundedEditRequest(request = {}, context) {
+  const selectedNode = context.selectedNode;
+  const parameterUpdates = {
+    ...parseParameterUpdates(request.prompt_redacted, selectedNode),
+    ...prunePlainObject(request.parameter_updates),
+  };
+  const replacementModelId = typeof request.replacement_model_id === 'string'
+    ? request.replacement_model_id.trim()
+    : null;
+  const insertNode = normalizeInsertNode(request);
+
+  if (replacementModelId && !getArchitectModelProfile(selectedNode.category, replacementModelId)) {
+    const error = new Error(`Model "${replacementModelId}" is not a curated ${selectedNode.category} alternative.`);
+    error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
+    throw error;
+  }
+  if (insertNode && !getArchitectModelProfile(insertNode.category, insertNode.model_id)) {
+    const error = new Error(`Model "${insertNode.model_id}" is not a curated ${insertNode.category} insertion model.`);
+    error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
+    throw error;
+  }
+
+  return {
+    parameter_updates: parameterUpdates,
+    replacement_model_id: replacementModelId || null,
+    insert_node: insertNode,
+    assumptions: [],
+  };
+}
+
 function inferCategory(text = '') {
   const lower = text.toLowerCase();
   if (/\b(audio|voice|speech|tts|narration|song|music)\b/.test(lower)) return 'audio';
