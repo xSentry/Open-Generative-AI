@@ -6,6 +6,7 @@
 // The workflow builder consumes the metadata in `workflow` to render generic
 // handles. The execution engine calls `executeUtilityNode` for local logic.
 import { extractVideoFrame } from './videoFrameExtractor.js';
+import { combineVideos } from './videoCombiner.js';
 
 function newId() {
   return (globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -63,7 +64,13 @@ export const UTILITY_NODE_DEFINITIONS = {
       },
     },
     output: { type: 'video_url', label: 'Video' },
-    execute: null,
+    execute: async ({ params }) => {
+      const video = await combineVideos(params);
+      return {
+        id: newId(),
+        outputs: [{ type: 'video_url', value: video, id: newId() }],
+      };
+    },
   },
 
   'video-frame-extractor': {

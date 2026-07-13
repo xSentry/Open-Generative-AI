@@ -353,7 +353,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
   const connectionMadeRef = useRef(false);
   const onConnectRef = useRef(null);
   const runWatcherRef = useRef(null);
-  const staleUtilityDeleteIdsRef = useRef(new Set());
+  const staleReplaceDeleteIdsRef = useRef(new Set());
   const autosaveTimerRef = useRef(null);
   const lastAutosaveSignatureRef = useRef(null);
   const autosaveArmedRef = useRef(false);
@@ -1659,17 +1659,17 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
             const currentHistory = node.data.outputHistory || [];
             let newHistory;
 
-            if (node.type === "utilityNode") {
+            if (node.type === "utilityNode" || node.type === "vidConcatNode") {
               const staleRuns = currentHistory.filter((h) =>
                 h.node_run_id && h.node_run_id !== latestRun.node_run_id
               );
               staleRuns.forEach((h) => {
-                if (staleUtilityDeleteIdsRef.current.has(h.node_run_id)) return;
-                staleUtilityDeleteIdsRef.current.add(h.node_run_id);
+                if (staleReplaceDeleteIdsRef.current.has(h.node_run_id)) return;
+                staleReplaceDeleteIdsRef.current.add(h.node_run_id);
                 axios.delete(`/api/workflow/node-run/${h.node_run_id}`).catch((error) => {
-                  console.error("Failed to delete stale utility output", error);
+                  console.error("Failed to delete stale replaced node output", error);
                 }).finally(() => {
-                  staleUtilityDeleteIdsRef.current.delete(h.node_run_id);
+                  staleReplaceDeleteIdsRef.current.delete(h.node_run_id);
                 });
               });
               newHistory = [latestRun];

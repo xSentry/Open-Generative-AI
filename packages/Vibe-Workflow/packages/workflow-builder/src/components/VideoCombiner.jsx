@@ -48,6 +48,11 @@ const VideoCombiner = ({ id, data, selected }) => {
   const properties = nodeSchemas?.categories?.utility?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
 
   const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
+
+  const deleteNodeRuns = async (runs = []) => {
+    const ids = runs.map((run) => run?.node_run_id).filter(Boolean);
+    await Promise.all(ids.map((nodeRunId) => axios.delete(`/api/workflow/node-run/${nodeRunId}`)));
+  };
   
   useEffect(() => {
     if (data.cost !== generationCost) {
@@ -201,11 +206,13 @@ const VideoCombiner = ({ id, data, selected }) => {
           const val = output[0]?.value || "";
           
           const currentHistory = data.outputHistory || [];
-          const result = latest.result;
-          const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
-          const newHistory = isAlreadyInHistory 
-            ? currentHistory.map(h => h.result?.id === result.id ? latest : h)
-            : [...currentHistory, latest];
+          const staleRuns = currentHistory.filter((h) =>
+            h.node_run_id && h.node_run_id !== latest.node_run_id
+          );
+          deleteNodeRuns(staleRuns).catch((error) => {
+            console.error("Failed to delete stale video combiner output", error);
+          });
+          const newHistory = [latest];
 
           data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null, outputHistory: newHistory });
           setCurrentHistoryIndex(newHistory.length - 1);
@@ -281,11 +288,17 @@ const VideoCombiner = ({ id, data, selected }) => {
     };
   };
 
-  const handleDeleteNode = () => {
+  const handleDeleteNode = async () => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
-      setNodes((nds) => nds.filter((n) => n.id !== id));
-      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.success(`Deleted node ${id}`);
+      try {
+        await deleteNodeRuns(data.outputHistory || []);
+        setNodes((nds) => nds.filter((n) => n.id !== id));
+        setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+        toast.success(`Deleted node ${id}`);
+      } catch (error) {
+        toast.error(error.response?.data?.detail || error.response?.data?.error || "Failed to delete node outputs");
+        console.error(error);
+      }
     };
   };
 

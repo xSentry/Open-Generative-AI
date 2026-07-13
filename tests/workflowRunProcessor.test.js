@@ -175,17 +175,6 @@ test('executeNode dispatches registered utility nodes', async () => {
   assert.equal(result.outputs[0].value, 'hello world');
 });
 
-test('executeNode reports unsupported registered utility nodes clearly', async () => {
-  await assert.rejects(
-    () => executeNode({
-      provider: 'replicate',
-      apiKey: 'r8_test',
-      node: { category: 'utility', model: 'video-combiner', params: { videos_list: [] } },
-    }),
-    /not supported.*video-combiner/i
-  );
-});
-
 async function installFakeFfmpeg(dir) {
   const isWin = process.platform === 'win32';
   if (isWin) {
@@ -199,6 +188,42 @@ async function installFakeFfmpeg(dir) {
   await chmod(ffmpeg, 0o755);
   return { ffmpeg };
 }
+
+test('executeNode combines videos as a local utility node', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-ffmpeg-'));
+  const originalFfmpeg = process.env.FFMPEG_PATH;
+  const fake = await installFakeFfmpeg(dir);
+  process.env.FFMPEG_PATH = fake.ffmpeg;
+
+  try {
+    const result = await executeNode({
+      provider: 'replicate',
+      apiKey: 'r8_test',
+      node: {
+        category: 'utility',
+        model: 'video-combiner',
+        params: {
+          videos_list: [
+            'https://example.test/one.mp4?sig=1',
+            'https://example.test/two.mp4?sig=2',
+          ],
+          aspect_ratio: '16:9',
+        },
+      },
+    });
+
+    assert.equal(result.outputs.length, 1);
+    assert.equal(result.outputs[0].type, 'video_url');
+    assert.equal(result.outputs[0].value.contentType, 'video/mp4');
+    assert.equal(result.outputs[0].value.filename, 'combined-video.mp4');
+    assert.equal((await readFile(result.outputs[0].value.path, 'utf8')).trim(), 'fake-frame');
+    assert.equal(result.outputs[0].value.path.includes('sig='), false);
+  } finally {
+    if (originalFfmpeg == null) delete process.env.FFMPEG_PATH;
+    else process.env.FFMPEG_PATH = originalFfmpeg;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test('parseTimestampSeconds accepts seconds and clock timestamps', () => {
   assert.equal(parseTimestampSeconds('1.5'), 1.5);
