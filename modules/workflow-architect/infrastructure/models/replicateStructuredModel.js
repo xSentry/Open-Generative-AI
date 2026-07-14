@@ -1,4 +1,5 @@
 import { createWorkflowIrJsonSchema } from '../../domain/architectIrSchema.js';
+import { CURATED_MODEL_PROFILES } from '../../domain/capabilityCatalog.js';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
@@ -18,6 +19,77 @@ export const ARCHITECT_POLICY_TRUSTED = {
     'The server will select curated models deterministically; request capabilities and preferences only.',
   ],
 };
+
+const MODEL_PROMPT_NODE_FIELDS = [
+  'category',
+  'model_id',
+  'label',
+  'capability',
+  'capability_aliases',
+  'operation_modes',
+  'kind',
+  'input_ports',
+  'output_ports',
+  'required_media_inputs',
+  'output_media_type',
+  'introducible_on_empty_canvas',
+  'introduction_status',
+  'not_introducible_reason',
+  'prompt_port',
+  'speed_tier',
+  'quality_tier',
+  'default_parameters',
+];
+
+function curatedModelIds() {
+  return new Set(Object.values(CURATED_MODEL_PROFILES).flat().map((profile) => profile.modelId));
+}
+
+function isModelPromptNode(node, allowedIds) {
+  if (!node || typeof node !== 'object') return false;
+  if (allowedIds.has(node.model_id)) return true;
+  return node.kind === 'input' && typeof node.model_id === 'string' && node.model_id.endsWith('-passthrough');
+}
+
+function compactPromptNode(node) {
+  return Object.fromEntries(
+    MODEL_PROMPT_NODE_FIELDS
+      .filter((key) => node[key] !== undefined)
+      .map((key) => [key, node[key]])
+  );
+}
+
+function ruleAllowedByPromptNodes(rule, nodes) {
+  return nodes.some((source) =>
+    source.capability === rule.source_capability &&
+    source.output_ports?.[rule.source_port]?.type === rule.output_type
+  ) && nodes.some((target) =>
+    target.capability === rule.target_capability &&
+    target.input_ports?.[rule.target_port]?.type === rule.input_type
+  );
+}
+
+export function buildModelPromptCapabilityCatalog(catalog = {}) {
+  const allowedIds = curatedModelIds();
+  const sourceNodes = Array.isArray(catalog.node_types) ? catalog.node_types : [];
+  const filteredNodes = sourceNodes
+    .filter((node) => isModelPromptNode(node, allowedIds))
+    .map(compactPromptNode);
+
+  const nodeTypes = filteredNodes.length > 0 || sourceNodes.length > 20
+    ? filteredNodes
+    : sourceNodes.map(compactPromptNode);
+  const connectionRules = Array.isArray(catalog.connection_rules)
+    ? catalog.connection_rules.filter((rule) => ruleAllowedByPromptNodes(rule, nodeTypes))
+    : [];
+
+  return {
+    version: catalog.version,
+    provider: catalog.provider,
+    node_types: nodeTypes,
+    connection_rules: connectionRules,
+  };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -60,17 +132,23 @@ export function buildCreateWorkflowPromptPayload({
   selectedSubgraph = null,
   catalog,
 } = {}) {
+  const promptCatalog = buildModelPromptCapabilityCatalog(catalog);
   return {
     user_request_untrusted: String(userRequest || ''),
     workflow_data_untrusted: workflowData || null,
     selected_subgraph_untrusted: selectedSubgraph || null,
-    capability_catalog_trusted: {
-      version: catalog?.version,
-      provider: catalog?.provider,
-      node_types: catalog?.node_types || [],
-      connection_rules: catalog?.connection_rules || [],
-    },
+    capability_catalog_trusted: promptCatalog,
     architect_policy_trusted: ARCHITECT_POLICY_TRUSTED,
+  };
+}
+
+export function buildReplicateJsonSchemaFormat(schema) {
+  return {
+    format: {
+      type: 'json_schema',
+      name: 'workflow_architect_ir',
+      schema,
+    },
   };
 }
 
@@ -174,7 +252,7 @@ export async function generateCreateWorkflowIr({
       tools: [],
       input_item_list: [],
       simple_schema: [],
-      json_schema: schema,
+      json_schema: buildReplicateJsonSchemaFormat(schema),
     },
     maxAttempts: Number(env.WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS || 120),
     interval: Number(env.WORKFLOW_ARCHITECT_MODEL_POLL_MS || 1000),

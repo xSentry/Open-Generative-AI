@@ -108,7 +108,7 @@ export function createWorkflowIrJsonSchema(catalog) {
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['version', 'operation', 'workflow_name', 'target_category', 'nodes', 'connections'],
+    required: ['version', 'operation', 'workflow_name', 'target_category', 'nodes', 'connections', 'assumptions'],
     properties: {
       version: { type: 'string', enum: ['workflow-architect-ir/v1'] },
       operation: { type: 'string', enum: ['create_workflow'] },
@@ -121,25 +121,40 @@ export function createWorkflowIrJsonSchema(catalog) {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['ref', 'role', 'capability'],
           properties: {
             ref: { type: 'string', minLength: 2, maxLength: 40 },
             role: { type: 'string', enum: [...NODE_ROLES] },
             capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
-            operation_mode: { type: 'string', enum: [...NODE_OPERATION_MODES] },
-            title: { type: 'string', maxLength: 80 },
-            prompt: { type: 'string', maxLength: 2000 },
-            parameters: { type: 'object', additionalProperties: true },
-            model_preferences: {
-              type: 'object',
+            operation_mode: { type: ['string', 'null'], enum: [...NODE_OPERATION_MODES, null] },
+            title: { type: ['string', 'null'], maxLength: 80 },
+            prompt: { type: ['string', 'null'], maxLength: 2000 },
+            parameters: {
+              type: ['object', 'null'],
               additionalProperties: false,
+              properties: {},
+              required: [],
+            },
+            model_preferences: {
+              type: ['object', 'null'],
+              additionalProperties: false,
+              required: ['speed_tier', 'quality_tier', 'stability'],
               properties: {
-                speed_tier: { type: 'string', enum: ['fast', 'balanced'] },
-                quality_tier: { type: 'string', enum: ['standard', 'high'] },
-                stability: { type: 'string', enum: ['stable'] },
+                speed_tier: { type: ['string', 'null'], enum: ['fast', 'balanced', null] },
+                quality_tier: { type: ['string', 'null'], enum: ['standard', 'high', null] },
+                stability: { type: ['string', 'null'], enum: ['stable', null] },
               },
             },
           },
+          required: [
+            'ref',
+            'role',
+            'capability',
+            'operation_mode',
+            'title',
+            'prompt',
+            'parameters',
+            'model_preferences',
+          ],
         },
       },
       connections: {
@@ -148,14 +163,14 @@ export function createWorkflowIrJsonSchema(catalog) {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['from_ref', 'to_ref'],
           properties: {
             from_ref: { type: 'string' },
-            from_capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
+            from_capability: { type: ['string', 'null'], enum: [...NODE_CAPABILITIES, null] },
             to_ref: { type: 'string' },
-            to_capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
-            to_port: { type: 'string' },
+            to_capability: { type: ['string', 'null'], enum: [...NODE_CAPABILITIES, null] },
+            to_port: { type: ['string', 'null'] },
           },
+          required: ['from_ref', 'from_capability', 'to_ref', 'to_capability', 'to_port'],
         },
       },
       assumptions: {

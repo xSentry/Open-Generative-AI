@@ -6,6 +6,7 @@ import { summarizePatchDiff } from '../modules/workflow-architect/domain/proposa
 import {
   ARCHITECT_REPLICATE_MODEL_REF,
   ARCHITECT_GPT_MODEL,
+  buildModelPromptCapabilityCatalog,
   buildCreateWorkflowPromptPayload,
   generateCreateWorkflowIr,
   runStructuredReplicatePrediction,
@@ -843,8 +844,12 @@ test('structured Replicate model uses saved user key and configured GPT input', 
   assert.equal(Object.hasOwn(call.input, 'max_output_tokens'), false);
   assert.equal(call.maxAttempts, 3);
   assert.equal(call.interval, 0);
-  assert.equal(call.input.json_schema.properties.operation.enum[0], 'create_workflow');
-  assert.equal(call.input.json_schema.properties.nodes.items.properties.model_preferences.type, 'object');
+  assert.equal(call.input.json_schema.format.type, 'json_schema');
+  assert.equal(call.input.json_schema.format.name, 'workflow_architect_ir');
+  assert.equal(call.input.json_schema.format.schema.properties.operation.enum[0], 'create_workflow');
+  assert.deepEqual(call.input.json_schema.format.schema.properties.nodes.items.properties.model_preferences.type, ['object', 'null']);
+  assert.equal(call.input.json_schema.format.schema.properties.nodes.items.additionalProperties, false);
+  assert.equal(call.input.json_schema.format.schema.properties.nodes.items.required.includes('model_preferences'), true);
   const payload = JSON.parse(call.input.prompt);
   assert.deepEqual(Object.keys(payload), [
     'user_request_untrusted',
@@ -1188,6 +1193,22 @@ test('phase 4B Architect catalog exposes all safe non-API schema nodes and utili
   const imageToVideo = catalog.node_types.find((node) => node.capability === 'image_to_video');
   assert.ok(imageToVideo);
   assert.equal(imageToVideo.operation_modes.includes('image_to_video'), true);
+});
+
+test('model prompt catalog stays curated and compact', () => {
+  const catalog = buildArchitectCapabilityCatalog('replicate');
+  const promptCatalog = buildModelPromptCapabilityCatalog(catalog);
+  const modelIds = promptCatalog.node_types.map((node) => node.model_id);
+  const curatedIds = new Set(Object.values(CURATED_MODEL_PROFILES).flat().map((profile) => profile.modelId));
+
+  assert.ok(catalog.node_types.length > promptCatalog.node_types.length);
+  assert.equal(promptCatalog.node_types.length, curatedIds.size + 4);
+  for (const node of promptCatalog.node_types) {
+    assert.equal(curatedIds.has(node.model_id) || node.model_id.endsWith('-passthrough'), true);
+  }
+  assert.ok(modelIds.includes('text-passthrough'));
+  assert.ok(modelIds.includes('seedance-2-0-mini'));
+  assert.ok(JSON.stringify(promptCatalog).length < 50000);
 });
 
 test('phase 4B compiles utility capability IR and round-trips through all workflow adapters', () => {
