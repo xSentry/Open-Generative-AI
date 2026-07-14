@@ -1,13 +1,51 @@
 import { Worker } from 'bullmq';
 import { loadAppEnv } from './load-env.js';
 import { getBullMqPrefix, getRedisConnection, closeRedisConnection } from '../modules/queue/server/redis.js';
+import { createFinalAttemptWorkerLog, createWorkerLog } from '../modules/queue/server/workerLogs.js';
 import { processArchitectJob } from '../modules/workflow-architect/infrastructure/worker.js';
+import {
+  publishUserEvent,
+  workflowArchitectJobEvent,
+} from '../modules/events/server/publisher.js';
 
 loadAppEnv();
 
 function readConcurrency(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+async function saveFinalFailureLog(job, data) {
+  try {
+    await createFinalAttemptWorkerLog(job, { type: 'error', data });
+  } catch (error) {
+    console.error('[workflow-architect-worker] failed to persist worker log', {
+      jobId: job?.id,
+      error: error?.message || error,
+    });
+  }
+}
+
+async function saveHandledFailureLog(data) {
+  try {
+    await createWorkerLog({ type: 'error', data });
+  } catch (error) {
+    console.error('[workflow-architect-worker] failed to persist worker log', {
+      jobId: data?.jobId,
+      error: error?.message || error,
+    });
+  }
+}
+
+function architectEventForJob(job, overrides = {}) {
+  return workflowArchitectJobEvent({
+    userId: job?.data?.userId,
+    workflowId: job?.data?.workflowId,
+    conversationId: job?.data?.conversationId,
+    jobId: job?.data?.jobId,
+    operation: job?.data?.operation,
+    ...overrides,
+  });
 }
 
 const env = process.env;
@@ -22,10 +60,41 @@ const worker = new Worker(
       architectJobId: job.data.jobId,
       attempt: job.attemptsMade + 1,
     });
-    await processArchitectJob(job.data.jobId);
+    await publishUserEvent(job.data.userId, architectEventForJob(job, {
+      queueStatus: 'active',
+      status: 'running',
+    }), env);
+    const result = await processArchitectJob(job.data.jobId);
+    if (result?.job?.status === 'failed' || result?.status === 'failed') {
+      const error = result?.job?.errorMessageRedacted || result?.errorMessageRedacted || 'Workflow Architect job failed.';
+      const code = result?.job?.errorCode || result?.errorCode || 'ARCHITECT_JOB_FAILED';
+      const logData = {
+        jobId: job.id,
+        architectJobId: job.data.jobId,
+        workflowId: job.data.workflowId,
+        operation: job.data.operation,
+        attempt: job.attemptsMade + 1,
+        error,
+        code,
+      };
+      await saveHandledFailureLog(logData);
+      await publishUserEvent(job.data.userId, architectEventForJob(job, {
+        queueStatus: 'failed',
+        status: 'failed',
+        error,
+      }), env);
+      console.error('[workflow-architect-worker] job failed', logData);
+      return;
+    }
+    await publishUserEvent(job.data.userId, architectEventForJob(job, {
+      queueStatus: 'completed',
+      status: 'completed',
+      proposalId: result?.proposal?.id,
+    }), env);
     console.log('[workflow-architect-worker] job complete', {
       jobId: job.id,
       architectJobId: job.data.jobId,
+      proposalId: result?.proposal?.id,
     });
   },
   {
@@ -35,12 +104,22 @@ const worker = new Worker(
   }
 );
 
-worker.on('failed', (job, error) => {
-  console.error('[workflow-architect-worker] job failed', {
+worker.on('failed', async (job, error) => {
+  publishUserEvent(job?.data?.userId, architectEventForJob(job, {
+    queueStatus: 'failed',
+    status: 'failed',
+    error: error?.message || String(error),
+  }), env).catch(() => {});
+  const logData = {
     jobId: job?.id,
     architectJobId: job?.data?.jobId,
+    workflowId: job?.data?.workflowId,
+    operation: job?.data?.operation,
+    attempt: job?.attemptsMade,
     error: error?.message || error,
-  });
+  };
+  await saveFinalFailureLog(job, logData);
+  console.error('[workflow-architect-worker] job failed', logData);
 });
 
 console.log('[workflow-architect-worker] started', {

@@ -124,6 +124,7 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
     },
     appendArchitectEvent: async (event) => calls.push(['event', event]),
     enqueueJob: async (job) => calls.push(['enqueue', job]),
+    publishArchitectEvent: async (event) => calls.push(['publish', event]),
   };
 
   const response = await handleWorkflowArchitect(
@@ -146,7 +147,7 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
   assert.equal(body.job.id, 'job-1');
   assert.equal(body.job.workflow_id, 'wf-1');
   assert.equal(body.job.conversation_id, 'conversation-1');
-  assert.deepEqual(calls.map((call) => call[0]), ['message', 'create', 'event', 'enqueue', 'message']);
+  assert.deepEqual(calls.map((call) => call[0]), ['message', 'create', 'event', 'enqueue', 'publish', 'message']);
   assert.equal(calls[1][1].userId, 'user-9');
   assert.equal(calls[1][1].provider, 'replicate');
   assert.equal(calls[1][1].conversationId, 'conversation-1');
@@ -164,6 +165,15 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
     replace_edge_ids: null,
     disconnect_edge_ids: null,
     connections: null,
+  });
+  assert.deepEqual(calls[4][1], {
+    userId: 'user-9',
+    workflowId: 'wf-1',
+    conversationId: 'conversation-1',
+    jobId: 'job-1',
+    operation: 'edit',
+    status: 'queued',
+    queueStatus: 'queued',
   });
 });
 

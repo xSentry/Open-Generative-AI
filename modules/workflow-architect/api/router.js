@@ -259,6 +259,15 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
         payloadRedacted: {},
       });
       await impl.enqueueJob?.(job);
+      await impl.publishArchitectEvent?.({
+        userId,
+        workflowId: job.workflowId,
+        conversationId: job.conversationId,
+        jobId: job.id,
+        operation: job.operation,
+        status: job.status,
+        queueStatus: 'queued',
+      });
       if (userMessage?.id) {
         await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
           conversationId: conversation.id,

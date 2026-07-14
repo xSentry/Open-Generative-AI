@@ -30,6 +30,7 @@ export async function enqueueWorkflowArchitectJob(job, options = {}) {
     jobId,
     userId: job?.userId || options.userId || null,
     workflowId: job?.workflowId || options.workflowId || null,
+    conversationId: job?.conversationId || options.conversationId || null,
     operation: job?.operation || options.operation || null,
     provider: job?.provider || options.provider || null,
     createdAt: job?.createdAt || new Date().toISOString(),

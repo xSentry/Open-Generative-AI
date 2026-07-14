@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { FaCheck, FaClipboard, FaHistory, FaMagic, FaTimes, FaUndo } from "react-icons/fa";
 import { toast } from "react-hot-toast";
+import { subscribeWorkflowArchitectJobs } from "./workflowStream";
 
 const formatChangeCount = (diff = {}) =>
   Object.values(diff).reduce((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0);
@@ -152,6 +153,25 @@ export default function WorkflowArchitectButton({
   }, [job?.id, job?.status]);
 
   useEffect(() => {
+    if (!job?.id || terminalJobStatuses.includes(job.status)) return undefined;
+    let cancelled = false;
+    const unsubscribe = subscribeWorkflowArchitectJobs((event) => {
+      if (event.jobId !== job.id) return;
+      refreshJob(job.id).then((nextJob) => {
+        if (!cancelled && terminalJobStatuses.includes(nextJob?.status)) {
+          refreshConversation(nextJob.conversation_id).catch(() => {});
+        }
+      }).catch(() => {
+        if (!cancelled) toast.error("Failed to refresh Architect job.");
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [job?.id, job?.status]);
+
+  useEffect(() => {
     if (open) refreshConversation().catch(() => {});
   }, [open, workflowId]);
 
@@ -256,6 +276,7 @@ export default function WorkflowArchitectButton({
   const summaryWarnings = list(proposal?.summary?.warnings);
   const assumptions = list(proposal?.summary?.assumptions);
   const suggestions = followUpSuggestions(proposal, workflowRevision);
+  const assistantPending = !!job && !terminalJobStatuses.includes(job.status);
 
   return (
     <div className="fixed right-4 bottom-4 z-30">
@@ -289,6 +310,24 @@ export default function WorkflowArchitectButton({
                     </div>
                   </div>
                 ))}
+                {assistantPending && (
+                  <div className="text-xs">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">assistant</span>
+                    <div className="mt-1 flex items-center gap-2 text-gray-400">
+                      <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                      <span>Working on your request...</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {messages.length === 0 && assistantPending && (
+              <div className="rounded-md border border-gray-800 bg-[#0f1115] p-2 text-xs">
+                <span className="text-[10px] uppercase tracking-wide text-gray-500">assistant</span>
+                <div className="mt-1 flex items-center gap-2 text-gray-400">
+                  <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                  <span>Working on your request...</span>
+                </div>
               </div>
             )}
             <textarea

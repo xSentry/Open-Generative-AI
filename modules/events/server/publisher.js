@@ -51,3 +51,29 @@ export function workflowRunEvent({
     updatedAt: new Date().toISOString(),
   };
 }
+
+export function workflowArchitectJobEvent({
+  userId,
+  workflowId,
+  conversationId,
+  jobId,
+  operation,
+  status,
+  queueStatus,
+  proposalId,
+  error,
+}) {
+  return {
+    type: 'workflow.architect.job.updated',
+    userId,
+    workflowId: workflowId || null,
+    conversationId: conversationId || null,
+    jobId,
+    operation: operation || null,
+    status: status || null,
+    queueStatus: queueStatus || null,
+    proposalId: proposalId || null,
+    error: error || null,
+    updatedAt: new Date().toISOString(),
+  };
+}
