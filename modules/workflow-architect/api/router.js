@@ -313,6 +313,12 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
       return json({ messages: (messages || []).map(publicMessage) });
     }
 
+    if (method === 'DELETE' && path[0] === 'conversations' && path[1]) {
+      const conversation = await impl.archiveArchitectConversation?.(path[1], { userId });
+      if (!conversation) return json({ error: 'Not found' }, 404);
+      return json({ conversation: publicConversation(conversation), deleted: true });
+    }
+
     if (method === 'GET' && path[0] === 'jobs' && path[1] && path[2] === 'events') {
       const after = new URL(request.url).searchParams.get('after') || 0;
       const events = await impl.listArchitectEvents(path[1], { userId, afterSequence: after });

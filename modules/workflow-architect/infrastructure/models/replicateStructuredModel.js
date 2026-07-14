@@ -3,7 +3,7 @@ import { createWorkflowIrJsonSchema } from '../../domain/architectIrSchema.js';
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
 export const ARCHITECT_REPLICATE_MODEL_REF = 'openai/gpt-5-structured';
-export const ARCHITECT_GPT_MODEL = 'gpt-5.6-luna';
+export const ARCHITECT_GPT_MODEL = 'gpt-5-mini';
 
 export const ARCHITECT_POLICY_TRUSTED = {
   version: 'workflow-architect-policy/v1',

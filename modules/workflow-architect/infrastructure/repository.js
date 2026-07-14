@@ -303,6 +303,17 @@ export async function listArchitectMessages(conversationId, { userId, limit = 50
   return result.rows.map(mapMessage);
 }
 
+export async function archiveArchitectConversation(conversationId, { userId }) {
+  const result = await query(
+    `update workflow_architect_conversations
+        set status = 'archived', updated_at = now()
+      where id = $1 and user_id = $2 and status = 'active'
+      returning id, user_id, workflow_id, provider, title, status, created_at, updated_at`,
+    [conversationId, userId]
+  );
+  return mapConversation(result.rows[0]);
+}
+
 export async function listArchitectHistory({ userId, workflowId = null, limit = 20 }) {
   const params = [userId, Math.min(Math.max(Number(limit) || 20, 1), 50)];
   const workflowFilter = workflowId ? 'and j.workflow_id = $3' : '';

@@ -250,6 +250,37 @@ test('GET conversation messages returns redacted persisted chat', async () => {
   assert.equal(body.messages[0].content_redacted, 'Validate current workflow');
 });
 
+test('DELETE conversation archives the Architect chat for reset', async () => {
+  const deps = {
+    archiveArchitectConversation: async (conversationId, input) => {
+      assert.equal(conversationId, 'conversation-1');
+      assert.equal(input.userId, 'user-1');
+      return {
+        id: conversationId,
+        workflowId: 'wf-1',
+        provider: 'replicate',
+        title: 'Workflow Architect',
+        status: 'archived',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:01:00.000Z',
+      };
+    },
+  };
+
+  const response = await handleWorkflowArchitect(
+    request('http://test.local/api/workflow-architect/conversations/conversation-1'),
+    routeCtx(['conversations', 'conversation-1']),
+    'DELETE',
+    ctxFor('user-1'),
+    deps
+  );
+
+  assert.equal(response.status, 200);
+  const body = await readJson(response);
+  assert.equal(body.deleted, true);
+  assert.equal(body.conversation.status, 'archived');
+});
+
 test('POST jobs accepts fixture proposal payload for async Phase 1 processing', async () => {
   const patch = createWorkflowPatch({
     baseRevision: 4,
@@ -768,7 +799,7 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
   assert.equal(result.proposal.patch.operations.some((op) => op.op === 'connect'), true);
 });
 
-test('structured Replicate model uses saved user key and hardcoded GPT-5.6 Luna input', async () => {
+test('structured Replicate model uses saved user key and configured GPT input', async () => {
   let call;
   const ir = await generateCreateWorkflowIr({
     userRequest: 'Create an image workflow.',
@@ -806,7 +837,6 @@ test('structured Replicate model uses saved user key and hardcoded GPT-5.6 Luna 
 
   assert.equal(call.apiKey, 'r8_user_saved_key');
   assert.equal(call.input.model, ARCHITECT_GPT_MODEL);
-  assert.equal(call.input.model, 'gpt-5.6-luna');
   assert.equal(call.input.reasoning_effort, 'minimal');
   assert.equal(call.input.verbosity, 'low');
   assert.equal(call.input.enable_web_search, false);
@@ -1349,7 +1379,7 @@ test('phase 4B expanded parameters treat prompt injection as data and reject sec
   );
 });
 
-test('structured Replicate prediction posts to the hardcoded model endpoint', async () => {
+test('structured Replicate prediction posts to the configured model endpoint', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   try {
@@ -1380,7 +1410,7 @@ test('structured Replicate prediction posts to the hardcoded model endpoint', as
     assert.equal(ARCHITECT_REPLICATE_MODEL_REF, 'openai/gpt-5-structured');
     assert.equal(calls[0].url, 'https://api.replicate.com/v1/models/openai/gpt-5-structured/predictions');
     assert.equal(calls[0].options.headers.Authorization, 'Bearer r8_user_saved_key');
-    assert.equal(JSON.parse(calls[0].options.body).input.model, 'gpt-5.6-luna');
+    assert.equal(JSON.parse(calls[0].options.body).input.model, ARCHITECT_GPT_MODEL);
   } finally {
     globalThis.fetch = originalFetch;
   }
