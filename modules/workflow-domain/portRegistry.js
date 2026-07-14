@@ -145,6 +145,23 @@ export function targetHandleForPort(port, node = null) {
   if (node?.nodeType === 'vidConcatNode' && port === 'videos_list') return 'videoInput7';
   if (node?.nodeType === 'utilityNode') return port;
   if (node?.nodeType === 'apiNode' && port !== 'prompt') return port;
+  const category = node?.category || categoryFromNodeType(node?.nodeType);
+  if (port === 'prompt') {
+    if (category === 'image') return 'imageInput';
+    if (category === 'video') return 'videoInput';
+    if (category === 'audio') return 'audioInput2';
+  }
+  if (port === 'image_url') {
+    if (category === 'image') return 'imageInput3';
+    if (category === 'video') return 'videoInput2';
+    if (category === 'audio') return 'audioInput3';
+  }
+  if (port === 'images_list') {
+    if (category === 'image') return 'imageInput2';
+    if (category === 'video') return 'videoInput6';
+  }
+  if (port === 'video_url' && category === 'audio') return 'audioInput4';
+  if (port === 'audio_url' && category === 'video') return 'videoInput5';
   return DEFAULT_TARGET_HANDLE_BY_PORT[port] || port;
 }
 

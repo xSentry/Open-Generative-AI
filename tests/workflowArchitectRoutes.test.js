@@ -801,7 +801,9 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
 });
 
 test('structured Replicate model uses saved user key and configured GPT input', async () => {
-  let call;
+  assert.equal(ARCHITECT_GPT_MODEL, 'gpt-5');
+  const calls = [];
+  const catalog = buildArchitectCapabilityCatalog('replicate');
   const ir = await generateCreateWorkflowIr({
     userRequest: 'Create an image workflow.',
     apiKey: 'r8_user_saved_key',
@@ -811,56 +813,38 @@ test('structured Replicate model uses saved user key and configured GPT input', 
       WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS: '3',
       WORKFLOW_ARCHITECT_MODEL_POLL_MS: '0',
     },
-    catalog: {
-      version: 'replicate-architect-catalog/v2',
-      provider: 'replicate',
-      node_types: [],
-      connection_rules: [],
-      compact: [{ category: 'image', model_id: 'nano-banana-2' }],
-    },
+    catalog,
     runPrediction: async (input) => {
-      call = input;
-      return {
-        version: 'workflow-architect-ir/v1',
+      calls.push(input);
+      if (calls.length === 1) return {
+        version: 'workflow-architect-assembly/v1',
         operation: 'create_workflow',
         workflow_name: 'Generated',
-        target_category: 'image',
-        nodes: [
-          { ref: 'prompt', role: 'input', capability: 'text', prompt: 'A generated prompt' },
-          { ref: 'image', role: 'generation', capability: 'image' },
-        ],
-        connections: [
-          { from_ref: 'prompt', from_capability: 'text', to_ref: 'image', to_capability: 'image', to_port: 'prompt' },
-        ],
+        path_id: 'text-to-image',
+        input_values: [{ node_id: 'prompt', value: 'A realistic generated image.' }],
+        assumptions: [],
       };
+      return { version: 'workflow-model-selection/v1', nodes: [
+        { id: 'prompt', model_id: 'text-passthrough' },
+        { id: 'output', model_id: 'gpt-image-2' },
+      ] };
     },
   });
 
-  assert.equal(call.apiKey, 'r8_user_saved_key');
-  assert.equal(call.input.model, ARCHITECT_GPT_MODEL);
-  assert.equal(call.input.reasoning_effort, 'minimal');
-  assert.equal(call.input.verbosity, 'low');
-  assert.equal(call.input.enable_web_search, false);
-  assert.equal(Object.hasOwn(call.input, 'max_output_tokens'), false);
-  assert.equal(call.maxAttempts, 3);
-  assert.equal(call.interval, 0);
-  assert.equal(call.input.json_schema.format.type, 'json_schema');
-  assert.equal(call.input.json_schema.format.name, 'workflow_architect_ir');
-  assert.equal(call.input.json_schema.format.schema.properties.operation.enum[0], 'create_workflow');
-  assert.deepEqual(call.input.json_schema.format.schema.properties.nodes.items.properties.model_preferences.type, ['object', 'null']);
-  assert.equal(call.input.json_schema.format.schema.properties.nodes.items.additionalProperties, false);
-  assert.equal(call.input.json_schema.format.schema.properties.nodes.items.required.includes('model_preferences'), true);
-  const payload = JSON.parse(call.input.prompt);
-  assert.deepEqual(Object.keys(payload), [
-    'user_request_untrusted',
-    'workflow_data_untrusted',
-    'selected_subgraph_untrusted',
-    'capability_catalog_trusted',
-    'architect_policy_trusted',
-  ]);
-  assert.equal(payload.user_request_untrusted, 'Create an image workflow.');
-  assert.equal(payload.architect_policy_trusted.hard_rules.some((rule) => rule.includes('server will select curated models')), true);
-  assert.equal(ir.nodes[1].capability, 'image');
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.apiKey, 'r8_user_saved_key'); assert.equal(call.input.model, ARCHITECT_GPT_MODEL);
+    assert.deepEqual(Object.keys(call.input).sort(), ['instructions', 'json_schema', 'model', 'prompt']);
+    assert.equal(call.maxAttempts, 3); assert.equal(call.interval, 0);
+  }
+  assert.equal(calls[0].input.json_schema.format.name, 'workflow_architect_assembly');
+  assert.equal(calls[1].input.json_schema.format.name, 'workflow_model_selection');
+  const plannerPayload = JSON.parse(calls[0].input.prompt); const configurationPayload = JSON.parse(calls[1].input.prompt);
+  assert.deepEqual(Object.keys(plannerPayload), ['user_request_untrusted', 'workflow_path_options_trusted', 'planner_policy_trusted']);
+  assert.deepEqual(Object.keys(configurationPayload), ['user_request_untrusted', 'validated_plan_trusted', 'curated_model_options_trusted', 'model_selection_policy_trusted']);
+  assert.equal(JSON.stringify(plannerPayload).includes('gpt-image-2'), false);
+  assert.equal(configurationPayload.curated_model_options_trusted.nodes.some((node) => node.node_id === 'output' && node.models.some((model) => model.model_id === 'gpt-image-2')), true);
+  assert.equal(ir.nodes[1].model_id, 'gpt-image-2');
 });
 
 test('phase 4A rejects legacy top-level model_id create IR', async () => {
@@ -1012,6 +996,37 @@ test('phase 4A normalizes rich IR with server-owned model selection and compiles
   assert.equal(connect.source.port, 'text');
   assert.equal(connect.target.port, 'prompt');
   assert.equal(added[1].node.modelId, 'nano-banana-2');
+});
+
+test('phase 4A repairs model-sloppy refs and missing text input before validation', () => {
+  const catalog = buildArchitectCapabilityCatalog('replicate');
+  const normalized = normalizeCreateWorkflowIr({
+    version: 'workflow-architect-ir/v1',
+    operation: 'create_workflow',
+    workflow_name: 'Shorts workflow',
+    target_category: 'video',
+    nodes: [
+      { ref: '1. Rough Idea', role: 'generation', capability: 'text_generation', operation_mode: null, title: null, prompt: null, parameters: null, model_preferences: null },
+      { ref: 'Image Generation Node', role: 'generation', capability: 'image_generation', operation_mode: null, title: null, prompt: null, parameters: null, model_preferences: null },
+      { ref: 'Video Generation Node', role: 'generation', capability: 'image_to_video', operation_mode: null, title: null, prompt: null, parameters: null, model_preferences: null },
+    ],
+    connections: [
+      { from_ref: '1. Rough Idea', to_ref: 'Image Generation Node', to_port: 'prompt', from_capability: null, to_capability: null },
+      { from_ref: 'Image Generation Node', to_ref: 'Video Generation Node', to_port: 'image_url', from_capability: null, to_capability: null },
+    ],
+    assumptions: [],
+  }, {
+    userRequest: 'Create a youtube shorts workflow from a rough input idea.',
+    catalog,
+  });
+
+  assert.equal(normalized.nodes[0].role, 'input');
+  assert.equal(normalized.nodes[0].capability, 'text');
+  assert.match(normalized.nodes[0].ref, /^[a-z][a-z0-9_-]{1,39}$/i);
+  assert.equal(normalized.nodes.some((node) => node.role === 'input' && node.capability === 'text'), true);
+  assert.equal(normalized.connections.length, 3);
+  assert.equal(normalized.connections[0].from_ref, normalized.nodes[0].ref);
+  assert.ok(normalized.connections.some((connection) => connection.from_ref === 'node-1-rough-idea'));
 });
 
 test('phase 4A composes generation-to-generation media chains with semantic ports', async () => {

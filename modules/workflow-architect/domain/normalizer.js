@@ -87,7 +87,106 @@ function promptFromIrNode(node, userRequest) {
   return clampString(node?.prompt, userRequest || 'Generate a creative result.', MAX_PROMPT_LENGTH);
 }
 
+function repairCreateWorkflowIr(rawIr, { userRequest } = {}) {
+  if (!rawIr || typeof rawIr !== 'object' || Array.isArray(rawIr)) return rawIr;
+  const repaired = {
+    version: rawIr.version,
+    operation: rawIr.operation,
+    workflow_name: rawIr.workflow_name,
+    target_category: rawIr.target_category,
+    connections: Array.isArray(rawIr.connections) ? rawIr.connections : [],
+    assumptions: Array.isArray(rawIr.assumptions) ? rawIr.assumptions : [],
+    nodes: Array.isArray(rawIr.nodes)
+      ? rawIr.nodes
+          .filter((node) => node && typeof node === 'object' && !Array.isArray(node))
+          .slice(0, 6)
+          .map((node) => ({ ...node }))
+      : rawIr.nodes,
+  };
+
+  if (!Array.isArray(repaired.nodes)) return repaired;
+
+  const refs = new Set();
+  const refMap = new Map();
+  repaired.nodes = repaired.nodes.map((node, index) => {
+    const rawRef = typeof node.ref === 'string' ? node.ref : '';
+    const ref = uniqueRef(sanitizeRef(rawRef, `node-${index + 1}`), refs);
+    if (rawRef) refMap.set(rawRef, ref);
+    return { ...node, ref };
+  });
+
+  let repairedTextInputRef = null;
+  const hasTextInput = repaired.nodes.some((node) => node.role === 'input' && node.capability === 'text');
+  if (!hasTextInput) {
+    const textInput = {
+      ref: uniqueRef('prompt', refs),
+      role: 'input',
+      capability: 'text',
+      operation_mode: 'input',
+      title: 'Prompt',
+      prompt: userRequest || '',
+      parameters: {},
+      model_preferences: null,
+    };
+    const inputIndex = repaired.nodes.findIndex((node) => node.role === 'input');
+    if (inputIndex >= 0) {
+      repaired.nodes[inputIndex] = { ...repaired.nodes[inputIndex], ...textInput, ref: repaired.nodes[inputIndex].ref };
+      repairedTextInputRef = repaired.nodes[inputIndex].ref;
+    } else if (repaired.nodes.length < 6) {
+      repaired.nodes.unshift(textInput);
+      repairedTextInputRef = textInput.ref;
+    } else if (repaired.nodes.length > 0) {
+      repaired.nodes[0] = { ...repaired.nodes[0], ...textInput, ref: repaired.nodes[0].ref };
+      repairedTextInputRef = repaired.nodes[0].ref;
+    }
+  }
+
+  repaired.nodes = repaired.nodes.map((node) => ({
+    ...node,
+    operation_mode: node.operation_mode ?? null,
+    title: node.title ?? null,
+    prompt: node.prompt ?? null,
+    parameters: node.parameters ?? null,
+    model_preferences: node.model_preferences ?? null,
+  }));
+
+  repaired.connections = repaired.connections
+    .filter((connection) => connection && typeof connection === 'object' && !Array.isArray(connection))
+    .slice(0, 8)
+    .map((connection) => ({
+      ...connection,
+      from_ref: refMap.get(connection.from_ref) || connection.from_ref,
+      to_ref: refMap.get(connection.to_ref) || connection.to_ref,
+      from_capability: connection.from_capability ?? null,
+      to_capability: connection.to_capability ?? null,
+      to_port: connection.to_port ?? null,
+    }));
+
+  if (repairedTextInputRef) {
+    const firstPlannedNode = repaired.nodes.find((node) =>
+      node.ref !== repairedTextInputRef && (node.role === 'generation' || node.role === 'utility')
+    );
+    if (
+      firstPlannedNode &&
+      !repaired.connections.some((connection) =>
+        connection.from_ref === repairedTextInputRef && connection.to_ref === firstPlannedNode.ref
+      )
+    ) {
+      repaired.connections.unshift({
+        from_ref: repairedTextInputRef,
+        from_capability: 'text',
+        to_ref: firstPlannedNode.ref,
+        to_capability: firstPlannedNode.capability,
+        to_port: 'prompt',
+      });
+    }
+  }
+
+  return repaired;
+}
+
 function normalizeRichCreateWorkflowIr(rawIr, { userRequest, catalog }) {
+  rawIr = repairCreateWorkflowIr(rawIr, { userRequest });
   const validation = validateCreateWorkflowIr(rawIr, { catalog });
   if (!validation.valid) {
     const error = new Error(validation.errors.map((item) => item.message).join('; '));

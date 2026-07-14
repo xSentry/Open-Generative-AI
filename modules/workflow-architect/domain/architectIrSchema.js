@@ -122,7 +122,7 @@ export function createWorkflowIrJsonSchema(catalog) {
           type: 'object',
           additionalProperties: false,
           properties: {
-            ref: { type: 'string', minLength: 2, maxLength: 40 },
+            ref: { type: 'string', minLength: 2, maxLength: 40, pattern: '^[A-Za-z][A-Za-z0-9_-]{1,39}$' },
             role: { type: 'string', enum: [...NODE_ROLES] },
             capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
             operation_mode: { type: ['string', 'null'], enum: [...NODE_OPERATION_MODES, null] },

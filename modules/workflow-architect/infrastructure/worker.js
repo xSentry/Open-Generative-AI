@@ -33,6 +33,7 @@ export async function processArchitectJob(jobId, deps = {}) {
   const getWorkflow = deps.getArchitectWorkflow || getArchitectWorkflow;
   const buildSchemas = deps.buildNodeSchemas || buildNodeSchemas;
   const generateIr = deps.generateCreateWorkflowIr || generateCreateWorkflowIr;
+  const generateIrReturnsHydrated = deps.generateIrReturnsHydrated ?? !deps.generateCreateWorkflowIr;
   const getReplicateApiKey = deps.getUserReplicateApiKey || getUserReplicateApiKey;
 
   const job = await markRunning(jobId);
@@ -233,7 +234,7 @@ export async function processArchitectJob(jobId, deps = {}) {
       throw error;
     }
 
-    const rawIr = await generateIr({
+    const generatedIr = await generateIr({
       userRequest: context.request.prompt,
       catalog,
       apiKey,
@@ -246,7 +247,7 @@ export async function processArchitectJob(jobId, deps = {}) {
       payloadRedacted: {},
     });
 
-    const ir = normalizeCreateWorkflowIr(rawIr, {
+    const ir = generateIrReturnsHydrated ? generatedIr : normalizeCreateWorkflowIr(generatedIr, {
       userRequest: context.request.prompt,
       catalog,
     });
