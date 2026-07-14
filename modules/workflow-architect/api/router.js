@@ -25,6 +25,8 @@ function publicJob(job) {
   return {
     id: job.id,
     workflow_id: job.workflowId,
+    conversation_id: job.conversationId,
+    parent_message_id: job.parentMessageId,
     base_revision: job.baseRevision,
     operation: job.operation,
     status: job.status,
@@ -37,6 +39,59 @@ function publicJob(job) {
     expires_at: job.expiresAt,
     error_code: job.errorCode,
     error_message: job.errorMessageRedacted,
+  };
+}
+
+function publicConversation(conversation) {
+  if (!conversation) return null;
+  return {
+    id: conversation.id,
+    workflow_id: conversation.workflowId,
+    provider: conversation.provider,
+    title: conversation.title,
+    status: conversation.status,
+    created_at: conversation.createdAt,
+    updated_at: conversation.updatedAt,
+  };
+}
+
+function publicMessage(message) {
+  if (!message) return null;
+  return {
+    id: message.id,
+    conversation_id: message.conversationId,
+    role: message.role,
+    content_redacted: message.contentRedacted,
+    job_id: message.jobId,
+    proposal_id: message.proposalId,
+    metadata_redacted: message.metadataRedacted,
+    created_at: message.createdAt,
+  };
+}
+
+function publicHistoryItem(item) {
+  return {
+    job: publicJob({
+      id: item.job.id,
+      workflowId: item.job.workflowId,
+      conversationId: item.job.conversationId,
+      baseRevision: item.job.baseRevision,
+      operation: item.job.operation,
+      status: item.job.status,
+      request: item.job.request,
+      createdAt: item.job.createdAt,
+      completedAt: item.job.completedAt,
+    }),
+    proposal: item.proposal
+      ? publicProposal({
+          id: item.proposal.id,
+          status: item.proposal.status,
+          summary: item.proposal.summary,
+          validation: item.proposal.validation,
+          diff: item.proposal.diff,
+          createdAt: item.proposal.createdAt,
+        })
+      : null,
   };
 }
 
@@ -107,6 +162,21 @@ function architectRequestForBody(body, requestText) {
   };
 }
 
+function fallbackMessageForOperation(operation = 'edit') {
+  if (operation === 'create') return 'Create workflow proposal request.';
+  if (operation === 'explain') return 'Explain current workflow.';
+  if (operation === 'validate') return 'Validate current workflow.';
+  return 'Edit workflow proposal request.';
+}
+
+async function tryConversationSideEffect(fn) {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
 export async function handleWorkflowArchitect(request, { params }, method, ctx, deps = {}) {
   const impl = {
     ...repository,
@@ -145,10 +215,31 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
           },
         }, 400);
       }
+      const conversation = await tryConversationSideEffect(() => impl.ensureArchitectConversation?.({
+          userId,
+          workflowId: body.workflow_id || null,
+          provider,
+          conversationId: body.conversation_id || null,
+          title: requestText ? requestText.slice(0, 80) : 'Workflow Architect',
+        }));
+      const userMessage = conversation
+        ? await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
+            conversationId: conversation.id,
+            userId,
+            role: 'user',
+            contentRedacted: requestText || fallbackMessageForOperation(body.operation || 'edit'),
+            metadataRedacted: {
+              operation: body.operation || 'edit',
+              base_revision: body.base_revision ?? null,
+            },
+          }))
+        : null;
       const job = await impl.createArchitectJob({
         userId,
         provider,
         workflowId: body.workflow_id || null,
+        conversationId: conversation?.id || null,
+        parentMessageId: userMessage?.id || null,
         baseRevision: body.base_revision ?? null,
         operation: body.operation || 'edit',
         idempotencyKey: body.idempotency_key || null,
@@ -168,7 +259,49 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
         payloadRedacted: {},
       });
       await impl.enqueueJob?.(job);
-      return json({ job: publicJob(job) }, 202);
+      if (userMessage?.id) {
+        await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
+          conversationId: conversation.id,
+          userId,
+          role: 'system',
+          contentRedacted: 'Request queued.',
+          jobId: job.id,
+          metadataRedacted: { status: 'queued' },
+        }));
+      }
+      return json({
+        conversation: publicConversation(conversation),
+        message: publicMessage(userMessage),
+        job: publicJob(job),
+      }, 202);
+    }
+
+    if (method === 'GET' && p === 'history') {
+      const url = new URL(request.url);
+      const history = await impl.listArchitectHistory?.({
+        userId,
+        workflowId: url.searchParams.get('workflow_id') || null,
+        limit: url.searchParams.get('limit') || 20,
+      });
+      return json({ history: (history || []).map(publicHistoryItem) });
+    }
+
+    if (method === 'GET' && p === 'conversations') {
+      const url = new URL(request.url);
+      const conversations = await impl.listArchitectConversations?.({
+        userId,
+        workflowId: url.searchParams.get('workflow_id') || null,
+        limit: url.searchParams.get('limit') || 10,
+      });
+      return json({ conversations: (conversations || []).map(publicConversation) });
+    }
+
+    if (method === 'GET' && path[0] === 'conversations' && path[1]) {
+      const messages = await impl.listArchitectMessages?.(path[1], {
+        userId,
+        limit: new URL(request.url).searchParams.get('limit') || 50,
+      });
+      return json({ messages: (messages || []).map(publicMessage) });
     }
 
     if (method === 'GET' && path[0] === 'jobs' && path[1] && path[2] === 'events') {
@@ -213,6 +346,18 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
     if (method === 'POST' && path[0] === 'proposals' && path[2] === 'reject') {
       const proposal = await impl.rejectProposal(path[1], { userId });
       if (!proposal) return json({ error: 'Not found or not pending' }, 404);
+      const job = await tryConversationSideEffect(() => impl.getArchitectJob?.(proposal.jobId, { userId }));
+      if (job?.conversationId) {
+        await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
+          conversationId: job.conversationId,
+          userId,
+          role: 'system',
+          contentRedacted: 'Proposal rejected.',
+          jobId: job.id,
+          proposalId: proposal.id,
+          metadataRedacted: { status: 'rejected' },
+        }));
+      }
       return json({ proposal: publicProposal(proposal) });
     }
 
@@ -226,6 +371,21 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
         catalog: impl.buildNodeSchemas(provider),
       });
       if (!result) return json({ error: 'Not found' }, 404);
+      const job = await tryConversationSideEffect(() => impl.getArchitectJob?.(result.proposal.jobId, { userId }));
+      if (job?.conversationId && !result.idempotent) {
+        await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
+          conversationId: job.conversationId,
+          userId,
+          role: 'system',
+          contentRedacted: 'Proposal accepted and applied.',
+          jobId: job.id,
+          proposalId: result.proposal.id,
+          metadataRedacted: {
+            status: 'accepted',
+            workflow_revision: result.workflow?.revision ?? null,
+          },
+        }));
+      }
       return json({
         proposal: publicProposal(result.proposal),
         workflow: serializeWorkflowDef(result.workflow, userId),

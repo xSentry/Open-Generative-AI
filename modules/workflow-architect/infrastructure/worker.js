@@ -1,5 +1,6 @@
 import {
   appendArchitectEvent,
+  appendArchitectMessage,
   completeArchitectJob,
   createProposalForJob,
   failArchitectJob,
@@ -28,6 +29,7 @@ export async function processArchitectJob(jobId, deps = {}) {
   const completeJob = deps.completeArchitectJob || completeArchitectJob;
   const createProposal = deps.createProposalForJob || createProposalForJob;
   const appendEvent = deps.appendArchitectEvent || appendArchitectEvent;
+  const appendMessage = deps.appendArchitectMessage || appendArchitectMessage;
   const getWorkflow = deps.getArchitectWorkflow || getArchitectWorkflow;
   const buildSchemas = deps.buildNodeSchemas || buildNodeSchemas;
   const generateIr = deps.generateCreateWorkflowIr || generateCreateWorkflowIr;
@@ -60,6 +62,17 @@ export async function processArchitectJob(jobId, deps = {}) {
       });
 
       const completed = await completeJob(jobId);
+      if (job.conversationId) {
+        await appendMessage({
+          conversationId: job.conversationId,
+          userId: job.userId,
+          role: 'assistant',
+          contentRedacted: proposal?.summary?.message || proposal?.summary?.title || 'Proposal is ready for review.',
+          jobId: job.id,
+          proposalId: proposal?.id,
+          metadataRedacted: { status: 'completed', operation: job.operation || 'edit' },
+        });
+      }
       await appendEvent({
         jobId,
         eventType: 'proposal',
@@ -107,6 +120,17 @@ export async function processArchitectJob(jobId, deps = {}) {
         validation: context.validation,
       });
       const completed = await completeJob(jobId);
+      if (job.conversationId) {
+        await appendMessage({
+          conversationId: job.conversationId,
+          userId: job.userId,
+          role: 'assistant',
+          contentRedacted: summary.message || summary.title || 'Workflow analysis is ready.',
+          jobId: job.id,
+          proposalId: proposal?.id,
+          metadataRedacted: { status: 'completed', operation: job.operation },
+        });
+      }
       await appendEvent({
         jobId,
         eventType: 'proposal',
@@ -152,6 +176,17 @@ export async function processArchitectJob(jobId, deps = {}) {
         validation,
       });
       const completed = await completeJob(jobId);
+      if (job.conversationId) {
+        await appendMessage({
+          conversationId: job.conversationId,
+          userId: job.userId,
+          role: 'assistant',
+          contentRedacted: proposal?.summary?.message || proposal?.summary?.title || 'Edit proposal is ready for review.',
+          jobId: job.id,
+          proposalId: proposal?.id,
+          metadataRedacted: { status: 'completed', operation: job.operation },
+        });
+      }
       await appendEvent({
         jobId,
         eventType: 'proposal',
@@ -238,6 +273,17 @@ export async function processArchitectJob(jobId, deps = {}) {
     });
 
     const completed = await completeJob(jobId);
+    if (job.conversationId) {
+      await appendMessage({
+        conversationId: job.conversationId,
+        userId: job.userId,
+        role: 'assistant',
+        contentRedacted: proposal?.summary?.message || proposal?.summary?.title || 'Workflow proposal is ready for review.',
+        jobId: job.id,
+        proposalId: proposal?.id,
+        metadataRedacted: { status: 'completed', operation: job.operation },
+      });
+    }
     await appendEvent({
       jobId,
       eventType: 'proposal',
@@ -262,6 +308,16 @@ export async function processArchitectJob(jobId, deps = {}) {
       stage: 'failed',
       payloadRedacted: { code },
     });
+    if (job.conversationId) {
+      await appendMessage({
+        conversationId: job.conversationId,
+        userId: job.userId,
+        role: 'assistant',
+        contentRedacted: error?.message || 'Workflow Architect job failed.',
+        jobId: job.id,
+        metadataRedacted: { status: 'failed', code },
+      });
+    }
 
     return failed;
   }

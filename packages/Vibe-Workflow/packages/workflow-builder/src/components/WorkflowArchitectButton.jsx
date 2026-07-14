@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { FaCheck, FaClipboard, FaMagic, FaTimes, FaUndo } from "react-icons/fa";
+import { FaCheck, FaClipboard, FaHistory, FaMagic, FaTimes, FaUndo } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 
 const formatChangeCount = (diff = {}) =>
@@ -42,6 +42,27 @@ const proposalTextSummary = (proposal = {}) => {
   return lines.join("\n");
 };
 
+const terminalJobStatuses = ["completed", "failed", "cancelled", "expired", "superseded"];
+
+const formatTime = (value) => {
+  if (!value) return "";
+  try {
+    return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+};
+
+const followUpSuggestions = (proposal, workflowRevision) => {
+  if (proposal?.status === "pending") {
+    return ["Explain this proposal", "Validate current workflow"];
+  }
+  if (workflowRevision > 1) {
+    return ["Validate current workflow", "Explain current workflow"];
+  }
+  return ["Explain current workflow", "Validate current workflow"];
+};
+
 function PreviewSection({ title, items, format = (item) => item, empty = null }) {
   if (!items?.length && !empty) return null;
   return (
@@ -73,6 +94,9 @@ export default function WorkflowArchitectButton({
   const [job, setJob] = useState(null);
   const [events, setEvents] = useState([]);
   const [proposal, setProposal] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -85,15 +109,40 @@ export default function WorkflowArchitectButton({
     setJob(jobResponse.data.job);
     setProposal(jobResponse.data.proposal || null);
     setEvents(eventsResponse.data.events || []);
+    if (jobResponse.data.job?.conversation_id) {
+      setConversationId(jobResponse.data.job.conversation_id);
+    }
     return jobResponse.data.job;
   };
 
+  const refreshConversation = async (nextConversationId = conversationId) => {
+    if (!workflowId) return;
+    try {
+      const historyResponse = await axios.get(`/api/workflow-architect/history?workflow_id=${workflowId}&limit=8`);
+      setHistory(historyResponse.data.history || []);
+      let activeConversationId = nextConversationId;
+      if (!activeConversationId) {
+        const conversationResponse = await axios.get(`/api/workflow-architect/conversations?workflow_id=${workflowId}&limit=1`);
+        activeConversationId = conversationResponse.data.conversations?.[0]?.id || null;
+        if (activeConversationId) setConversationId(activeConversationId);
+      }
+      if (activeConversationId) {
+        const messagesResponse = await axios.get(`/api/workflow-architect/conversations/${activeConversationId}?limit=30`);
+        setMessages(messagesResponse.data.messages || []);
+      }
+    } catch {
+      // History is helpful, but proposal creation/review should keep working if it fails.
+    }
+  };
+
   useEffect(() => {
-    if (!job?.id || ["completed", "failed", "cancelled", "expired", "superseded"].includes(job.status)) return undefined;
+    if (!job?.id || terminalJobStatuses.includes(job.status)) return undefined;
     let cancelled = false;
     const timer = setInterval(() => {
       refreshJob(job.id).catch(() => {
         if (!cancelled) toast.error("Failed to refresh Architect job.");
+      }).then((nextJob) => {
+        if (!cancelled && terminalJobStatuses.includes(nextJob?.status)) refreshConversation(nextJob.conversation_id).catch(() => {});
       });
     }, 1000);
     return () => {
@@ -102,9 +151,13 @@ export default function WorkflowArchitectButton({
     };
   }, [job?.id, job?.status]);
 
-  const createWorkflowProposal = async () => {
-    const requestedWorkflow = request.trim();
-    if (!requestedWorkflow) {
+  useEffect(() => {
+    if (open) refreshConversation().catch(() => {});
+  }, [open, workflowId]);
+
+  const submitArchitectRequest = async (operation = "create", explicitText = null) => {
+    const requestedWorkflow = (explicitText ?? request).trim();
+    if (operation === "create" && !requestedWorkflow) {
       toast.error("Describe the workflow to create.");
       return;
     }
@@ -117,14 +170,17 @@ export default function WorkflowArchitectButton({
       const response = await axios.post("/api/workflow-architect/jobs", {
         workflow_id: workflowId,
         base_revision: workflowRevision,
-        operation: "create",
+        operation,
         request_text: requestedWorkflow,
-        idempotency_key: `architect-create-${workflowId}-${workflowRevision}-${Date.now()}`,
+        conversation_id: conversationId,
+        idempotency_key: `architect-${operation}-${workflowId}-${workflowRevision}-${Date.now()}`,
       });
+      setConversationId(response.data.conversation?.id || response.data.job?.conversation_id || conversationId);
       setJob(response.data.job);
       setProposal(null);
       setEvents([]);
       await refreshJob(response.data.job.id);
+      await refreshConversation(response.data.conversation?.id || response.data.job?.conversation_id || conversationId);
     } catch (error) {
       toast.error(error.response?.data?.error?.message || error.response?.data?.error || "Failed to create proposal.");
     } finally {
@@ -132,12 +188,15 @@ export default function WorkflowArchitectButton({
     }
   };
 
+  const createWorkflowProposal = () => submitArchitectRequest("create");
+
   const rejectProposal = async () => {
     if (!proposal?.id) return;
     try {
       const response = await axios.post(`/api/workflow-architect/proposals/${proposal.id}/reject`, {});
       setProposal(response.data.proposal);
       if (job?.id) refreshJob(job.id).catch(() => {});
+      refreshConversation().catch(() => {});
     } catch (error) {
       toast.error(error.response?.data?.error?.message || "Failed to reject proposal.");
     }
@@ -153,6 +212,7 @@ export default function WorkflowArchitectButton({
       });
       setProposal(response.data.proposal);
       onApplied?.(response.data.workflow);
+      refreshConversation().catch(() => {});
       toast.success("Proposal applied.");
     } catch (error) {
       const err = error.response?.data?.error;
@@ -195,6 +255,7 @@ export default function WorkflowArchitectButton({
   const validationErrors = list(proposal?.validation?.errors);
   const summaryWarnings = list(proposal?.summary?.warnings);
   const assumptions = list(proposal?.summary?.assumptions);
+  const suggestions = followUpSuggestions(proposal, workflowRevision);
 
   return (
     <div className="fixed right-4 bottom-4 z-30">
@@ -213,9 +274,23 @@ export default function WorkflowArchitectButton({
         <div className="absolute right-0 bottom-14 w-[440px] max-w-[calc(100vw-2rem)] bg-[#151618] border border-gray-700 rounded-lg shadow-2xl overflow-hidden text-white">
           <div className="px-4 py-3 border-b border-gray-800">
             <div className="text-sm font-semibold">Workflow Architect</div>
-            <div className="text-[11px] text-gray-400">Create a workflow from an empty canvas</div>
+            <div className="text-[11px] text-gray-400">Plan, explain, validate, and review proposed workflow changes</div>
           </div>
           <div className="p-4 flex flex-col gap-3">
+            {messages.length > 0 && (
+              <div className="max-h-36 overflow-auto rounded-md border border-gray-800 bg-[#0f1115] p-2 flex flex-col gap-2">
+                {messages.slice(-6).map((message) => (
+                  <div key={message.id} className="text-xs">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                      {message.role} {formatTime(message.created_at)}
+                    </span>
+                    <div className={message.role === "user" ? "text-gray-200" : "text-gray-400"}>
+                      {message.content_redacted}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               value={request}
               onChange={(event) => setRequest(event.target.value)}
@@ -233,6 +308,39 @@ export default function WorkflowArchitectButton({
               <FaMagic size={14} />
               {loading ? "Preparing..." : "Create Proposal"}
             </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={() => submitArchitectRequest("explain", request || "Explain current workflow")}
+                disabled={loading || !workflowId}
+                className="rounded-md border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Explain
+              </button>
+              <button
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={() => submitArchitectRequest("validate", request || "Validate current workflow")}
+                disabled={loading || !workflowId}
+                className="rounded-md border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Validate
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  suppressHydrationWarning={true}
+                  onClick={() => setRequest(suggestion)}
+                  className="rounded-md border border-gray-800 px-2 py-1 text-[11px] text-gray-300 hover:bg-gray-800"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
 
             {job && (
               <div className="rounded-md border border-gray-700 bg-[#0f1115] p-3">
@@ -340,6 +448,40 @@ export default function WorkflowArchitectButton({
                 {proposal.status !== "pending" && (
                   <div className="text-[11px] uppercase tracking-wide text-gray-500">Status: {proposal.status}</div>
                 )}
+              </div>
+            )}
+
+            {history.length > 0 && (
+              <div className="rounded-md border border-gray-700 bg-[#0f1115] p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-200">
+                  <FaHistory size={12} />
+                  Request history
+                </div>
+                <div className="max-h-32 overflow-auto flex flex-col gap-2">
+                  {history.map((item) => (
+                    <button
+                      key={item.job.id}
+                      type="button"
+                      suppressHydrationWarning={true}
+                      onClick={() => {
+                        setJob(item.job);
+                        if (item.job.conversation_id) setConversationId(item.job.conversation_id);
+                        if (item.proposal?.id) {
+                          axios.get(`/api/workflow-architect/proposals/${item.proposal.id}`).then((response) => {
+                            setProposal(response.data.proposal);
+                          }).catch(() => {});
+                        }
+                      }}
+                      className="text-left rounded-md border border-gray-800 px-2 py-2 hover:bg-gray-800"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-200">{item.proposal?.summary?.title || item.job.operation}</span>
+                        <span className="text-[10px] uppercase tracking-wide text-gray-500">{item.proposal?.status || item.job.status}</span>
+                      </div>
+                      <div className="text-[11px] text-gray-500">{formatTime(item.job.created_at)}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

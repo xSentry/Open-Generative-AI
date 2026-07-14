@@ -10,7 +10,8 @@ export const ARCHITECT_COMPILER_VERSION = 'workflow-architect-compiler/v1';
 export const DEFAULT_CATALOG_VERSION = 'replicate-architect-catalog/v1';
 
 const JOB_COLUMNS = `
-  id, user_id, workflow_id, base_revision, operation, status, provider,
+  id, user_id, workflow_id, conversation_id, parent_message_id,
+  base_revision, operation, status, provider,
   catalog_version, schema_version, idempotency_key, request_json, attempt_count,
   model_call_count, error_code, error_message_redacted, created_at,
   started_at, completed_at, expires_at
@@ -35,6 +36,8 @@ function mapJob(row) {
     id: row.id,
     userId: row.user_id,
     workflowId: row.workflow_id,
+    conversationId: row.conversation_id,
+    parentMessageId: row.parent_message_id,
     baseRevision: row.base_revision,
     operation: row.operation,
     status: row.status,
@@ -51,6 +54,35 @@ function mapJob(row) {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     expiresAt: row.expires_at,
+  };
+}
+
+function mapConversation(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    workflowId: row.workflow_id,
+    provider: row.provider,
+    title: row.title,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMessage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    userId: row.user_id,
+    role: row.role,
+    contentRedacted: row.content_redacted,
+    jobId: row.job_id,
+    proposalId: row.proposal_id,
+    metadataRedacted: row.metadata_redacted || {},
+    createdAt: row.created_at,
   };
 }
 
@@ -142,6 +174,8 @@ async function nextEventSequence(client, jobId) {
 export async function createArchitectJob({
   userId,
   workflowId = null,
+  conversationId = null,
+  parentMessageId = null,
   baseRevision = null,
   operation = 'edit',
   provider = 'replicate',
@@ -154,15 +188,18 @@ export async function createArchitectJob({
 }) {
   const result = await query(
     `insert into workflow_architect_jobs
-       (user_id, workflow_id, base_revision, operation, status, provider,
+       (user_id, workflow_id, conversation_id, parent_message_id,
+        base_revision, operation, status, provider,
         catalog_version, schema_version, idempotency_key, request_json, expires_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
      on conflict (user_id, idempotency_key) where idempotency_key is not null
      do update set idempotency_key = excluded.idempotency_key
      returning ${JOB_COLUMNS}`,
     [
       userId,
       workflowId,
+      conversationId,
+      parentMessageId,
       baseRevision,
       operation,
       status,
@@ -175,6 +212,154 @@ export async function createArchitectJob({
     ]
   );
   return mapJob(result.rows[0]);
+}
+
+export async function ensureArchitectConversation({
+  userId,
+  workflowId = null,
+  provider = 'replicate',
+  conversationId = null,
+  title = null,
+}) {
+  if (conversationId) {
+    const existing = await query(
+      `select id, user_id, workflow_id, provider, title, status, created_at, updated_at
+         from workflow_architect_conversations
+        where id = $1 and user_id = $2 and status = 'active'`,
+      [conversationId, userId]
+    );
+    if (existing.rows[0]) return mapConversation(existing.rows[0]);
+  }
+
+  const result = await query(
+    `insert into workflow_architect_conversations
+       (user_id, workflow_id, provider, title)
+     values ($1, $2, $3, $4)
+     returning id, user_id, workflow_id, provider, title, status, created_at, updated_at`,
+    [userId, workflowId, provider, title || 'Workflow Architect']
+  );
+  return mapConversation(result.rows[0]);
+}
+
+export async function appendArchitectMessage({
+  conversationId,
+  userId,
+  role,
+  contentRedacted = '',
+  jobId = null,
+  proposalId = null,
+  metadataRedacted = {},
+}) {
+  const result = await query(
+    `insert into workflow_architect_messages
+       (conversation_id, user_id, role, content_redacted, job_id, proposal_id, metadata_redacted)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+     returning id, conversation_id, user_id, role, content_redacted, job_id,
+       proposal_id, metadata_redacted, created_at`,
+    [
+      conversationId,
+      userId,
+      role,
+      contentRedacted || '',
+      jobId,
+      proposalId,
+      JSON.stringify(metadataRedacted || {}),
+    ]
+  );
+  await query(
+    `update workflow_architect_conversations
+        set updated_at = now()
+      where id = $1 and user_id = $2`,
+    [conversationId, userId]
+  );
+  return mapMessage(result.rows[0]);
+}
+
+export async function listArchitectConversations({ userId, workflowId = null, limit = 10 }) {
+  const params = [userId, Math.min(Math.max(Number(limit) || 10, 1), 50)];
+  const workflowFilter = workflowId ? 'and workflow_id = $3' : '';
+  if (workflowId) params.push(workflowId);
+  const result = await query(
+    `select id, user_id, workflow_id, provider, title, status, created_at, updated_at
+       from workflow_architect_conversations
+      where user_id = $1 and status = 'active' ${workflowFilter}
+      order by updated_at desc
+      limit $2`,
+    params
+  );
+  return result.rows.map(mapConversation);
+}
+
+export async function listArchitectMessages(conversationId, { userId, limit = 50 }) {
+  const result = await query(
+    `select id, conversation_id, user_id, role, content_redacted, job_id,
+            proposal_id, metadata_redacted, created_at
+       from workflow_architect_messages
+      where conversation_id = $1 and user_id = $2
+      order by created_at asc
+      limit $3`,
+    [conversationId, userId, Math.min(Math.max(Number(limit) || 50, 1), 100)]
+  );
+  return result.rows.map(mapMessage);
+}
+
+export async function listArchitectHistory({ userId, workflowId = null, limit = 20 }) {
+  const params = [userId, Math.min(Math.max(Number(limit) || 20, 1), 50)];
+  const workflowFilter = workflowId ? 'and j.workflow_id = $3' : '';
+  if (workflowId) params.push(workflowId);
+  const result = await query(
+    `select
+       j.id as job_id,
+       j.workflow_id,
+       j.conversation_id,
+       j.base_revision,
+       j.operation,
+       j.status as job_status,
+       j.request_json,
+       j.created_at as job_created_at,
+       j.completed_at as job_completed_at,
+       p.id as proposal_id,
+       p.status as proposal_status,
+       p.summary_json,
+       p.validation_json,
+       p.diff_json,
+       p.created_at as proposal_created_at
+     from workflow_architect_jobs j
+     left join lateral (
+       select *
+         from workflow_architect_proposals p
+        where p.job_id = j.id and p.user_id = j.user_id
+        order by p.created_at desc
+        limit 1
+     ) p on true
+     where j.user_id = $1 ${workflowFilter}
+     order by j.created_at desc
+     limit $2`,
+    params
+  );
+  return result.rows.map((row) => ({
+    job: {
+      id: row.job_id,
+      workflowId: row.workflow_id,
+      conversationId: row.conversation_id,
+      baseRevision: row.base_revision,
+      operation: row.operation,
+      status: row.job_status,
+      request: row.request_json || {},
+      createdAt: row.job_created_at,
+      completedAt: row.job_completed_at,
+    },
+    proposal: row.proposal_id
+      ? {
+          id: row.proposal_id,
+          status: row.proposal_status,
+          summary: row.summary_json || {},
+          validation: row.validation_json || {},
+          diff: row.diff_json || {},
+          createdAt: row.proposal_created_at,
+        }
+      : null,
+  }));
 }
 
 export async function getArchitectJob(id, { userId }) {

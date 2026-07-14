@@ -88,12 +88,32 @@ function catalogNodeToGraphNode(node) {
 test('POST jobs persists, records progress, and enqueues an architect job', async () => {
   const calls = [];
   const deps = {
+    ensureArchitectConversation: async (input) => ({
+      id: 'conversation-1',
+      userId: input.userId,
+      workflowId: input.workflowId,
+      provider: input.provider,
+      title: input.title,
+      status: 'active',
+    }),
+    appendArchitectMessage: async (message) => {
+      calls.push(['message', message]);
+      return {
+        id: message.role === 'user' ? 'message-user-1' : 'message-system-1',
+        conversationId: message.conversationId,
+        role: message.role,
+        contentRedacted: message.contentRedacted,
+        jobId: message.jobId,
+      };
+    },
     createArchitectJob: async (input) => {
       calls.push(['create', input]);
       return {
         id: 'job-1',
         userId: input.userId,
         workflowId: input.workflowId,
+        conversationId: input.conversationId,
+        parentMessageId: input.parentMessageId,
         baseRevision: input.baseRevision,
         operation: input.operation,
         status: 'queued',
@@ -125,10 +145,13 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
   const body = await readJson(response);
   assert.equal(body.job.id, 'job-1');
   assert.equal(body.job.workflow_id, 'wf-1');
-  assert.deepEqual(calls.map((call) => call[0]), ['create', 'event', 'enqueue']);
-  assert.equal(calls[0][1].userId, 'user-9');
-  assert.equal(calls[0][1].provider, 'replicate');
-  assert.deepEqual(calls[0][1].request, {
+  assert.equal(body.job.conversation_id, 'conversation-1');
+  assert.deepEqual(calls.map((call) => call[0]), ['message', 'create', 'event', 'enqueue', 'message']);
+  assert.equal(calls[1][1].userId, 'user-9');
+  assert.equal(calls[1][1].provider, 'replicate');
+  assert.equal(calls[1][1].conversationId, 'conversation-1');
+  assert.equal(calls[1][1].parentMessageId, 'message-user-1');
+  assert.deepEqual(calls[1][1].request, {
     type: 'bounded_edit',
     prompt_redacted: '',
     selected_node_id: 'node-1',
@@ -142,6 +165,79 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
     disconnect_edge_ids: null,
     connections: null,
   });
+});
+
+test('GET history returns recent architect jobs and proposals', async () => {
+  let received;
+  const deps = {
+    listArchitectHistory: async (input) => {
+      received = input;
+      return [{
+        job: {
+          id: 'job-history-1',
+          workflowId: 'wf-1',
+          conversationId: 'conversation-1',
+          baseRevision: 3,
+          operation: 'validate',
+          status: 'completed',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        proposal: {
+          id: 'proposal-history-1',
+          status: 'pending',
+          summary: { title: 'Validation ready' },
+          validation: { valid: true, warnings: [], errors: [] },
+          diff: {},
+          createdAt: '2026-01-01T00:00:01.000Z',
+        },
+      }];
+    },
+  };
+
+  const response = await handleWorkflowArchitect(
+    request('http://test.local/api/workflow-architect/history?workflow_id=wf-1&limit=5'),
+    routeCtx(['history']),
+    'GET',
+    ctxFor('user-1'),
+    deps
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(received, { userId: 'user-1', workflowId: 'wf-1', limit: '5' });
+  const body = await readJson(response);
+  assert.equal(body.history[0].job.id, 'job-history-1');
+  assert.equal(body.history[0].proposal.id, 'proposal-history-1');
+});
+
+test('GET conversation messages returns redacted persisted chat', async () => {
+  const deps = {
+    listArchitectMessages: async (conversationId, input) => {
+      assert.equal(conversationId, 'conversation-1');
+      assert.equal(input.userId, 'user-1');
+      return [{
+        id: 'message-1',
+        conversationId,
+        role: 'user',
+        contentRedacted: 'Validate current workflow',
+        jobId: 'job-1',
+        proposalId: null,
+        metadataRedacted: { operation: 'validate' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }];
+    },
+  };
+
+  const response = await handleWorkflowArchitect(
+    request('http://test.local/api/workflow-architect/conversations/conversation-1?limit=10'),
+    routeCtx(['conversations', 'conversation-1']),
+    'GET',
+    ctxFor('user-1'),
+    deps
+  );
+
+  assert.equal(response.status, 200);
+  const body = await readJson(response);
+  assert.equal(body.messages[0].content_redacted, 'Validate current workflow');
 });
 
 test('POST jobs accepts fixture proposal payload for async Phase 1 processing', async () => {
