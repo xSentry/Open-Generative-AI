@@ -66,13 +66,14 @@ function buildNodeFromSaved(savedNode, provider, catalog) {
   const inputParams = savedNode.input_params || {};
   const parameters = {};
   const inputs = {};
+  const inputDefs = getInputPortDefinitions({ category, modelId, nodeType, catalog });
 
   for (const [key, value] of Object.entries(inputParams)) {
     if (key === 'make_input' || key === 'make_output') continue;
     const stripped = stripTemplateValues(value);
     if (stripped !== undefined) {
       parameters[key] = stripped;
-      inputs[key] = makeConstantBinding(stripped);
+      if (inputDefs[key]) inputs[key] = makeConstantBinding(stripped);
     }
   }
   for (const [key, value] of Object.entries(rawParams)) {
@@ -80,7 +81,7 @@ function buildNodeFromSaved(savedNode, provider, catalog) {
     const stripped = stripTemplateValues(value);
     if (stripped !== undefined) {
       parameters[key] = stripped;
-      inputs[key] = makeConstantBinding(stripped);
+      if (inputDefs[key]) inputs[key] = makeConstantBinding(stripped);
     }
   }
 

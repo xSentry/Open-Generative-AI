@@ -7,7 +7,7 @@ import {
   nodeTypeForCategory,
   portTypesCompatible,
 } from '../../workflow-domain/portRegistry.js';
-import { defaultArchitectModelProfile, getArchitectModelProfile } from './capabilityCatalog.js';
+import { defaultArchitectModelProfile, getArchitectNodeProfile } from './capabilityCatalog.js';
 
 function safeId(value) {
   return String(value || '')
@@ -39,6 +39,21 @@ function constantInputs(parameters = {}) {
   );
 }
 
+function constantInputsForNode(node, catalog) {
+  const inputs = getInputPortDefinitions({
+    category: node.category,
+    modelId: node.modelId,
+    nodeType: node.nodeType,
+    catalog,
+  });
+  const allowed = new Set(Object.keys(inputs));
+  return Object.fromEntries(
+    Object.entries(node.parameters || {})
+      .filter(([key]) => allowed.has(key))
+      .map(([key, value]) => [key, makeConstantBinding(value)])
+  );
+}
+
 function filterSupportedParameters(parameters = {}, node, catalog) {
   const inputs = getInputPortDefinitions({
     category: node.category,
@@ -67,24 +82,27 @@ export function compileCreateWorkflowIrToPatch(ir, {
 
   for (const [index, irNode] of ir.nodes.entries()) {
     const nodeId = `architect-${safeId(irNode.ref || `${irNode.category}-${index + 1}`)}`;
-    const outputPort = outputPortForCategory(irNode.category);
+    const nodeType = nodeTypeForCategory(irNode.category, irNode.model_id);
+    const outputs = getOutputPortDefinitions({ category: irNode.category, modelId: irNode.model_id });
+    const fallbackOutputPort = outputPortForCategory(irNode.category);
     const node = {
       id: nodeId,
-      nodeType: nodeTypeForCategory(irNode.category, irNode.model_id),
+      nodeType,
       category: irNode.category,
       kind: irNode.role === 'input' ? 'input' : inferNodeKind(irNode.category, irNode.model_id),
       title: irNode.title || `${irNode.category[0].toUpperCase()}${irNode.category.slice(1)} ${irNode.role}`,
       provider,
       modelId: irNode.model_id,
       parameters: { ...(irNode.parameters || {}) },
-      inputs: constantInputs(irNode.parameters || {}),
-      outputs: { [outputPort]: { type: outputTypeForCategory(irNode.category), label: irNode.category } },
+      inputs: {},
+      outputs: Object.keys(outputs).length > 0 ? outputs : { [fallbackOutputPort]: { type: outputTypeForCategory(irNode.category), label: irNode.category } },
       exposure: {
         makeInput: irNode.role === 'input',
-        makeOutput: irNode.role === 'generation' && irNode.category === ir.target_category,
+        makeOutput: irNode.role !== 'input' && irNode.category === ir.target_category,
       },
       layout: { x: 80 + (index * 360), y: 120 },
     };
+    node.inputs = constantInputsForNode(node, catalog);
     refToNode.set(irNode.ref, node);
     preconditions.push({ type: 'node_not_exists', node_id: nodeId });
     operations.push({ op: 'add_node', node });
@@ -196,7 +214,7 @@ function layoutNear(node, position) {
 function buildInsertedNode(insert, context, reservedNodeIds = new Set()) {
   const category = insert.category;
   const modelId = insert.model_id;
-  const profile = getArchitectModelProfile(category, modelId);
+  const profile = getArchitectNodeProfile(category, modelId, context.catalog);
   if (!profile) {
     const error = new Error(`Model "${modelId}" is not enabled for Architect ${category} insertion.`);
     error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
@@ -496,9 +514,9 @@ export function compileBoundedEditToPatch(edit, context) {
   }
 
   if (edit.replacement_model_id) {
-    const profile = getArchitectModelProfile(node.category, edit.replacement_model_id);
+    const profile = getArchitectNodeProfile(node.category, edit.replacement_model_id, context.catalog);
     if (!profile) {
-      const error = new Error(`Model "${edit.replacement_model_id}" is not a curated ${node.category} alternative.`);
+      const error = new Error(`Model "${edit.replacement_model_id}" is not an Architect-enabled ${node.category} alternative.`);
       error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
       throw error;
     }

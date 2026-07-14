@@ -1,6 +1,14 @@
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TARGET_CATEGORIES = new Set(['image', 'video', 'audio', 'text']);
-const NODE_ROLES = new Set(['input', 'generation']);
+const NODE_CAPABILITIES = new Set([
+  'image', 'image_generation', 'image_editing', 'text_to_image', 'image_to_image',
+  'video', 'video_generation', 'text_to_video', 'image_to_video', 'video_to_video',
+  'audio', 'text_to_speech', 'tts', 'audio_generation',
+  'text', 'text_generation',
+  'utility_text_merge', 'utility_video_combine', 'utility_frame_extraction',
+]);
+const NODE_OPERATION_MODES = new Set(['input', 'generate', 'edit', 'image_input', 'video_input', 'audio_input', 'image_to_video', 'video_to_video', 'utility']);
+const NODE_ROLES = new Set(['input', 'generation', 'utility']);
 
 function issue(code, message, path = '') {
   return { severity: 'error', code, message, path };
@@ -55,8 +63,11 @@ export function validateCreateWorkflowIr(value, { catalog = null } = {}) {
       if (!NODE_ROLES.has(node.role)) {
         errors.push(issue('IR_NODE_ROLE', 'Node role must be input or generation.', `${path}.role`));
       }
-      if (!TARGET_CATEGORIES.has(node.capability)) {
-        errors.push(issue('IR_NODE_CAPABILITY', 'Node capability must be text, image, video, or audio.', `${path}.capability`));
+      if (!NODE_CAPABILITIES.has(node.capability)) {
+        errors.push(issue('IR_NODE_CAPABILITY', 'Node capability is not in the Architect capability allowlist.', `${path}.capability`));
+      }
+      if (node.operation_mode != null && !NODE_OPERATION_MODES.has(node.operation_mode)) {
+        errors.push(issue('IR_NODE_OPERATION_MODE', 'Node operation_mode is not supported by the Architect catalog contract.', `${path}.operation_mode`));
       }
       if (node.model_id != null) {
         errors.push(issue('IR_MODEL_SELECTION_FORBIDDEN', 'Model IDs are server-selected and must not appear in workflow-architect-ir/v1.', `${path}.model_id`));
@@ -68,8 +79,8 @@ export function validateCreateWorkflowIr(value, { catalog = null } = {}) {
     if (!value.nodes.some((node) => node?.role === 'input' && node.capability === 'text')) {
       errors.push(issue('IR_TEXT_INPUT_REQUIRED', 'Create workflow IR must include a text input role.', 'nodes'));
     }
-    if (!value.nodes.some((node) => node?.role === 'generation')) {
-      errors.push(issue('IR_GENERATION_REQUIRED', 'Create workflow IR must include at least one generation role.', 'nodes'));
+    if (!value.nodes.some((node) => node?.role === 'generation' || node?.role === 'utility')) {
+      errors.push(issue('IR_GENERATION_REQUIRED', 'Create workflow IR must include at least one generation or utility role.', 'nodes'));
     }
   }
   if (value.connections != null) {
@@ -113,8 +124,9 @@ export function createWorkflowIrJsonSchema(catalog) {
           required: ['ref', 'role', 'capability'],
           properties: {
             ref: { type: 'string', minLength: 2, maxLength: 40 },
-            role: { type: 'string', enum: ['input', 'generation'] },
-            capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            role: { type: 'string', enum: [...NODE_ROLES] },
+            capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
+            operation_mode: { type: 'string', enum: [...NODE_OPERATION_MODES] },
             title: { type: 'string', maxLength: 80 },
             prompt: { type: 'string', maxLength: 2000 },
             parameters: { type: 'object', additionalProperties: true },
@@ -139,9 +151,9 @@ export function createWorkflowIrJsonSchema(catalog) {
           required: ['from_ref', 'to_ref'],
           properties: {
             from_ref: { type: 'string' },
-            from_capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            from_capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
             to_ref: { type: 'string' },
-            to_capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            to_capability: { type: 'string', enum: [...NODE_CAPABILITIES] },
             to_port: { type: 'string' },
           },
         },

@@ -1,13 +1,34 @@
 import {
   CURATED_MODEL_PROFILES,
   defaultArchitectModelProfile,
-  getArchitectModelProfile,
+  getArchitectNodeProfile,
 } from './capabilityCatalog.js';
 import { validateCreateWorkflowIr } from './architectIrSchema.js';
 
 const MAX_NAME_LENGTH = 80;
 const MAX_PROMPT_LENGTH = 2000;
 const TARGET_CATEGORIES = new Set(['image', 'video', 'audio', 'text']);
+const CAPABILITY_TO_CATEGORY = {
+  image: 'image',
+  image_generation: 'image',
+  image_editing: 'image',
+  text_to_image: 'image',
+  image_to_image: 'image',
+  video: 'video',
+  video_generation: 'video',
+  text_to_video: 'video',
+  image_to_video: 'video',
+  video_to_video: 'video',
+  audio: 'audio',
+  text_to_speech: 'audio',
+  tts: 'audio',
+  audio_generation: 'audio',
+  text: 'text',
+  text_generation: 'text',
+  utility_text_merge: 'utility',
+  utility_video_combine: 'utility',
+  utility_frame_extraction: 'utility',
+};
 
 function clampString(value, fallback, maxLength) {
   const text = typeof value === 'string' ? value.trim() : fallback;
@@ -40,19 +61,25 @@ function inputProperties(catalog, category, modelId) {
   return schema?.schemas?.input_data?.properties || schema || {};
 }
 
-function selectModelProfile(category, preferences = {}) {
+function selectModelProfile(category, preferences = {}, catalog = null, rawNode = {}) {
+  const requestedCapability = typeof rawNode.capability === 'string' ? rawNode.capability : null;
+  const operationMode = typeof rawNode.operation_mode === 'string' ? rawNode.operation_mode : null;
   const profiles = CURATED_MODEL_PROFILES[category] || [];
   const preferred = profiles.find((profile) =>
     (!preferences?.speed_tier || profile.speedTier === preferences.speed_tier) &&
     (!preferences?.quality_tier || profile.qualityTier === preferences.quality_tier) &&
     (!preferences?.stability || (profile.stability || 'stable') === preferences.stability)
   );
-  const profile = preferred || defaultArchitectModelProfile(category);
+  const profile = preferred || defaultArchitectModelProfile(category, {
+    catalog,
+    capability: requestedCapability,
+    operationMode,
+  });
   return {
     profile,
     reason: preferred
       ? `Selected curated ${category} model "${profile.modelId}" matching requested preferences.`
-      : `Selected default curated ${category} model "${profile?.modelId}" because no exact preference match was available.`,
+      : `Selected deterministic ${category} node "${profile?.modelId}" from the Architect catalog.`,
   };
 }
 
@@ -73,32 +100,36 @@ function normalizeRichCreateWorkflowIr(rawIr, { userRequest, catalog }) {
   const nodes = [];
   const modelSelectionReasons = [];
   for (const [index, rawNode] of rawIr.nodes.entries()) {
-    const capability = TARGET_CATEGORIES.has(rawNode.capability) ? rawNode.capability : inferCategory(userRequest);
+    const capability = normalizeCapability(rawNode.capability, userRequest);
+    const category = CAPABILITY_TO_CATEGORY[capability] || capability;
     const ref = uniqueRef(sanitizeRef(rawNode.ref, `${capability}-${index + 1}`), refs);
-    const role = rawNode.role === 'input' ? 'input' : 'generation';
+    const role = rawNode.role === 'input' ? 'input' : rawNode.role === 'utility' ? 'utility' : 'generation';
     const selection = role === 'generation'
-      ? selectModelProfile(capability, rawNode.model_preferences)
-      : { profile: { modelId: `${capability}-passthrough`, promptPort: capability === 'text' ? 'prompt' : capability, defaultParameters: {} }, reason: `Selected ${capability}-passthrough for ${ref} because input roles use passthrough nodes.` };
+      ? selectModelProfile(category, rawNode.model_preferences, catalog, rawNode)
+      : role === 'utility'
+        ? selectModelProfile('utility', rawNode.model_preferences, catalog, rawNode)
+        : { profile: { modelId: `${category}-passthrough`, promptPort: category === 'text' ? 'prompt' : category, defaultParameters: {} }, reason: `Selected ${category}-passthrough for ${ref} because input roles use passthrough nodes.` };
     const modelId = selection.profile?.modelId;
-    const props = inputProperties(catalog, capability, modelId);
+    const props = inputProperties(catalog, category, modelId);
     const parameters = {
       ...(selection.profile?.defaultParameters || {}),
       ...pruneParameters(rawNode.parameters, new Set(Object.keys(props))),
     };
-    if (role === 'input' && capability === 'text') {
+    if (role === 'input' && category === 'text') {
       parameters.prompt = promptFromIrNode(rawNode, userRequest);
     }
     nodes.push({
       ref,
       role,
       capability,
-      category: capability,
-      title: clampString(rawNode.title, role === 'input' ? `${capability} input` : `${capability} generation`, MAX_NAME_LENGTH),
+      category,
+      operation_mode: rawNode.operation_mode || null,
+      title: clampString(rawNode.title, role === 'input' ? `${category} input` : `${capability.replace(/_/g, ' ')} node`, MAX_NAME_LENGTH),
       model_id: modelId,
       prompt_port: selection.profile?.promptPort || 'prompt',
       parameters,
     });
-    modelSelectionReasons.push({ ref, category: capability, model_id: modelId, reason: selection.reason });
+    modelSelectionReasons.push({ ref, category, capability, model_id: modelId, reason: selection.reason });
   }
 
   const normalized = {
@@ -147,9 +178,9 @@ function normalizeIrConnections(connections, nodes) {
     .slice(0, 8)
     .map((connection) => ({
       from_ref: String(connection.from_ref || '').trim(),
-      from_capability: TARGET_CATEGORIES.has(connection.from_capability) ? connection.from_capability : null,
+      from_capability: normalizeConnectionCapability(connection.from_capability),
       to_ref: String(connection.to_ref || '').trim(),
-      to_capability: TARGET_CATEGORIES.has(connection.to_capability) ? connection.to_capability : null,
+      to_capability: normalizeConnectionCapability(connection.to_capability),
       to_port: typeof connection.to_port === 'string' ? connection.to_port.trim() : null,
     }))
     .filter((connection) => nodeRefs.has(connection.from_ref) && nodeRefs.has(connection.to_ref));
@@ -157,7 +188,7 @@ function normalizeIrConnections(connections, nodes) {
 
 function defaultIrConnections(nodes) {
   const input = nodes.find((node) => node.role === 'input' && node.capability === 'text');
-  const generation = nodes.find((node) => node.role === 'generation');
+  const generation = nodes.find((node) => node.role === 'generation' || node.role === 'utility');
   if (!input || !generation) return [];
   return [{ from_ref: input.ref, from_capability: 'text', to_ref: generation.ref, to_capability: generation.capability, to_port: generation.prompt_port || 'prompt' }];
 }
@@ -202,11 +233,19 @@ function normalizeInsertNode(request = {}) {
 }
 
 function normalizeInsertNodeValue(raw = {}, request = {}) {
-  const category = TARGET_CATEGORIES.has(raw.category) ? raw.category : inferCategory(`${raw.model_id || ''} ${request.prompt_redacted || ''}`);
-  const fallbackProfile = defaultArchitectModelProfile(category);
+  const requestedCapability = normalizeCapability(raw.capability || raw.category, `${raw.model_id || ''} ${request.prompt_redacted || ''}`);
+  const category = TARGET_CATEGORIES.has(raw.category) || raw.category === 'utility'
+    ? raw.category
+    : (CAPABILITY_TO_CATEGORY[requestedCapability] || inferCategory(`${raw.model_id || ''} ${request.prompt_redacted || ''}`));
+  const catalog = request.catalog || null;
+  const fallbackProfile = defaultArchitectModelProfile(category, {
+    catalog,
+    capability: requestedCapability,
+    operationMode: raw.operation_mode,
+  });
   const requestedModelId = typeof raw.model_id === 'string' ? raw.model_id.trim() : null;
-  if (requestedModelId && !getArchitectModelProfile(category, requestedModelId)) {
-    const error = new Error(`Model "${requestedModelId}" is not a curated ${category} insertion model.`);
+  if (requestedModelId && !getArchitectNodeProfile(category, requestedModelId, catalog)) {
+    const error = new Error(`Model "${requestedModelId}" is not an Architect-enabled ${category} insertion node.`);
     error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
     throw error;
   }
@@ -220,6 +259,7 @@ function normalizeInsertNodeValue(raw = {}, request = {}) {
   return {
     position,
     category,
+    capability: requestedCapability,
     model_id: modelId,
     title: typeof raw.title === 'string' ? raw.title.trim().slice(0, MAX_NAME_LENGTH) : null,
     node_id: typeof raw.node_id === 'string' ? raw.node_id.trim() : null,
@@ -272,6 +312,7 @@ function normalizeConnections(value) {
 }
 
 export function normalizeBoundedEditRequest(request = {}, context) {
+  const requestWithCatalog = { ...request, catalog: context.catalog };
   const selectedNode = context.selectedNode;
   const parameterUpdates = {
     ...parseParameterUpdates(request.prompt_redacted, selectedNode),
@@ -280,7 +321,7 @@ export function normalizeBoundedEditRequest(request = {}, context) {
   const replacementModelId = typeof request.replacement_model_id === 'string'
     ? request.replacement_model_id.trim()
     : null;
-  const insertNodes = normalizeInsertNodes(request);
+  const insertNodes = normalizeInsertNodes(requestWithCatalog);
   const insertNode = insertNodes[0] || null;
   const replaceEdgeId = typeof request.replace_edge_id === 'string'
     ? request.replace_edge_id.trim()
@@ -292,14 +333,14 @@ export function normalizeBoundedEditRequest(request = {}, context) {
     ...normalizeStringList(request.replace_edge_ids || request.branch_replacement?.edge_ids),
   ].filter((item, index, values) => values.indexOf(item) === index).slice(0, 8);
 
-  if (replacementModelId && !getArchitectModelProfile(selectedNode.category, replacementModelId)) {
-    const error = new Error(`Model "${replacementModelId}" is not a curated ${selectedNode.category} alternative.`);
+  if (replacementModelId && !getArchitectNodeProfile(selectedNode.category, replacementModelId, context.catalog)) {
+    const error = new Error(`Model "${replacementModelId}" is not an Architect-enabled ${selectedNode.category} alternative.`);
     error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
     throw error;
   }
   for (const node of insertNodes) {
-    if (!getArchitectModelProfile(node.category, node.model_id)) {
-      const error = new Error(`Model "${node.model_id}" is not a curated ${node.category} insertion model.`);
+    if (!getArchitectNodeProfile(node.category, node.model_id, context.catalog)) {
+      const error = new Error(`Model "${node.model_id}" is not an Architect-enabled ${node.category} insertion node.`);
       error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
       throw error;
     }
@@ -316,6 +357,18 @@ export function normalizeBoundedEditRequest(request = {}, context) {
     connections: normalizeConnections(request.connections || request.rewire_connections),
     assumptions: [],
   };
+}
+
+function normalizeCapability(value, fallbackText = '') {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase().replace(/[-\s]+/g, '_') : '';
+  if (CAPABILITY_TO_CATEGORY[raw]) return raw;
+  return inferCategory(fallbackText);
+}
+
+function normalizeConnectionCapability(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  return CAPABILITY_TO_CATEGORY[normalized] ? normalized : null;
 }
 
 function inferCategory(text = '') {
