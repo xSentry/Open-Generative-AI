@@ -133,9 +133,10 @@ function modelPreconditions(graph, node) {
   return preconditions;
 }
 
-function uniqueNodeId(graph, prefix) {
+function uniqueNodeId(graph, prefix, reserved = new Set()) {
   const base = safeId(prefix) || 'architect-node';
   const ids = new Set(graph.nodes.map((node) => node.id));
+  for (const id of reserved) ids.add(id);
   if (!ids.has(base)) return base;
   for (let index = 2; index < 100; index += 1) {
     const candidate = `${base}-${index}`;
@@ -178,7 +179,7 @@ function layoutNear(node, position) {
     : { x: x + 360, y };
 }
 
-function buildInsertedNode(insert, context) {
+function buildInsertedNode(insert, context, reservedNodeIds = new Set()) {
   const category = insert.category;
   const modelId = insert.model_id;
   const profile = getArchitectModelProfile(category, modelId);
@@ -188,7 +189,8 @@ function buildInsertedNode(insert, context) {
     throw error;
   }
   const parameters = { ...(profile.defaultParameters || {}), ...(insert.parameters || {}) };
-  const nodeId = uniqueNodeId(context.graph, insert.node_id || `architect-${category}-${modelId}`);
+  const nodeId = uniqueNodeId(context.graph, insert.node_id || `architect-${category}-${modelId}`, reservedNodeIds);
+  reservedNodeIds.add(nodeId);
   const nodeType = nodeTypeForCategory(category, modelId);
   return {
     id: nodeId,
@@ -206,32 +208,76 @@ function buildInsertedNode(insert, context) {
   };
 }
 
-function compileInsertAfter(insert, context, insertedNode, preconditions, operations) {
-  const selectedOutputs = getOutputPortDefinitions({
-    category: context.selectedNode.category,
-    modelId: context.selectedNode.modelId,
+function findNode(graph, nodeId) {
+  return graph.nodes.find((node) => node.id === nodeId) || null;
+}
+
+function findEdge(graph, edgeId) {
+  return graph.edges.find((edge) => edge.id === edgeId) || null;
+}
+
+function compatibleConnection(sourceNode, targetNode, catalog, preferredTargetPort = null) {
+  const outputs = getOutputPortDefinitions({
+    category: sourceNode.category,
+    modelId: sourceNode.modelId,
   });
-  for (const [sourcePort, sourceDef] of Object.entries(selectedOutputs)) {
-    const target = firstCompatibleInput(insertedNode, sourceDef.type, context.catalog);
+  const inputs = getInputPortDefinitions({
+    category: targetNode.category,
+    modelId: targetNode.modelId,
+    nodeType: targetNode.nodeType,
+    catalog,
+  });
+
+  for (const [sourcePort, sourceDef] of Object.entries(outputs)) {
+    const candidates = preferredTargetPort && inputs[preferredTargetPort]
+      ? [[preferredTargetPort, inputs[preferredTargetPort]]]
+      : Object.entries(inputs);
+    const target = candidates.find(([, def]) => portTypesCompatible(sourceDef.type, def.type));
     if (!target) continue;
     const [targetPort] = target;
-    insertedNode.inputs[targetPort] = makeConnectionBinding(context.selectedNode.id, sourcePort);
-    const edgeId = `edge-${context.selectedNode.id}-${insertedNode.id}-${targetPort}`;
-    preconditions.push({ type: 'node_not_exists', node_id: insertedNode.id });
-    preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
-    operations.push({ op: 'add_node', node: insertedNode });
-    operations.push({
-      op: 'connect',
-      edge_id: edgeId,
-      source: { node_id: context.selectedNode.id, port: sourcePort },
-      target: { node_id: insertedNode.id, port: targetPort },
-      mode: 'fail_if_occupied',
-    });
-    return;
+    return { sourcePort, targetPort };
   }
-  const error = new Error(`No compatible input on "${insertedNode.modelId}" for the selected node output.`);
-  error.code = 'ARCHITECT_NO_COMPATIBLE_PORT';
-  throw error;
+  return null;
+}
+
+function pushConnect(sourceNode, targetNode, catalog, preconditions, operations, {
+  targetPort = null,
+  edgeId = null,
+  mode = 'fail_if_occupied',
+} = {}) {
+  const connection = compatibleConnection(sourceNode, targetNode, catalog, targetPort);
+  if (!connection) {
+    const error = new Error(`No compatible connection from "${sourceNode.id}" to "${targetNode.id}".`);
+    error.code = 'ARCHITECT_NO_COMPATIBLE_PORT';
+    throw error;
+  }
+  const id = edgeId || `edge-${sourceNode.id}-${targetNode.id}-${connection.targetPort}`;
+  preconditions.push({ type: 'edge_not_exists', edge_id: id });
+  if (mode === 'fail_if_occupied') {
+    preconditions.push({ type: 'target_port_unoccupied', node_id: targetNode.id, port: connection.targetPort });
+  }
+  targetNode.inputs = targetNode.inputs || {};
+  targetNode.inputs[connection.targetPort] = makeConnectionBinding(sourceNode.id, connection.sourcePort);
+  operations.push({
+    op: 'connect',
+    edge_id: id,
+    source: { node_id: sourceNode.id, port: connection.sourcePort },
+    target: { node_id: targetNode.id, port: connection.targetPort },
+    mode,
+  });
+  return { edgeId: id, ...connection };
+}
+
+function addInsertedNodes(nodes, preconditions, operations) {
+  for (const node of nodes) {
+    preconditions.push({ type: 'node_not_exists', node_id: node.id });
+    operations.push({ op: 'add_node', node });
+  }
+}
+
+function compileInsertAfter(insert, context, insertedNode, preconditions, operations) {
+  addInsertedNodes([insertedNode], preconditions, operations);
+  pushConnect(context.selectedNode, insertedNode, context.catalog, preconditions, operations);
 }
 
 function compileInsertBefore(insert, context, insertedNode, preconditions, operations) {
@@ -264,6 +310,151 @@ function compileInsertBefore(insert, context, insertedNode, preconditions, opera
   const error = new Error(`No unoccupied compatible input on "${context.selectedNode.id}" for the inserted node output.`);
   error.code = 'ARCHITECT_NO_COMPATIBLE_PORT';
   throw error;
+}
+
+function assertAdjacentEdge(context, edgeId) {
+  const edge = findEdge(context.graph, edgeId);
+  if (!edge) {
+    const error = new Error(`Edge "${edgeId}" was not found.`);
+    error.code = 'ARCHITECT_EDGE_NOT_FOUND';
+    throw error;
+  }
+  if (edge.source.nodeId !== context.selectedNode.id && edge.target.nodeId !== context.selectedNode.id) {
+    const error = new Error(`Edge "${edgeId}" is outside the selected-node neighborhood.`);
+    error.code = 'ARCHITECT_EDGE_OUT_OF_SCOPE';
+    throw error;
+  }
+  return edge;
+}
+
+function compileInsertedChain(edit, context, preconditions, operations) {
+  const inserts = edit.insert_nodes || [];
+  if (inserts.length === 0) return false;
+  const replaceEdgeIds = edit.replace_edge_ids?.length ? edit.replace_edge_ids : edit.replace_edge_id ? [edit.replace_edge_id] : [];
+  if (inserts.length === 1 && replaceEdgeIds.length === 0) {
+    const insertedNode = buildInsertedNode(inserts[0], context);
+    if (inserts[0].position === 'before') {
+      compileInsertBefore(inserts[0], context, insertedNode, preconditions, operations);
+    } else {
+      compileInsertAfter(inserts[0], context, insertedNode, preconditions, operations);
+    }
+    return true;
+  }
+
+  const direction = inserts[0]?.position === 'before' ? 'before' : 'after';
+  const reserved = new Set();
+  const insertedNodes = inserts.map((insert) => buildInsertedNode({ ...insert, position: direction }, context, reserved));
+  const replaceEdges = replaceEdgeIds.map((edgeId) => assertAdjacentEdge(context, edgeId));
+
+  for (const replaceEdge of replaceEdges) {
+    const validDirection = direction === 'after'
+      ? replaceEdge.source.nodeId === context.selectedNode.id
+      : replaceEdge.target.nodeId === context.selectedNode.id;
+    if (!validDirection) {
+      const error = new Error(`Edge "${replaceEdge.id}" cannot be replaced by a ${direction} insertion chain.`);
+      error.code = 'ARCHITECT_EDGE_DIRECTION_CONFLICT';
+      throw error;
+    }
+  }
+
+  if (replaceEdges.length > 0) {
+    if (direction === 'before' && replaceEdges.length > 1) {
+      const error = new Error('Replacing multiple incoming branch edges before a selected node is not supported.');
+      error.code = 'ARCHITECT_BRANCH_REPLACEMENT_UNSUPPORTED';
+      throw error;
+    }
+    for (const replaceEdge of replaceEdges) {
+    preconditions.push({ type: 'edge_exists', edge_id: replaceEdge.id });
+    operations.push({
+      op: 'disconnect',
+      edge_id: replaceEdge.id,
+      source: { node_id: replaceEdge.source.nodeId, port: replaceEdge.source.port },
+      target: { node_id: replaceEdge.target.nodeId, port: replaceEdge.target.port },
+    });
+    }
+  }
+
+  addInsertedNodes(insertedNodes, preconditions, operations);
+
+  if (direction === 'after') {
+    pushConnect(context.selectedNode, insertedNodes[0], context.catalog, preconditions, operations);
+    for (let index = 0; index < insertedNodes.length - 1; index += 1) {
+      pushConnect(insertedNodes[index], insertedNodes[index + 1], context.catalog, preconditions, operations);
+    }
+    if (replaceEdges.length > 0) {
+      for (const replaceEdge of replaceEdges) {
+      const originalTarget = findNode(context.graph, replaceEdge.target.nodeId);
+      pushConnect(insertedNodes[insertedNodes.length - 1], originalTarget, context.catalog, preconditions, operations, {
+        targetPort: replaceEdge.target.port,
+        mode: 'replace_existing',
+      });
+      }
+    }
+    return true;
+  }
+
+  if (replaceEdges.length > 0) {
+    const replaceEdge = replaceEdges[0];
+    const originalSource = findNode(context.graph, replaceEdge.source.nodeId);
+    pushConnect(originalSource, insertedNodes[0], context.catalog, preconditions, operations);
+  }
+  for (let index = 0; index < insertedNodes.length - 1; index += 1) {
+    pushConnect(insertedNodes[index], insertedNodes[index + 1], context.catalog, preconditions, operations);
+  }
+  const targetPort = replaceEdges[0]?.target.port || null;
+  pushConnect(insertedNodes[insertedNodes.length - 1], context.selectedNode, context.catalog, preconditions, operations, {
+    targetPort,
+    mode: replaceEdges.length > 0 ? 'replace_existing' : 'fail_if_occupied',
+  });
+  return true;
+}
+
+function compileDisconnects(edit, context, preconditions, operations) {
+  for (const edgeId of edit.disconnect_edge_ids || []) {
+    const edge = assertAdjacentEdge(context, edgeId);
+    preconditions.push({ type: 'edge_exists', edge_id: edgeId });
+    operations.push({
+      op: 'disconnect',
+      edge_id: edgeId,
+      source: { node_id: edge.source.nodeId, port: edge.source.port },
+      target: { node_id: edge.target.nodeId, port: edge.target.port },
+    });
+  }
+}
+
+function compileExplicitConnections(edit, context, preconditions, operations) {
+  const neighborhoodIds = new Set([context.selectedNode.id]);
+  for (const edge of context.graph.edges) {
+    if (edge.source.nodeId === context.selectedNode.id) neighborhoodIds.add(edge.target.nodeId);
+    if (edge.target.nodeId === context.selectedNode.id) neighborhoodIds.add(edge.source.nodeId);
+  }
+
+  for (const connection of edit.connections || []) {
+    if (!neighborhoodIds.has(connection.source_node_id) || !neighborhoodIds.has(connection.target_node_id)) {
+      const error = new Error('Explicit rewires must stay inside the selected-node neighborhood.');
+      error.code = 'ARCHITECT_REWIRE_OUT_OF_SCOPE';
+      throw error;
+    }
+    const sourceNode = findNode(context.graph, connection.source_node_id);
+    const targetNode = findNode(context.graph, connection.target_node_id);
+    if (!sourceNode || !targetNode) {
+      const error = new Error('Explicit rewire references an unknown node.');
+      error.code = 'ARCHITECT_REWIRE_NODE_NOT_FOUND';
+      throw error;
+    }
+    const edgeId = connection.edge_id || `edge-${sourceNode.id}-${targetNode.id}-${connection.target_port}`;
+    preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
+    if (connection.mode === 'fail_if_occupied') {
+      preconditions.push({ type: 'target_port_unoccupied', node_id: targetNode.id, port: connection.target_port });
+    }
+    operations.push({
+      op: 'connect',
+      edge_id: edgeId,
+      source: { node_id: sourceNode.id, port: connection.source_port },
+      target: { node_id: targetNode.id, port: connection.target_port },
+      mode: connection.mode,
+    });
+  }
 }
 
 export function compileBoundedEditToPatch(edit, context) {
@@ -301,14 +492,9 @@ export function compileBoundedEditToPatch(edit, context) {
     });
   }
 
-  if (edit.insert_node) {
-    const insertedNode = buildInsertedNode(edit.insert_node, context);
-    if (edit.insert_node.position === 'before') {
-      compileInsertBefore(edit.insert_node, context, insertedNode, preconditions, operations);
-    } else {
-      compileInsertAfter(edit.insert_node, context, insertedNode, preconditions, operations);
-    }
-  }
+  compileDisconnects(edit, context, preconditions, operations);
+  compileInsertedChain(edit, context, preconditions, operations);
+  compileExplicitConnections(edit, context, preconditions, operations);
 
   if (operations.length === 0) {
     const error = new Error('No supported bounded edit was found.');
@@ -329,7 +515,18 @@ export function summarizeBoundedEditProposal(edit, context) {
   const parameterNames = Object.keys(edit.parameter_updates || {});
   if (parameterNames.length > 0) changes.push(`${parameterNames.length} parameter update${parameterNames.length === 1 ? '' : 's'}`);
   if (edit.replacement_model_id) changes.push(`model replacement to ${edit.replacement_model_id}`);
-  if (edit.insert_node) changes.push(`one ${edit.insert_node.category} node ${edit.insert_node.position}`);
+  if ((edit.insert_nodes || []).length > 1) {
+    changes.push(`${edit.insert_nodes.length} inserted nodes`);
+  } else if (edit.insert_node) {
+    changes.push(`one ${edit.insert_node.category} node ${edit.insert_node.position}`);
+  }
+  if ((edit.replace_edge_ids || []).length > 0) {
+    changes.push(`${edit.replace_edge_ids.length} branch edge replacement${edit.replace_edge_ids.length === 1 ? '' : 's'}`);
+  } else if (edit.replace_edge_id) {
+    changes.push('controlled branch replacement');
+  }
+  if ((edit.disconnect_edge_ids || []).length > 0) changes.push(`${edit.disconnect_edge_ids.length} disconnect operation${edit.disconnect_edge_ids.length === 1 ? '' : 's'}`);
+  if ((edit.connections || []).length > 0) changes.push(`${edit.connections.length} controlled rewire${edit.connections.length === 1 ? '' : 's'}`);
   return {
     title: `Edit ${formatNode(node)}`,
     message: `Update ${formatNode(node)} with ${changes.join(' and ')}.`,

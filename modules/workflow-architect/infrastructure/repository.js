@@ -121,6 +121,16 @@ function workflowToGraph(workflow, catalog) {
   );
 }
 
+async function nextProposalRevisionForJob(jobId, userId) {
+  const result = await query(
+    `select count(*) + 1 as proposal_revision
+       from workflow_architect_proposals
+      where job_id = $1 and user_id = $2`,
+    [jobId, userId]
+  );
+  return Number(result.rows[0]?.proposal_revision || 1);
+}
+
 async function nextEventSequence(client, jobId) {
   const result = await client.query(
     'select coalesce(max(sequence), 0) + 1 as sequence from workflow_architect_events where job_id = $1',
@@ -273,8 +283,9 @@ export async function createFixtureProposal({
 }) {
   const client = await getPool().connect();
   const patchVersion = patch?.version || WORKFLOW_PATCH_VERSION;
-  const diff = summarizePatchDiff(patch);
-  const proposalSummary = summary || { ...defaultProposalSummary(patch), diff };
+  const proposalRevision = 1;
+  const diff = summarizePatchDiff(patch, { proposalRevision });
+  const proposalSummary = { ...(summary || defaultProposalSummary(patch)), proposal_revision: proposalRevision, diff };
   const proposalValidation = validation || { valid: true, warnings: [], errors: [] };
 
   try {
@@ -347,8 +358,9 @@ export async function createProposalForJob(job, {
   expiresAt: explicitExpiresAt = null,
 }) {
   const patchVersion = patch?.version || WORKFLOW_PATCH_VERSION;
-  const diff = summarizePatchDiff(patch);
-  const proposalSummary = summary || { ...defaultProposalSummary(patch), diff };
+  const proposalRevision = await nextProposalRevisionForJob(job.id, job.userId);
+  const diff = summarizePatchDiff(patch, { proposalRevision });
+  const proposalSummary = { ...(summary || defaultProposalSummary(patch)), proposal_revision: proposalRevision, diff };
   const proposalValidation = validation || { valid: true, warnings: [], errors: [] };
 
   const result = await query(

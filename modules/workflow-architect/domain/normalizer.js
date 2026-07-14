@@ -104,6 +104,10 @@ function prunePlainObject(value) {
 function normalizeInsertNode(request = {}) {
   const raw = request.insert_node && typeof request.insert_node === 'object' ? request.insert_node : null;
   if (!raw) return null;
+  return normalizeInsertNodeValue(raw, request);
+}
+
+function normalizeInsertNodeValue(raw = {}, request = {}) {
   const category = TARGET_CATEGORIES.has(raw.category) ? raw.category : inferCategory(`${raw.model_id || ''} ${request.prompt_redacted || ''}`);
   const fallbackProfile = defaultArchitectModelProfile(category);
   const requestedModelId = typeof raw.model_id === 'string' ? raw.model_id.trim() : null;
@@ -132,6 +136,47 @@ function normalizeInsertNode(request = {}) {
   };
 }
 
+function normalizeInsertNodes(request = {}) {
+  const explicit = Array.isArray(request.insert_nodes)
+    ? request.insert_nodes
+    : Array.isArray(request.nodes_to_add)
+      ? request.nodes_to_add
+      : null;
+  if (explicit) {
+    return explicit
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .slice(0, 4)
+      .map((item) => normalizeInsertNodeValue(item, request));
+  }
+  const single = normalizeInsertNode(request);
+  return single ? [single] : [];
+}
+
+function normalizeStringList(value, max = 8) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function normalizeConnections(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    .slice(0, 8)
+    .map((item) => ({
+      edge_id: typeof item.edge_id === 'string' ? item.edge_id.trim() : null,
+      source_node_id: typeof item.source_node_id === 'string' ? item.source_node_id.trim() : typeof item.sourceNodeId === 'string' ? item.sourceNodeId.trim() : null,
+      source_port: typeof item.source_port === 'string' ? item.source_port.trim() : typeof item.sourcePort === 'string' ? item.sourcePort.trim() : null,
+      target_node_id: typeof item.target_node_id === 'string' ? item.target_node_id.trim() : typeof item.targetNodeId === 'string' ? item.targetNodeId.trim() : null,
+      target_port: typeof item.target_port === 'string' ? item.target_port.trim() : typeof item.targetPort === 'string' ? item.targetPort.trim() : null,
+      mode: item.mode === 'replace_existing' ? 'replace_existing' : 'fail_if_occupied',
+    }))
+    .filter((item) => item.source_node_id && item.source_port && item.target_node_id && item.target_port);
+}
+
 export function normalizeBoundedEditRequest(request = {}, context) {
   const selectedNode = context.selectedNode;
   const parameterUpdates = {
@@ -141,23 +186,40 @@ export function normalizeBoundedEditRequest(request = {}, context) {
   const replacementModelId = typeof request.replacement_model_id === 'string'
     ? request.replacement_model_id.trim()
     : null;
-  const insertNode = normalizeInsertNode(request);
+  const insertNodes = normalizeInsertNodes(request);
+  const insertNode = insertNodes[0] || null;
+  const replaceEdgeId = typeof request.replace_edge_id === 'string'
+    ? request.replace_edge_id.trim()
+    : typeof request.branch_replacement?.edge_id === 'string'
+      ? request.branch_replacement.edge_id.trim()
+      : null;
+  const replaceEdgeIds = [
+    ...(replaceEdgeId ? [replaceEdgeId] : []),
+    ...normalizeStringList(request.replace_edge_ids || request.branch_replacement?.edge_ids),
+  ].filter((item, index, values) => values.indexOf(item) === index).slice(0, 8);
 
   if (replacementModelId && !getArchitectModelProfile(selectedNode.category, replacementModelId)) {
     const error = new Error(`Model "${replacementModelId}" is not a curated ${selectedNode.category} alternative.`);
     error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
     throw error;
   }
-  if (insertNode && !getArchitectModelProfile(insertNode.category, insertNode.model_id)) {
-    const error = new Error(`Model "${insertNode.model_id}" is not a curated ${insertNode.category} insertion model.`);
-    error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
-    throw error;
+  for (const node of insertNodes) {
+    if (!getArchitectModelProfile(node.category, node.model_id)) {
+      const error = new Error(`Model "${node.model_id}" is not a curated ${node.category} insertion model.`);
+      error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
+      throw error;
+    }
   }
 
   return {
     parameter_updates: parameterUpdates,
     replacement_model_id: replacementModelId || null,
     insert_node: insertNode,
+    insert_nodes: insertNodes,
+    replace_edge_id: replaceEdgeId,
+    replace_edge_ids: replaceEdgeIds,
+    disconnect_edge_ids: normalizeStringList(request.disconnect_edge_ids || request.disconnects),
+    connections: normalizeConnections(request.connections || request.rewire_connections),
     assumptions: [],
   };
 }

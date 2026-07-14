@@ -1,4 +1,4 @@
-export function summarizePatchDiff(patch = {}) {
+export function summarizePatchDiff(patch = {}, { proposalRevision = null } = {}) {
   const diff = {
     nodes_added: [],
     nodes_updated: [],
@@ -9,7 +9,16 @@ export function summarizePatchDiff(patch = {}) {
     parameter_changes: [],
     exposure_changes: [],
     workflow_metadata_changes: [],
+    connection_changes: [],
+    branch_replacements: [],
+    revision: {
+      base_revision: patch.baseRevision ?? null,
+      proposal_revision: proposalRevision,
+      operation_count: Array.isArray(patch.operations) ? patch.operations.length : 0,
+    },
   };
+
+  const disconnected = new Map();
 
   for (const operation of patch.operations || []) {
     switch (operation.op) {
@@ -49,14 +58,39 @@ export function summarizePatchDiff(patch = {}) {
         });
         break;
       case 'connect':
-        diff.edges_added.push({
+        {
+          const edge = {
           edge_id: operation.edge_id,
           source: operation.source,
           target: operation.target,
-        });
+          mode: operation.mode || 'fail_if_occupied',
+        };
+          diff.edges_added.push(edge);
+          diff.connection_changes.push({ action: 'connect', ...edge });
+          const replaced = [...disconnected.values()].find((item) =>
+            item.target?.node_id === operation.target?.node_id &&
+            item.target?.port === operation.target?.port
+          );
+          if (operation.mode === 'replace_existing' && replaced) {
+            diff.branch_replacements.push({
+              removed_edge_id: replaced.edge_id,
+              added_edge_id: operation.edge_id,
+              target: operation.target,
+            });
+          }
+        }
         break;
       case 'disconnect':
-        diff.edges_removed.push({ edge_id: operation.edge_id });
+        {
+          const edge = {
+            edge_id: operation.edge_id,
+            source: operation.source || null,
+            target: operation.target || null,
+          };
+          disconnected.set(operation.edge_id, edge);
+          diff.edges_removed.push(edge);
+          diff.connection_changes.push({ action: 'disconnect', ...edge });
+        }
         break;
       case 'set_workflow_metadata':
         diff.workflow_metadata_changes.push(operation.metadata || {});

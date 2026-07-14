@@ -51,6 +51,7 @@ function publicProposal(proposal) {
     summary: proposal.summary,
     validation: proposal.validation,
     diff: proposal.diff,
+    proposal_revision: proposal.summary?.proposal_revision || proposal.diff?.revision?.proposal_revision || null,
     status: proposal.status,
     catalog_version: proposal.catalogVersion,
     compiler_version: proposal.compilerVersion,
@@ -97,7 +98,12 @@ function architectRequestForBody(body, requestText) {
     parameter_updates: body.parameter_updates || body.parameters || null,
     replacement_model_id: body.replacement_model_id || body.model_id || null,
     insert_node: body.insert_node || null,
+    insert_nodes: body.insert_nodes || body.nodes_to_add || null,
     position: body.position || body.insert_position || null,
+    replace_edge_id: body.replace_edge_id || body.branch_replacement?.edge_id || null,
+    replace_edge_ids: body.replace_edge_ids || body.branch_replacement?.edge_ids || null,
+    disconnect_edge_ids: body.disconnect_edge_ids || body.disconnects || null,
+    connections: body.connections || body.rewire_connections || null,
   };
 }
 

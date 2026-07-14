@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleWorkflowArchitect } from '../modules/workflow-architect/api/router.js';
 import { processArchitectJob } from '../modules/workflow-architect/infrastructure/worker.js';
+import { summarizePatchDiff } from '../modules/workflow-architect/domain/proposalDiff.js';
 import { createWorkflowPatch } from '../modules/workflow-domain/patchSchema.js';
 import { WorkflowRevisionConflict } from '../modules/workflow-domain/revisionService.js';
 
@@ -71,7 +72,12 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
     parameter_updates: { duration: 6 },
     replacement_model_id: null,
     insert_node: null,
+    insert_nodes: null,
     position: null,
+    replace_edge_id: null,
+    replace_edge_ids: null,
+    disconnect_edge_ids: null,
+    connections: null,
   });
 });
 
@@ -247,7 +253,7 @@ test('GET jobs returns completed proposal when one exists', async () => {
       workflowId: 'wf-1',
       baseRevision: 2,
       patchVersion: 'workflow-patch/v1',
-      summary: { title: 'Ready' },
+      summary: { title: 'Ready', proposal_revision: 2 },
       validation: { valid: true, warnings: [], errors: [] },
       diff: {},
       status: 'pending',
@@ -268,6 +274,7 @@ test('GET jobs returns completed proposal when one exists', async () => {
   const body = await readJson(response);
   assert.equal(body.job.status, 'completed');
   assert.equal(body.proposal.id, 'proposal-for-job');
+  assert.equal(body.proposal.proposal_revision, 2);
 });
 
 test('GET job events returns persisted progress after a sequence cursor', async () => {
@@ -987,6 +994,257 @@ test('phase 3 worker adds one curated node before the selected node with selecte
   assert.equal(result.proposal.summary.selected_subgraph.selected.id, 'video-1');
   assert.equal(result.proposal.summary.selected_subgraph.incoming[0].source.id, 'prompt-1');
   assert.equal(result.proposal.validation.valid, true);
+});
+
+test('phase 4 worker replaces an adjacent branch with a curated multi-node chain', async () => {
+  const result = await processArchitectJob('job-branch-replace', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 8,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'image-1',
+        replace_edge_id: 'edge-image-video-image',
+        insert_nodes: [
+          {
+            position: 'after',
+            category: 'image',
+            model_id: 'flux-schnell',
+            title: 'Refine frame',
+            parameters: { prompt: 'Refine the product frame.', aspect_ratio: '1:1', output_format: 'webp' },
+          },
+          {
+            position: 'after',
+            category: 'image',
+            model_id: 'imagen-4-fast',
+            title: 'Upscale frame',
+            parameters: { prompt: 'Create a polished final frame.', aspect_ratio: '1:1', output_format: 'jpg' },
+          },
+        ],
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        image: {
+          models: {
+            'flux-schnell': {
+              input_schema: { prompt: {}, image_url: {}, aspect_ratio: {}, output_format: {} },
+            },
+            'imagen-4-fast': {
+              input_schema: { prompt: {}, image_url: {}, aspect_ratio: {}, output_format: {} },
+            },
+          },
+        },
+        video: {
+          models: {
+            'seedance-2-0-mini': {
+              input_schema: { prompt: {}, image_url: {}, duration: {}, aspect_ratio: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Branch flow',
+      category: 'video',
+      edges: [
+        {
+          id: 'edge-image-video-image',
+          source: 'image-1',
+          target: 'video-1',
+          sourceHandle: 'imageOutput',
+          targetHandle: 'videoInput2',
+        },
+      ],
+      nodes: [
+        {
+          id: 'image-1',
+          title: 'Image',
+          category: 'image',
+          model: 'flux-schnell',
+          input_params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          position: { x: 100, y: 200 },
+        },
+        {
+          id: 'video-1',
+          title: 'Video',
+          category: 'video',
+          model: 'seedance-2-0-mini',
+          input_params: { prompt: 'Animate the product', duration: 5 },
+          params: { prompt: 'Animate the product', duration: 5 },
+          position: { x: 760, y: 200 },
+        },
+      ],
+      isTemplate: false,
+      revision: 8,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-branch-replace',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: summarizePatchDiff(input.patch),
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  const operations = result.proposal.patch.operations;
+  const addedNodes = operations.filter((operation) => operation.op === 'add_node');
+  const connects = operations.filter((operation) => operation.op === 'connect');
+
+  assert.equal(result.job.status, 'completed');
+  assert.equal(operations[0].op, 'disconnect');
+  assert.equal(operations[0].edge_id, 'edge-image-video-image');
+  assert.equal(addedNodes.length, 2);
+  assert.equal(connects.length, 3);
+  assert.equal(connects.at(-1).target.node_id, 'video-1');
+  assert.equal(connects.at(-1).target.port, 'image_url');
+  assert.equal(connects.at(-1).mode, 'replace_existing');
+  assert.equal(result.proposal.validation.valid, true);
+  assert.equal(result.proposal.diff.branch_replacements.length, 1);
+  assert.equal(result.proposal.diff.revision.base_revision, 8);
+});
+
+test('phase 4 worker replaces multiple outgoing branch edges through one curated node', async () => {
+  const result = await processArchitectJob('job-multi-branch-replace', {
+    markArchitectJobRunning: async (id) => ({
+      id,
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      baseRevision: 9,
+      operation: 'edit',
+      provider: 'replicate',
+      status: 'running',
+      request: {
+        type: 'bounded_edit',
+        selected_node_id: 'image-1',
+        replace_edge_ids: ['edge-image-video-a', 'edge-image-video-b'],
+        insert_nodes: [
+          {
+            position: 'after',
+            category: 'image',
+            model_id: 'imagen-4-fast',
+            title: 'Shared refined frame',
+            parameters: { prompt: 'Refine the shared branch frame.', aspect_ratio: '1:1', output_format: 'jpg' },
+          },
+        ],
+      },
+    }),
+    appendArchitectEvent: async () => {},
+    failArchitectJob: async (id, error) => ({ id, status: 'failed', errorCode: error.code, message: error.message }),
+    buildNodeSchemas: () => ({
+      categories: {
+        image: {
+          models: {
+            'flux-schnell': {
+              input_schema: { prompt: {}, image_url: {}, aspect_ratio: {}, output_format: {} },
+            },
+            'imagen-4-fast': {
+              input_schema: { prompt: {}, image_url: {}, aspect_ratio: {}, output_format: {} },
+            },
+          },
+        },
+        video: {
+          models: {
+            'seedance-2-0-mini': {
+              input_schema: { prompt: {}, image_url: {}, duration: {}, aspect_ratio: {} },
+            },
+          },
+        },
+      },
+    }),
+    getArchitectWorkflow: async () => ({
+      id: 'wf-1',
+      userId: 'user-1',
+      provider: 'replicate',
+      name: 'Multi branch flow',
+      category: 'video',
+      edges: [
+        {
+          id: 'edge-image-video-a',
+          source: 'image-1',
+          target: 'video-a',
+          sourceHandle: 'imageOutput',
+          targetHandle: 'videoInput2',
+        },
+        {
+          id: 'edge-image-video-b',
+          source: 'image-1',
+          target: 'video-b',
+          sourceHandle: 'imageOutput',
+          targetHandle: 'videoInput2',
+        },
+      ],
+      nodes: [
+        {
+          id: 'image-1',
+          title: 'Image',
+          category: 'image',
+          model: 'flux-schnell',
+          input_params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          params: { prompt: 'A product', aspect_ratio: '1:1', output_format: 'webp' },
+          position: { x: 100, y: 200 },
+        },
+        {
+          id: 'video-a',
+          title: 'Video A',
+          category: 'video',
+          model: 'seedance-2-0-mini',
+          input_params: { prompt: 'Animate branch A', duration: 5 },
+          params: { prompt: 'Animate branch A', duration: 5 },
+          position: { x: 760, y: 120 },
+        },
+        {
+          id: 'video-b',
+          title: 'Video B',
+          category: 'video',
+          model: 'seedance-2-0-mini',
+          input_params: { prompt: 'Animate branch B', duration: 5 },
+          params: { prompt: 'Animate branch B', duration: 5 },
+          position: { x: 760, y: 280 },
+        },
+      ],
+      isTemplate: false,
+      revision: 9,
+    }),
+    createProposalForJob: async (job, input) => ({
+      id: 'proposal-multi-branch-replace',
+      jobId: job.id,
+      workflowId: job.workflowId,
+      patch: input.patch,
+      summary: input.summary,
+      validation: input.validation,
+      diff: summarizePatchDiff(input.patch, { proposalRevision: 3 }),
+    }),
+    completeArchitectJob: async (id) => ({ id, status: 'completed' }),
+  });
+
+  const operations = result.proposal.patch.operations;
+  const disconnects = operations.filter((operation) => operation.op === 'disconnect');
+  const addedNodes = operations.filter((operation) => operation.op === 'add_node');
+  const connects = operations.filter((operation) => operation.op === 'connect');
+
+  assert.equal(result.job.status, 'completed');
+  assert.equal(disconnects.length, 2);
+  assert.equal(addedNodes.length, 1);
+  assert.equal(connects.length, 3);
+  assert.deepEqual(connects.slice(1).map((operation) => operation.target.node_id).sort(), ['video-a', 'video-b']);
+  assert.equal(result.proposal.validation.valid, true);
+  assert.equal(result.proposal.diff.branch_replacements.length, 2);
+  assert.equal(result.proposal.diff.revision.proposal_revision, 3);
 });
 
 test('phase 2 worker records progress and fails unsupported generation jobs', async () => {
