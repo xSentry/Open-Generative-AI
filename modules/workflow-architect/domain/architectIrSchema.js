@@ -1,5 +1,6 @@
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TARGET_CATEGORIES = new Set(['image', 'video', 'audio', 'text']);
+const NODE_ROLES = new Set(['input', 'generation']);
 
 function issue(code, message, path = '') {
   return { severity: 'error', code, message, path };
@@ -22,8 +23,11 @@ export function validateCreateWorkflowIr(value, { catalog = null } = {}) {
   if (hasForbiddenKey(value)) {
     errors.push(issue('IR_FORBIDDEN_KEY', 'Architect IR contains a forbidden object key.'));
   }
+  if (value.version != null && value.version !== 'workflow-architect-ir/v1') {
+    errors.push(issue('IR_VERSION_UNSUPPORTED', 'Only workflow-architect-ir/v1 is supported.', 'version'));
+  }
   if (value.operation !== 'create_workflow') {
-    errors.push(issue('IR_OPERATION_UNSUPPORTED', 'Only create_workflow IR is supported in Phase 2.', 'operation'));
+    errors.push(issue('IR_OPERATION_UNSUPPORTED', 'Only create_workflow IR is supported.', 'operation'));
   }
   if (!TARGET_CATEGORIES.has(value.target_category)) {
     errors.push(issue('IR_TARGET_CATEGORY', 'target_category must be image, video, audio, or text.', 'target_category'));
@@ -31,19 +35,59 @@ export function validateCreateWorkflowIr(value, { catalog = null } = {}) {
   if (typeof value.workflow_name !== 'string' || value.workflow_name.trim().length < 1) {
     errors.push(issue('IR_WORKFLOW_NAME', 'workflow_name is required.', 'workflow_name'));
   }
-  if (typeof value.prompt !== 'string' || value.prompt.trim().length < 2) {
-    errors.push(issue('IR_PROMPT', 'prompt must describe the generation request.', 'prompt'));
+  if (!Array.isArray(value.nodes) || value.nodes.length < 2 || value.nodes.length > 6) {
+    errors.push(issue('IR_NODES', 'nodes must contain 2 to 6 role descriptors.', 'nodes'));
+  } else {
+    const refs = new Set();
+    value.nodes.forEach((node, index) => {
+      const path = `nodes[${index}]`;
+      if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        errors.push(issue('IR_NODE_OBJECT', 'Each IR node must be an object.', path));
+        return;
+      }
+      if (typeof node.ref !== 'string' || !/^[a-z][a-z0-9_-]{1,39}$/i.test(node.ref)) {
+        errors.push(issue('IR_NODE_REF', 'Node ref must be a stable short identifier.', `${path}.ref`));
+      } else if (refs.has(node.ref)) {
+        errors.push(issue('IR_NODE_REF_DUPLICATE', `Duplicate node ref "${node.ref}".`, `${path}.ref`));
+      } else {
+        refs.add(node.ref);
+      }
+      if (!NODE_ROLES.has(node.role)) {
+        errors.push(issue('IR_NODE_ROLE', 'Node role must be input or generation.', `${path}.role`));
+      }
+      if (!TARGET_CATEGORIES.has(node.capability)) {
+        errors.push(issue('IR_NODE_CAPABILITY', 'Node capability must be text, image, video, or audio.', `${path}.capability`));
+      }
+      if (node.model_id != null) {
+        errors.push(issue('IR_MODEL_SELECTION_FORBIDDEN', 'Model IDs are server-selected and must not appear in workflow-architect-ir/v1.', `${path}.model_id`));
+      }
+      if (node.parameters != null && (typeof node.parameters !== 'object' || Array.isArray(node.parameters))) {
+        errors.push(issue('IR_NODE_PARAMETERS', 'Node parameters must be an object when provided.', `${path}.parameters`));
+      }
+    });
+    if (!value.nodes.some((node) => node?.role === 'input' && node.capability === 'text')) {
+      errors.push(issue('IR_TEXT_INPUT_REQUIRED', 'Create workflow IR must include a text input role.', 'nodes'));
+    }
+    if (!value.nodes.some((node) => node?.role === 'generation')) {
+      errors.push(issue('IR_GENERATION_REQUIRED', 'Create workflow IR must include at least one generation role.', 'nodes'));
+    }
   }
-  if (value.model_id != null && typeof value.model_id !== 'string') {
-    errors.push(issue('IR_MODEL_ID', 'model_id must be a string when provided.', 'model_id'));
-  }
-  if (value.parameters != null && (typeof value.parameters !== 'object' || Array.isArray(value.parameters))) {
-    errors.push(issue('IR_PARAMETERS', 'parameters must be an object when provided.', 'parameters'));
-  }
-  if (catalog && value.target_category && value.model_id) {
-    const model = catalog.categories?.[value.target_category]?.models?.[value.model_id];
-    if (!model) {
-      errors.push(issue('IR_MODEL_NOT_CURATED', `Model "${value.model_id}" is not enabled for Architect create workflows.`, 'model_id'));
+  if (value.connections != null) {
+    if (!Array.isArray(value.connections)) {
+      errors.push(issue('IR_CONNECTIONS', 'connections must be an array when provided.', 'connections'));
+    } else {
+      value.connections.forEach((connection, index) => {
+        const path = `connections[${index}]`;
+        if (!connection || typeof connection !== 'object' || Array.isArray(connection)) {
+          errors.push(issue('IR_CONNECTION_OBJECT', 'Each connection must be an object.', path));
+          return;
+        }
+        for (const key of ['from_ref', 'to_ref']) {
+          if (typeof connection[key] !== 'string' || !connection[key].trim()) {
+            errors.push(issue('IR_CONNECTION_REF', `${key} is required.`, `${path}.${key}`));
+          }
+        }
+      });
     }
   }
   return { valid: errors.length === 0, errors, warnings: [] };
@@ -53,19 +97,54 @@ export function createWorkflowIrJsonSchema(catalog) {
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['operation', 'workflow_name', 'target_category', 'prompt'],
+    required: ['version', 'operation', 'workflow_name', 'target_category', 'nodes', 'connections'],
     properties: {
+      version: { type: 'string', enum: ['workflow-architect-ir/v1'] },
       operation: { type: 'string', enum: ['create_workflow'] },
       workflow_name: { type: 'string', minLength: 1, maxLength: 80 },
       target_category: { type: 'string', enum: ['image', 'video', 'audio', 'text'] },
-      model_id: {
-        type: 'string',
-        enum: catalog?.compact?.map((item) => item.model_id) || [],
+      nodes: {
+        type: 'array',
+        minItems: 2,
+        maxItems: 6,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['ref', 'role', 'capability'],
+          properties: {
+            ref: { type: 'string', minLength: 2, maxLength: 40 },
+            role: { type: 'string', enum: ['input', 'generation'] },
+            capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            title: { type: 'string', maxLength: 80 },
+            prompt: { type: 'string', maxLength: 2000 },
+            parameters: { type: 'object', additionalProperties: true },
+            model_preferences: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                speed_tier: { type: 'string', enum: ['fast', 'balanced'] },
+                quality_tier: { type: 'string', enum: ['standard', 'high'] },
+                stability: { type: 'string', enum: ['stable'] },
+              },
+            },
+          },
+        },
       },
-      prompt: { type: 'string', minLength: 2, maxLength: 2000 },
-      parameters: {
-        type: 'object',
-        additionalProperties: true,
+      connections: {
+        type: 'array',
+        maxItems: 8,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['from_ref', 'to_ref'],
+          properties: {
+            from_ref: { type: 'string' },
+            from_capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            to_ref: { type: 'string' },
+            to_capability: { type: 'string', enum: ['text', 'image', 'video', 'audio'] },
+            to_port: { type: 'string' },
+          },
+        },
       },
       assumptions: {
         type: 'array',

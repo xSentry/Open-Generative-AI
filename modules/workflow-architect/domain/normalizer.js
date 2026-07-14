@@ -1,4 +1,5 @@
 import {
+  CURATED_MODEL_PROFILES,
   defaultArchitectModelProfile,
   getArchitectModelProfile,
 } from './capabilityCatalog.js';
@@ -25,47 +26,140 @@ function pruneParameters(parameters = {}, allowedKeys = new Set()) {
   return out;
 }
 
+function sanitizeRef(value, fallback) {
+  const ref = String(value || fallback || 'node')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return /^[a-z]/.test(ref) ? ref : `node-${ref || '1'}`;
+}
+
 function inputProperties(catalog, category, modelId) {
   const schema = catalog?.categories?.[category]?.models?.[modelId]?.input_schema;
   return schema?.schemas?.input_data?.properties || schema || {};
 }
 
-export function normalizeCreateWorkflowIr(rawIr, { userRequest, catalog }) {
-  const requestedCategory = TARGET_CATEGORIES.has(rawIr?.target_category)
-    ? rawIr.target_category
-    : inferCategory(userRequest);
-  const fallbackProfile = defaultArchitectModelProfile(requestedCategory) || defaultArchitectModelProfile('image');
-  const modelId = getArchitectModelProfile(requestedCategory, rawIr?.model_id)
-    ? rawIr.model_id
-    : fallbackProfile?.modelId;
-
-  const props = inputProperties(catalog, requestedCategory, modelId);
-  const allowedParameterKeys = new Set(Object.keys(props));
-  const parameters = {
-    ...(fallbackProfile?.defaultParameters || {}),
-    ...pruneParameters(rawIr?.parameters, allowedParameterKeys),
+function selectModelProfile(category, preferences = {}) {
+  const profiles = CURATED_MODEL_PROFILES[category] || [];
+  const preferred = profiles.find((profile) =>
+    (!preferences?.speed_tier || profile.speedTier === preferences.speed_tier) &&
+    (!preferences?.quality_tier || profile.qualityTier === preferences.quality_tier) &&
+    (!preferences?.stability || (profile.stability || 'stable') === preferences.stability)
+  );
+  const profile = preferred || defaultArchitectModelProfile(category);
+  return {
+    profile,
+    reason: preferred
+      ? `Selected curated ${category} model "${profile.modelId}" matching requested preferences.`
+      : `Selected default curated ${category} model "${profile?.modelId}" because no exact preference match was available.`,
   };
+}
 
-  const normalized = {
-    operation: 'create_workflow',
-    workflow_name: clampString(rawIr?.workflow_name, titleFromRequest(userRequest), MAX_NAME_LENGTH),
-    target_category: requestedCategory,
-    model_id: modelId,
-    prompt: clampString(rawIr?.prompt, userRequest || 'Generate a creative result.', MAX_PROMPT_LENGTH),
-    parameters,
-    assumptions: Array.isArray(rawIr?.assumptions)
-      ? rawIr.assumptions.filter((item) => typeof item === 'string').slice(0, 5)
-      : [],
-  };
+function promptFromIrNode(node, userRequest) {
+  return clampString(node?.prompt, userRequest || 'Generate a creative result.', MAX_PROMPT_LENGTH);
+}
 
-  const validation = validateCreateWorkflowIr(normalized, { catalog });
+function normalizeRichCreateWorkflowIr(rawIr, { userRequest, catalog }) {
+  const validation = validateCreateWorkflowIr(rawIr, { catalog });
   if (!validation.valid) {
     const error = new Error(validation.errors.map((item) => item.message).join('; '));
     error.code = 'ARCHITECT_IR_INVALID';
     error.validation = validation;
     throw error;
   }
+
+  const refs = new Set();
+  const nodes = [];
+  const modelSelectionReasons = [];
+  for (const [index, rawNode] of rawIr.nodes.entries()) {
+    const capability = TARGET_CATEGORIES.has(rawNode.capability) ? rawNode.capability : inferCategory(userRequest);
+    const ref = uniqueRef(sanitizeRef(rawNode.ref, `${capability}-${index + 1}`), refs);
+    const role = rawNode.role === 'input' ? 'input' : 'generation';
+    const selection = role === 'generation'
+      ? selectModelProfile(capability, rawNode.model_preferences)
+      : { profile: { modelId: `${capability}-passthrough`, promptPort: capability === 'text' ? 'prompt' : capability, defaultParameters: {} }, reason: `Selected ${capability}-passthrough for ${ref} because input roles use passthrough nodes.` };
+    const modelId = selection.profile?.modelId;
+    const props = inputProperties(catalog, capability, modelId);
+    const parameters = {
+      ...(selection.profile?.defaultParameters || {}),
+      ...pruneParameters(rawNode.parameters, new Set(Object.keys(props))),
+    };
+    if (role === 'input' && capability === 'text') {
+      parameters.prompt = promptFromIrNode(rawNode, userRequest);
+    }
+    nodes.push({
+      ref,
+      role,
+      capability,
+      category: capability,
+      title: clampString(rawNode.title, role === 'input' ? `${capability} input` : `${capability} generation`, MAX_NAME_LENGTH),
+      model_id: modelId,
+      prompt_port: selection.profile?.promptPort || 'prompt',
+      parameters,
+    });
+    modelSelectionReasons.push({ ref, category: capability, model_id: modelId, reason: selection.reason });
+  }
+
+  const normalized = {
+    version: 'workflow-architect-ir/v1',
+    operation: 'create_workflow',
+    workflow_name: clampString(rawIr.workflow_name, titleFromRequest(userRequest), MAX_NAME_LENGTH),
+    target_category: TARGET_CATEGORIES.has(rawIr.target_category) ? rawIr.target_category : inferCategory(userRequest),
+    nodes,
+    connections: normalizeIrConnections(rawIr.connections, nodes),
+    assumptions: normalizeStringList(rawIr.assumptions, 5),
+    diagnostics: {
+      model_selection: modelSelectionReasons,
+    },
+  };
+
+  if (!normalized.connections.some((connection) => connection.to_ref && connection.from_ref)) {
+    normalized.connections = defaultIrConnections(normalized.nodes);
+  }
   return normalized;
+}
+
+export function normalizeCreateWorkflowIr(rawIr, { userRequest, catalog }) {
+  return normalizeRichCreateWorkflowIr(rawIr, { userRequest, catalog });
+}
+
+function uniqueRef(ref, refs) {
+  if (!refs.has(ref)) {
+    refs.add(ref);
+    return ref;
+  }
+  for (let index = 2; index < 100; index += 1) {
+    const candidate = `${ref}-${index}`;
+    if (!refs.has(candidate)) {
+      refs.add(candidate);
+      return candidate;
+    }
+  }
+  throw new Error('Could not assign a unique Architect IR ref.');
+}
+
+function normalizeIrConnections(connections, nodes) {
+  const nodeRefs = new Set(nodes.map((node) => node.ref));
+  if (!Array.isArray(connections)) return [];
+  return connections
+    .filter((connection) => connection && typeof connection === 'object' && !Array.isArray(connection))
+    .slice(0, 8)
+    .map((connection) => ({
+      from_ref: String(connection.from_ref || '').trim(),
+      from_capability: TARGET_CATEGORIES.has(connection.from_capability) ? connection.from_capability : null,
+      to_ref: String(connection.to_ref || '').trim(),
+      to_capability: TARGET_CATEGORIES.has(connection.to_capability) ? connection.to_capability : null,
+      to_port: typeof connection.to_port === 'string' ? connection.to_port.trim() : null,
+    }))
+    .filter((connection) => nodeRefs.has(connection.from_ref) && nodeRefs.has(connection.to_ref));
+}
+
+function defaultIrConnections(nodes) {
+  const input = nodes.find((node) => node.role === 'input' && node.capability === 'text');
+  const generation = nodes.find((node) => node.role === 'generation');
+  if (!input || !generation) return [];
+  return [{ from_ref: input.ref, from_capability: 'text', to_ref: generation.ref, to_capability: generation.capability, to_port: generation.prompt_port || 'prompt' }];
 }
 
 function coerceScalar(value) {

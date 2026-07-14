@@ -218,6 +218,7 @@ export async function processArchitectJob(jobId, deps = {}) {
     const patch = compileCreateWorkflowIrToPatch(ir, {
       provider: job.provider || 'replicate',
       baseRevision: job.baseRevision ?? context.graph.revision,
+      catalog,
     });
     const nextGraph = applyWorkflowPatch(context.graph, patch, { catalog });
     const validation = {

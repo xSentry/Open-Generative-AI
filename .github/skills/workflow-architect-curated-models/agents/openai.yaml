@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Architect Curated Models"
+  short_description: "Update curated model profiles for Workflow Architect."
+  default_prompt: "Update CURATED_MODEL_PROFILES for Workflow Architect."

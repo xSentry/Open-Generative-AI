@@ -39,82 +39,96 @@ function constantInputs(parameters = {}) {
   );
 }
 
+function filterSupportedParameters(parameters = {}, node, catalog) {
+  const inputs = getInputPortDefinitions({
+    category: node.category,
+    modelId: node.modelId,
+    nodeType: node.nodeType,
+    catalog,
+  });
+  const allowed = new Set(Object.keys(inputs));
+  return Object.fromEntries(
+    Object.entries(parameters).filter(([key]) => allowed.has(key))
+  );
+}
+
 export function compileCreateWorkflowIrToPatch(ir, {
   provider = 'replicate',
   baseRevision = null,
+  catalog = null,
 } = {}) {
-  const profile = getArchitectModelProfile(ir.target_category, ir.model_id);
-  if (!profile) {
-    const error = new Error(`Model "${ir.model_id}" is not enabled for Architect workflows.`);
-    error.code = 'ARCHITECT_MODEL_NOT_ENABLED';
-    throw error;
+  const refToNode = new Map();
+  const operations = [
+    { op: 'set_workflow_metadata', metadata: { name: ir.workflow_name, category: ir.target_category, source: 'architect' } },
+  ];
+  const preconditions = baseRevision != null
+    ? [{ type: 'workflow_revision_equals', revision: baseRevision }]
+    : [];
+
+  for (const [index, irNode] of ir.nodes.entries()) {
+    const nodeId = `architect-${safeId(irNode.ref || `${irNode.category}-${index + 1}`)}`;
+    const outputPort = outputPortForCategory(irNode.category);
+    const node = {
+      id: nodeId,
+      nodeType: nodeTypeForCategory(irNode.category, irNode.model_id),
+      category: irNode.category,
+      kind: irNode.role === 'input' ? 'input' : inferNodeKind(irNode.category, irNode.model_id),
+      title: irNode.title || `${irNode.category[0].toUpperCase()}${irNode.category.slice(1)} ${irNode.role}`,
+      provider,
+      modelId: irNode.model_id,
+      parameters: { ...(irNode.parameters || {}) },
+      inputs: constantInputs(irNode.parameters || {}),
+      outputs: { [outputPort]: { type: outputTypeForCategory(irNode.category), label: irNode.category } },
+      exposure: {
+        makeInput: irNode.role === 'input',
+        makeOutput: irNode.role === 'generation' && irNode.category === ir.target_category,
+      },
+      layout: { x: 80 + (index * 360), y: 120 },
+    };
+    refToNode.set(irNode.ref, node);
+    preconditions.push({ type: 'node_not_exists', node_id: nodeId });
+    operations.push({ op: 'add_node', node });
   }
 
-  const promptNodeId = 'architect-input-prompt';
-  const generationNodeId = `architect-${safeId(ir.target_category)}-generation`;
-  const promptPort = profile.promptPort || 'prompt';
-  const outputPort = outputPortForCategory(ir.target_category);
-  const edgeId = `edge-${promptNodeId}-${generationNodeId}-${promptPort}`;
-
-  const promptNode = {
-    id: promptNodeId,
-    nodeType: 'textNode',
-    category: 'text',
-    kind: 'input',
-    title: 'Prompt',
-    provider,
-    modelId: 'text-passthrough',
-    parameters: { prompt: ir.prompt },
-    inputs: { prompt: makeConstantBinding(ir.prompt) },
-    outputs: { text: { type: 'text', label: 'Text' } },
-    exposure: { makeInput: true, makeOutput: false },
-    layout: { x: 80, y: 120 },
-  };
-
-  const generationNode = {
-    id: generationNodeId,
-    nodeType: nodeTypeForCategory(ir.target_category, ir.model_id),
-    category: ir.target_category,
-    kind: 'generation',
-    title: `${ir.target_category[0].toUpperCase()}${ir.target_category.slice(1)} Generator`,
-    provider,
-    modelId: ir.model_id,
-    parameters: { ...(ir.parameters || {}) },
-    inputs: {
-      ...constantInputs(ir.parameters || {}),
-      [promptPort]: makeConnectionBinding(promptNodeId, 'text'),
-    },
-    outputs: { [outputPort]: { type: outputTypeForCategory(ir.target_category), label: ir.target_category } },
-    exposure: { makeInput: false, makeOutput: true },
-    layout: { x: 440, y: 120 },
-  };
+  for (const connection of ir.connections || []) {
+    const sourceNode = refToNode.get(connection.from_ref);
+    const targetNode = refToNode.get(connection.to_ref);
+    if (!sourceNode || !targetNode) continue;
+    const compatible = compatibleConnection(sourceNode, targetNode, catalog, connection.to_port || null);
+    if (!compatible) {
+      const error = new Error(`No compatible connection from "${connection.from_ref}" to "${connection.to_ref}".`);
+      error.code = 'ARCHITECT_NO_COMPATIBLE_PORT';
+      throw error;
+    }
+    delete targetNode.inputs?.[compatible.targetPort];
+    const edgeId = `edge-${sourceNode.id}-${targetNode.id}-${compatible.targetPort}`;
+    preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
+    operations.push({
+      op: 'connect',
+      edge_id: edgeId,
+      source: { node_id: sourceNode.id, port: compatible.sourcePort },
+      target: { node_id: targetNode.id, port: compatible.targetPort },
+      mode: 'fail_if_occupied',
+    });
+  }
 
   return createWorkflowPatch({
     baseRevision,
-    preconditions: baseRevision != null
-      ? [{ type: 'workflow_revision_equals', revision: baseRevision }]
-      : [],
-    operations: [
-      { op: 'set_workflow_metadata', metadata: { name: ir.workflow_name, category: ir.target_category, source: 'architect' } },
-      { op: 'add_node', node: promptNode },
-      { op: 'add_node', node: generationNode },
-      {
-        op: 'connect',
-        edge_id: edgeId,
-        source: { node_id: promptNodeId, port: 'text' },
-        target: { node_id: generationNodeId, port: promptPort },
-        mode: 'fail_if_occupied',
-      },
-    ],
+    preconditions,
+    operations,
   });
 }
 
 export function summarizeCreateWorkflowProposal(ir) {
+  const selection = ir.diagnostics?.model_selection || [];
   return {
     title: ir.workflow_name,
-    message: `Create a ${ir.target_category} workflow using ${ir.model_id}.`,
+    message: `Create a ${ir.target_category} workflow with ${ir.nodes.length} Architect-planned node roles.`,
     assumptions: ir.assumptions || [],
     warnings: [],
+    diagnostics: {
+      model_selection: selection,
+    },
   };
 }
 
@@ -192,7 +206,7 @@ function buildInsertedNode(insert, context, reservedNodeIds = new Set()) {
   const nodeId = uniqueNodeId(context.graph, insert.node_id || `architect-${category}-${modelId}`, reservedNodeIds);
   reservedNodeIds.add(nodeId);
   const nodeType = nodeTypeForCategory(category, modelId);
-  return {
+  const node = {
     id: nodeId,
     nodeType,
     category,
@@ -200,12 +214,15 @@ function buildInsertedNode(insert, context, reservedNodeIds = new Set()) {
     title: insert.title || `${category[0].toUpperCase()}${category.slice(1)} Generator`,
     provider: context.selectedNode.provider,
     modelId,
-    parameters,
-    inputs: constantInputs(parameters),
+    parameters: {},
+    inputs: {},
     outputs: getOutputPortDefinitions({ category, modelId }),
     exposure: { makeInput: false, makeOutput: false },
     layout: layoutNear(context.selectedNode, insert.position),
   };
+  node.parameters = filterSupportedParameters(parameters, node, context.catalog);
+  node.inputs = constantInputs(node.parameters);
+  return node;
 }
 
 function findNode(graph, nodeId) {
