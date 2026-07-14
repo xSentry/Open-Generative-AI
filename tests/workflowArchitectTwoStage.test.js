@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildArchitectCapabilityCatalog } from '../modules/workflow-architect/domain/capabilityCatalog.js';
-import { assembleWorkflowPlan, buildArchitectNodeOptionCatalog, buildWorkflowPathCatalog, createWorkflowPlanJsonSchema, validateWorkflowPlan } from '../modules/workflow-architect/domain/createWorkflowPlan.js';
+import { buildArchitectNodeOptionCatalog, createWorkflowPlanJsonSchema, materializeWorkflowPlanInputValues, validateWorkflowPlan } from '../modules/workflow-architect/domain/createWorkflowPlan.js';
 import { buildConfigurationOptions, buildModelSelectionOptions, createModelSelectionJsonSchema, hydrateCreateWorkflowIr, materializeNodeConfiguration, validateHydratedCreateWorkflowIr, validateModelSelection } from '../modules/workflow-architect/domain/nodeConfiguration.js';
 import { buildCreateWorkflowPlannerPayload, buildNodeConfigurationPayload, generateCreateWorkflowIr } from '../modules/workflow-architect/infrastructure/models/replicateStructuredModel.js';
 import { compileCreateWorkflowIrToPatch } from '../modules/workflow-architect/domain/compiler.js';
@@ -12,15 +12,9 @@ import { createWorkflowGraph } from '../modules/workflow-domain/graphSchema.js';
 
 const catalog = buildArchitectCapabilityCatalog('replicate');
 const nodeOptions = buildArchitectNodeOptionCatalog(catalog);
-const pathCatalog = buildWorkflowPathCatalog(nodeOptions);
-
-function plan(nodes, connections, target_output) { return { version: 'workflow-architect-plan/v1', operation: 'create_workflow', workflow_name: 'Generated workflow', target_output, nodes, connections, assumptions: [] }; }
+function plan(nodes, connections, target_output, inputValues = null) { return { version: 'workflow-architect-plan/v2', operation: 'create_workflow', workflow_name: 'Generated workflow', target_output, nodes, connections, input_values: inputValues || nodes.filter((item) => item.type === 'text-input').map((item) => ({ node_id: item.id, value: `${item.title} content` })), assumptions: [] }; }
 function node(id, type) { return { id, type, title: id }; }
-function edge(from_id, to_id, media) { return { from_id, to_id, media }; }
-function assembly(path_id, workflow_name = 'Generated workflow', input_values = null) {
-  const path = pathCatalog.paths.find((item) => item.id === path_id);
-  return { version: 'workflow-architect-assembly/v1', operation: 'create_workflow', workflow_name, path_id, input_values: input_values || path.nodes.filter((item) => item.type === 'text-input').map((item) => ({ node_id: item.id, value: `${item.title} content` })), assumptions: [] };
-}
+function edge(from_id, to_id, media, order = 0, to_input = null) { return { from_id, to_id, to_input: to_input || (media === 'text' ? 'instruction' : media === 'image' ? 'source_image' : media === 'video' ? 'source_video' : 'instruction'), media, order }; }
 function configure(value) {
   const selectionOptions = buildModelSelectionOptions(value, { catalog });
   const selection = { version: 'workflow-model-selection/v1', nodes: selectionOptions.nodes.map((option) => ({ id: option.node_id, model_id: option.models[0].model_id })) };
@@ -42,22 +36,14 @@ test('node options come from executable catalog and preserve semantic requiremen
   assert.deepEqual(createWorkflowPlanJsonSchema(nodeOptions).properties.nodes.items.properties.type.enum.sort(), [...types.keys()].sort());
 });
 
-test('every backend-derived workflow path expands to a valid topology', () => {
-  assert.equal(pathCatalog.paths.length > 0, true);
-  for (const path of pathCatalog.paths) {
-    const expanded = assembleWorkflowPlan(assembly(path.id, path.label), { pathCatalog });
-    const validation = validateWorkflowPlan(expanded, { nodeOptions });
-    assert.equal(validation.valid, true, `${path.id}: ${validation.errors.map((item) => item.message).join('; ')}`);
-  }
-});
-
 test('two generated references compose into a final image with distinct editable prompts', () => {
-  const value = assembleWorkflowPlan(assembly('generate-two-images-and-compose', 'Character in car', [
+  const raw = plan([node('subject_prompt', 'text-input'), node('subject_image', 'image-generate'), node('scene_prompt', 'text-input'), node('scene_image', 'image-generate'), node('composition_prompt', 'text-input'), node('output', 'image-compose')], [edge('subject_prompt', 'subject_image', 'text'), edge('scene_prompt', 'scene_image', 'text'), edge('composition_prompt', 'output', 'text'), edge('subject_image', 'output', 'image', 0, 'reference_images'), edge('scene_image', 'output', 'image', 1, 'reference_images')], 'image', [
     { node_id: 'subject_prompt', value: 'Realistic full-body character sheet of the described person, consistent identity, multiple views.' },
     { node_id: 'scene_prompt', value: 'Realistic exterior and interior reference sheet of the described car.' },
     { node_id: 'composition_prompt', value: 'Place the same person naturally in the driver seat of the same car, hands on the steering wheel.' },
-  ]), { pathCatalog });
-  assert.equal(validateWorkflowPlan(value, { nodeOptions }).valid, true);
+  ]);
+  assert.equal(validateWorkflowPlan(raw, { nodeOptions }).valid, true);
+  const value = materializeWorkflowPlanInputValues(raw);
   assert.deepEqual(value.nodes.filter((item) => item.type === 'text-input').map((item) => item.input_value), [
     'Realistic full-body character sheet of the described person, consistent identity, multiple views.',
     'Realistic exterior and interior reference sheet of the described car.',
@@ -70,6 +56,36 @@ test('two generated references compose into a final image with distinct editable
   assert.equal(ir.nodes.find((item) => item.ref === 'subject_prompt').parameters.prompt.startsWith('Realistic full-body'), true);
   assert.equal(ir.nodes.find((item) => item.ref === 'scene_prompt').parameters.prompt.startsWith('Realistic exterior'), true);
   assert.equal(ir.nodes.find((item) => item.ref === 'composition_prompt').parameters.prompt.startsWith('Place the same person'), true);
+});
+
+test('text transformation uses a separate system instruction and feeds the transformed result downstream', () => {
+  const value = plan(
+    [node('source', 'text-input'), node('refinement_instruction', 'system-instruction'), node('refined', 'text-transform'), node('image', 'image-generate')],
+    [
+      edge('source', 'refined', 'text', 0, 'source_text'),
+      edge('refinement_instruction', 'refined', 'text', 0, 'system_instruction'),
+      edge('refined', 'image', 'text'),
+    ],
+    'image',
+    [
+      { node_id: 'source', value: 'A person driving a classic car at sunset.' },
+      { node_id: 'refinement_instruction', value: 'Refine the source into a detailed photorealistic cinematic image prompt while preserving its subject.' },
+    ],
+  );
+  const validation = validateWorkflowPlan(value, { nodeOptions });
+  assert.equal(validation.valid, true, validation.errors.map((item) => item.message).join('; '));
+  const { configuration } = configure(materializeWorkflowPlanInputValues(value));
+  const ir = hydrateCreateWorkflowIr(materializeWorkflowPlanInputValues(value), configuration, { catalog });
+  assert.equal(ir.connections.some((item) => item.from_ref === 'source' && item.to_ref === 'refined' && item.to_port === 'prompt'), true);
+  assert.equal(ir.connections.some((item) => item.from_ref === 'refinement_instruction' && item.to_ref === 'refined' && item.to_port === 'system_prompt'), true);
+  assert.equal(ir.connections.some((item) => item.from_ref === 'refined' && item.to_ref === 'image'), true);
+  assert.equal(ir.connections.some((item) => item.from_ref === 'source' && item.to_ref === 'image'), false);
+  const patch = compileCreateWorkflowIrToPatch(ir, { provider: 'replicate', baseRevision: 1, catalog });
+  const graph = applyWorkflowPatch(createWorkflowGraph({ workflowId: 'test', revision: 1 }), patch, { catalog });
+  assert.equal(graph.nodes.find((item) => item.id === 'architect-source').exposure.makeInput, true);
+  assert.equal(graph.nodes.find((item) => item.id === 'architect-refinement-instruction').exposure.makeInput, false);
+  const handles = workflowGraphToSavedPayload(graph).edges.filter((item) => item.target === 'architect-refined').map((item) => item.targetHandle).sort();
+  assert.deepEqual(handles, ['textInput', 'textInput4']);
 });
 
 test('planner validation rejects structural errors without repair', () => {
@@ -102,9 +118,9 @@ test('incompatible edges do not satisfy inputs or graph reachability', () => {
 
 test('AI payloads expose only stage-specific safe context', () => {
   const value = plan([node('prompt', 'text-input'), node('image', 'image-generate')], [edge('prompt', 'image', 'text')], 'image');
-  const { selectionOptions } = configure(value); const planner = buildCreateWorkflowPlannerPayload({ userRequest: 'x', pathCatalog }); const config = buildNodeConfigurationPayload({ userRequest: 'x', plan: value, selectionOptions });
+  const { selectionOptions } = configure(value); const planner = buildCreateWorkflowPlannerPayload({ userRequest: 'x', nodeOptions }); const config = buildNodeConfigurationPayload({ userRequest: 'x', plan: value, selectionOptions });
   assert.equal(JSON.stringify(planner).includes('model_id'), false);
-  assert.equal(planner.workflow_path_options_trusted.paths.every((path) => path.nodes.length > 0 && path.connections.length > 0), true);
+  assert.equal(planner.node_options_trusted.version, 'workflow-node-options/v2');
   assert.equal(JSON.stringify(config).includes('configurable_inputs'), false);
   const imageIds = new Set(selectionOptions.nodes.find((item) => item.node_id === 'image').models.map((item) => item.model_id));
   assert.equal(imageIds.size < catalog.node_types.length, true);
@@ -155,8 +171,8 @@ const cases = [
   ['text + image -> edit', plan([node('text', 'text-input'), node('media', 'image-input'), node('out', 'image-edit')], [edge('text', 'out', 'text'), edge('media', 'out', 'image')], 'image')],
   ['text + image -> video', plan([node('text', 'text-input'), node('media', 'image-input'), node('out', 'image-to-video')], [edge('text', 'out', 'text'), edge('media', 'out', 'image')], 'video')],
   ['text + video -> video', plan([node('text', 'text-input'), node('media', 'video-input'), node('out', 'video-to-video')], [edge('text', 'out', 'text'), edge('media', 'out', 'video')], 'video')],
-  ['prompt merge -> image', plan([node('aa', 'text-input'), node('bb', 'text-input'), node('merge', 'prompt-merge'), node('out', 'image-generate')], [edge('aa', 'merge', 'text'), edge('bb', 'merge', 'text'), edge('merge', 'out', 'text')], 'image')],
-  ['video combine', plan([node('aa', 'video-input'), node('bb', 'video-input'), node('out', 'video-combine')], [edge('aa', 'out', 'video'), edge('bb', 'out', 'video')], 'video')],
+  ['prompt merge -> image', plan([node('aa', 'text-input'), node('bb', 'text-input'), node('merge', 'prompt-merge'), node('out', 'image-generate')], [edge('aa', 'merge', 'text', 0, 'text_fragments'), edge('bb', 'merge', 'text', 1, 'text_fragments'), edge('merge', 'out', 'text')], 'image')],
+  ['video combine', plan([node('aa', 'video-input'), node('bb', 'video-input'), node('out', 'video-combine')], [edge('aa', 'out', 'video', 0, 'video_clips'), edge('bb', 'out', 'video', 1, 'video_clips')], 'video')],
   ['frame extraction', plan([node('media', 'video-input'), node('out', 'video-frame-extract')], [edge('media', 'out', 'video')], 'image')],
 ];
 
@@ -180,33 +196,36 @@ test('serializes Architect media chains with target handles used by each fronten
   const patch = compileCreateWorkflowIrToPatch(ir, { provider: 'replicate', baseRevision: 1, catalog });
   const graph = applyWorkflowPatch(createWorkflowGraph({ workflowId: 'test', revision: 1 }), patch, { catalog });
   const handles = workflowGraphToSavedPayload(graph).edges.map((item) => [item.source, item.target, item.sourceHandle, item.targetHandle]);
-  assert.deepEqual(handles, [
+  assert.deepEqual(handles.sort((a, b) => a.join('|').localeCompare(b.join('|'))), [
     ['architect-idea', 'architect-script', 'textOutput', 'textInput'],
     ['architect-script', 'architect-image', 'textOutput', 'imageInput'],
     ['architect-script', 'architect-output', 'textOutput', 'videoInput'],
     ['architect-image', 'architect-output', 'imageOutput', 'videoInput2'],
-  ]);
+  ].sort((a, b) => a.join('|').localeCompare(b.join('|'))));
 });
 
 test('invalid planner output prevents configuration call', async () => {
   let calls = 0;
   await assert.rejects(() => generateCreateWorkflowIr({ userRequest: 'x', catalog, apiKey: 'key', runPrediction: async () => { calls += 1; return { version: 'bad' }; } }), (error) => error.code === 'ARCHITECT_PLAN_INVALID');
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
 });
 
-test('planner retries once with validation errors before model selection', async () => {
+test('planner repairs with validation errors before model selection', async () => {
   let calls = 0;
-  const validPlan = assembly('text-to-image', 'Repaired image workflow');
+  const validPlan = plan([node('prompt', 'text-input'), node('output', 'image-generate')], [edge('prompt', 'output', 'text')], 'image');
+  validPlan.workflow_name = 'Repaired image workflow';
   const invalidPlan = { ...validPlan, version: 'bad', workflow_name: 'First-round image workflow' };
   const ir = await generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async (request) => {
     calls += 1;
-    if (calls === 1) return invalidPlan;
+    if (calls === 1) return { text: JSON.stringify(invalidPlan), response_id: 'resp_planner_123' };
     if (calls === 2) {
       const payload = JSON.parse(request.input.prompt);
-      assert.deepEqual(payload.invalid_plan_untrusted, invalidPlan);
-      assert.equal(payload.validation_errors_trusted.length > 0, true);
-      assert.equal(payload.workflow_path_options_trusted.paths.some((path) => path.id === 'text-to-image'), true);
-      assert.equal(request.input.json_schema.format.name, 'workflow_architect_assembly_repair');
+      assert.equal(request.input.previous_response_id, 'resp_planner_123');
+      assert.equal(Object.prototype.hasOwnProperty.call(payload, 'invalid_plan_untrusted'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(payload, 'user_request_untrusted'), false);
+      assert.equal(payload.validation_issues_trusted.length > 0, true);
+      assert.equal(payload.node_contracts_trusted.options.some((option) => option.type === 'image-generate'), true);
+      assert.equal(request.input.json_schema.format.name, 'workflow_architect_plan_repair');
       return validPlan;
     }
     return { version: 'workflow-model-selection/v1', nodes: [{ id: 'prompt', model_id: 'text-passthrough' }, { id: 'output', model_id: 'gpt-image-2' }] };
@@ -218,11 +237,35 @@ test('planner retries once with validation errors before model selection', async
   assert.equal(/repair|invalid|fixed/i.test(`${summary.title} ${summary.message}`), false);
 });
 
+test('planner allows two chained continuation repairs and uses the immediately previous response id', async () => {
+  let calls = 0;
+  const validPlan = plan([node('prompt', 'text-input'), node('output', 'image-generate')], [edge('prompt', 'output', 'text')], 'image');
+  const invalidInitial = { ...validPlan, version: 'bad', workflow_name: 'Twice repaired workflow' };
+  const invalidRepair = { ...validPlan, connections: [{ ...validPlan.connections[0], order: 1 }] };
+  const ir = await generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async (request) => {
+    calls += 1;
+    if (calls === 1) return { text: JSON.stringify(invalidInitial), response_id: 'resp_initial' };
+    if (calls === 2) {
+      assert.equal(request.input.previous_response_id, 'resp_initial');
+      return { text: JSON.stringify(invalidRepair), response_id: 'resp_repair_1' };
+    }
+    if (calls === 3) {
+      assert.equal(request.input.previous_response_id, 'resp_repair_1');
+      const payload = JSON.parse(request.input.prompt);
+      assert.equal(payload.validation_issues_trusted.some((item) => item.code === 'PLAN_CONNECTION_ORDER'), true);
+      return { text: JSON.stringify(validPlan), response_id: 'resp_repair_2' };
+    }
+    return { version: 'workflow-model-selection/v1', nodes: [{ id: 'prompt', model_id: 'text-passthrough' }, { id: 'output', model_id: 'gpt-image-2' }] };
+  } });
+  assert.equal(calls, 4);
+  assert.equal(ir.workflow_name, 'Twice repaired workflow');
+});
+
 test('invalid configuration output is rejected before hydration or compilation', async () => {
   let calls = 0;
   await assert.rejects(() => generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async () => {
     calls += 1;
-    if (calls === 1) return assembly('text-to-image', 'Image');
+    if (calls === 1) { const value = plan([node('prompt', 'text-input'), node('output', 'image-generate')], [edge('prompt', 'output', 'text')], 'image'); value.workflow_name = 'Image'; return value; }
     return { version: 'workflow-model-selection/v1', nodes: [{ id: 'prompt', model_id: 'text-passthrough' }] };
   } }), (error) => error.code === 'ARCHITECT_CONFIGURATION_INVALID');
   assert.equal(calls, 2);

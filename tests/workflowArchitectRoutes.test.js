@@ -817,10 +817,12 @@ test('structured Replicate model uses saved user key and configured GPT input', 
     runPrediction: async (input) => {
       calls.push(input);
       if (calls.length === 1) return {
-        version: 'workflow-architect-assembly/v1',
+        version: 'workflow-architect-plan/v2',
         operation: 'create_workflow',
         workflow_name: 'Generated',
-        path_id: 'text-to-image',
+        target_output: 'image',
+        nodes: [{ id: 'prompt', type: 'text-input', title: 'Prompt' }, { id: 'output', type: 'image-generate', title: 'Generated image' }],
+        connections: [{ from_id: 'prompt', to_id: 'output', to_input: 'instruction', media: 'text', order: 0 }],
         input_values: [{ node_id: 'prompt', value: 'A realistic generated image.' }],
         assumptions: [],
       };
@@ -837,10 +839,10 @@ test('structured Replicate model uses saved user key and configured GPT input', 
     assert.deepEqual(Object.keys(call.input).sort(), ['instructions', 'json_schema', 'model', 'prompt']);
     assert.equal(call.maxAttempts, 3); assert.equal(call.interval, 0);
   }
-  assert.equal(calls[0].input.json_schema.format.name, 'workflow_architect_assembly');
+  assert.equal(calls[0].input.json_schema.format.name, 'workflow_architect_plan');
   assert.equal(calls[1].input.json_schema.format.name, 'workflow_model_selection');
   const plannerPayload = JSON.parse(calls[0].input.prompt); const configurationPayload = JSON.parse(calls[1].input.prompt);
-  assert.deepEqual(Object.keys(plannerPayload), ['user_request_untrusted', 'workflow_path_options_trusted', 'planner_policy_trusted']);
+  assert.deepEqual(Object.keys(plannerPayload), ['user_request_untrusted', 'node_options_trusted', 'planner_policy_trusted']);
   assert.deepEqual(Object.keys(configurationPayload), ['user_request_untrusted', 'validated_plan_trusted', 'curated_model_options_trusted', 'model_selection_policy_trusted']);
   assert.equal(JSON.stringify(plannerPayload).includes('gpt-image-2'), false);
   assert.equal(configurationPayload.curated_model_options_trusted.nodes.some((node) => node.node_id === 'output' && node.models.some((model) => model.model_id === 'gpt-image-2')), true);
@@ -2258,9 +2260,11 @@ test('phase 4C worker replaces multiple incoming many-input branch edges before 
 test('phase 2 worker records progress and fails unsupported generation jobs', async () => {
   const events = [];
   const failed = [];
+  const messages = [];
   const result = await processArchitectJob('job-1', {
-    markArchitectJobRunning: async (id) => ({ id, status: 'running', request: {} }),
+    markArchitectJobRunning: async (id) => ({ id, userId: 'user-1', conversationId: 'conversation-1', status: 'running', request: {} }),
     appendArchitectEvent: async (event) => events.push(event),
+    appendArchitectMessage: async (message) => messages.push(message),
     failArchitectJob: async (id, error) => {
       failed.push({ id, error });
       return { id, status: 'failed', errorCode: error.code };
@@ -2269,5 +2273,6 @@ test('phase 2 worker records progress and fails unsupported generation jobs', as
 
   assert.equal(result.status, 'failed');
   assert.equal(failed[0].error.code, 'ARCHITECT_OPERATION_UNSUPPORTED');
+  assert.equal(messages[0].contentRedacted, 'Something went wrong, please try again.');
   assert.deepEqual(events.map((event) => event.stage), ['running', 'failed']);
 });

@@ -97,7 +97,7 @@ export function compileCreateWorkflowIrToPatch(ir, {
       inputs: {},
       outputs: Object.keys(outputs).length > 0 ? outputs : { [fallbackOutputPort]: { type: outputTypeForCategory(irNode.category), label: irNode.category } },
       exposure: {
-        makeInput: irNode.role === 'input',
+        makeInput: irNode.role === 'input' && irNode.expose_as_input !== false,
         makeOutput: irNode.role !== 'input' && irNode.category === ir.target_category,
       },
       layout: { x: 80 + (index * 360), y: 120 },

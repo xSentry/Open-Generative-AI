@@ -1,5 +1,5 @@
 import { getInputPortDefinitions, getOutputPortDefinitions, nodeTypeForCategory, portTypesCompatible } from '../../workflow-domain/portRegistry.js';
-import { CREATE_WORKFLOW_TYPE_META } from './createWorkflowPlan.js';
+import { CREATE_WORKFLOW_TYPE_META, semanticInputs } from './createWorkflowPlan.js';
 import { CURATED_MODEL_PROFILES } from './capabilityCatalog.js';
 
 const VERSION = 'workflow-model-selection/v1';
@@ -27,15 +27,26 @@ function safeDescriptor(name, meta) {
 function matchesType(node, plannedType) {
   const meta = CREATE_WORKFLOW_TYPE_META[plannedType];
   if (!meta) return false;
-  if (meta.role === 'input') return node.kind === 'input' && node.category === plannedType.replace('-input', '');
+  if (meta.role === 'input') return node.kind === 'input' && node.category === (plannedType === 'system-instruction' ? 'text' : plannedType.replace('-input', ''));
   const ports = Object.values(node.input_ports || {}); const has = (type) => ports.some((port) => port.type === type); const required = (type) => ports.some((port) => port.type === type && port.required);
-  if (plannedType === 'image-generate') return node.category === 'image' && !required('image_url');
-  if (plannedType === 'image-edit') return node.category === 'image' && has('image_url');
-  if (plannedType === 'image-compose') return node.category === 'image' && ports.some((port) => port.type === 'image_url' && port.cardinality === 'many');
-  if (plannedType === 'video-generate') return node.category === 'video' && !required('image_url') && !required('video_url');
-  if (plannedType === 'image-to-video') return node.category === 'video' && has('image_url');
-  if (plannedType === 'video-to-video') return node.category === 'video' && has('video_url');
-  return node.capability === meta.capability;
+  let semanticMatch;
+  if (plannedType === 'image-generate') semanticMatch = node.category === 'image' && !required('image_url');
+  else if (plannedType === 'image-edit') semanticMatch = node.category === 'image' && has('image_url');
+  else if (plannedType === 'image-compose') semanticMatch = node.category === 'image' && ports.some((port) => port.type === 'image_url' && (port.cardinality === 'many' || port.maxConnections === Infinity));
+  else if (plannedType === 'video-generate') semanticMatch = node.category === 'video' && !required('image_url') && !required('video_url');
+  else if (plannedType === 'image-to-video') semanticMatch = node.category === 'video' && has('image_url');
+  else if (plannedType === 'video-to-video') semanticMatch = node.category === 'video' && has('video_url');
+  else if (plannedType === 'text-transform') semanticMatch = node.category === 'text' && Boolean(node.input_ports?.prompt) && Boolean(node.input_ports?.system_prompt || node.input_ports?.system_instruction);
+  else semanticMatch = node.capability === meta.capability;
+  if (!semanticMatch) return false;
+  // The local concatenator's catalog schema represents one prompt field, while
+  // the workflow port registry intentionally exposes it as a many-edge input.
+  if (plannedType === 'prompt-merge' && node.model_id === 'prompt-concatenator') return true;
+  return semanticInputs(plannedType).every((contract) => {
+    const raw = rawMedia(contract.media); const candidates = ports.filter((port) => port.type === raw);
+    if (!candidates.length) return false;
+    return contract.min_connections < 2 || candidates.some((port) => port.cardinality === 'many' || port.maxConnections === Infinity);
+  });
 }
 
 function connectedMediaFor(plan, nodeId) {
@@ -43,6 +54,7 @@ function connectedMediaFor(plan, nodeId) {
 }
 
 function fixedModelId(type) {
+  if (type === 'system-instruction') return 'text-passthrough';
   if (type.endsWith('-input')) return `${type.replace('-input', '')}-passthrough`;
   if (type === 'prompt-merge') return 'prompt-concatenator';
   if (type === 'video-combine') return 'video-combiner';
@@ -132,7 +144,7 @@ export function buildConfigurationOptions(plan, selection, { catalog, userReques
         const descriptor = safeDescriptor(name, meta); if (descriptor) configurable_inputs[name] = descriptor;
       }
       const inputs = {};
-      if (planned.type === 'text-input' && configurable_inputs.prompt) inputs.prompt = String(planned.input_value || '').slice(0, configurable_inputs.prompt.maxLength || 2000);
+      if ((planned.type === 'text-input' || planned.type === 'system-instruction') && configurable_inputs.prompt) inputs.prompt = String(planned.input_value || '').slice(0, configurable_inputs.prompt.maxLength || 2000);
       return { node_id: planned.id, type: planned.type, implementations: [{ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier, configurable_inputs }], connected_media: [...connected], inputs };
     }),
   };
@@ -144,12 +156,25 @@ export function materializeNodeConfiguration(configurationOptions) {
 
 function catalogNode(catalog, modelId) { return (catalog?.node_types || []).find((node) => node.model_id === modelId) || null; }
 
+function preferredConcretePorts(semanticInput) {
+  if (semanticInput === 'system_instruction') return ['system_prompt', 'system_instruction'];
+  if (semanticInput === 'source_text' || semanticInput === 'instruction' || semanticInput === 'text_fragments') return ['prompt', 'messages'];
+  if (semanticInput === 'source_image') return ['image_url', 'images_list'];
+  if (semanticInput === 'reference_images') return ['images_list', 'image_url'];
+  if (semanticInput === 'source_video') return ['video_url', 'videos_list'];
+  if (semanticInput === 'video_clips') return ['videos_list', 'video_url'];
+  return [];
+}
+
 function resolveConnection(planEdge, source, target, catalog, used, incomingCounts) {
   const outputs = getOutputPortDefinitions({ category: source.category, modelId: source.model_id });
   const inputs = getInputPortDefinitions({ category: target.category, modelId: target.model_id, nodeType: target.node_type, catalog });
   const rawType = rawMedia(planEdge.media);
-  const inputEntries = Object.entries(inputs).sort(([, left], [, right]) => {
-    if ((incomingCounts.get(`${target.ref}|${planEdge.media}`) || 0) < 2) return 0;
+  const preferred = preferredConcretePorts(planEdge.to_input);
+  const inputEntries = Object.entries(inputs).sort(([leftName, left], [rightName, right]) => {
+    const leftPreference = preferred.indexOf(leftName); const rightPreference = preferred.indexOf(rightName);
+    if (leftPreference !== rightPreference) return (leftPreference < 0 ? 999 : leftPreference) - (rightPreference < 0 ? 999 : rightPreference);
+    if ((incomingCounts.get(`${target.ref}|${planEdge.to_input}`) || 0) < 2) return 0;
     return Number(right.maxConnections === Infinity) - Number(left.maxConnections === Infinity);
   });
   for (const [fromPort, fromDef] of Object.entries(outputs)) for (const [toPort, toDef] of inputEntries) {
@@ -172,11 +197,12 @@ export function hydrateCreateWorkflowIr(plan, configuration, { catalog } = {}) {
     const connected = connectedMediaFor(plan, planned.id); const inputPorts = getInputPortDefinitions({ category: record.category, modelId: record.model_id, nodeType: record.node_type, catalog });
     const parameters = { ...defaults, ...config.inputs };
     for (const [key, def] of Object.entries(inputPorts)) if (connected.has(media(def.type))) delete parameters[key];
-    return { ref: planned.id, role: CREATE_WORKFLOW_TYPE_META[planned.type].role, capability: record.capability, operation_mode: record.operation_modes?.[0] || null, category: record.category, model_id: record.model_id, node_type: record.node_type || nodeTypeForCategory(record.category, record.model_id), title: planned.title, prompt_port: record.model_preferences?.prompt_port || null, parameters };
+    return { ref: planned.id, role: CREATE_WORKFLOW_TYPE_META[planned.type].role, expose_as_input: CREATE_WORKFLOW_TYPE_META[planned.type].expose_as_input !== false, capability: record.capability, operation_mode: record.operation_modes?.[0] || null, category: record.category, model_id: record.model_id, node_type: record.node_type || nodeTypeForCategory(record.category, record.model_id), title: planned.title, prompt_port: record.model_preferences?.prompt_port || null, parameters };
   });
   const byRef = new Map(nodes.map((node) => [node.ref, node])); const used = new Map(); const incomingCounts = new Map();
-  for (const edge of plan.connections) incomingCounts.set(`${edge.to_id}|${edge.media}`, (incomingCounts.get(`${edge.to_id}|${edge.media}`) || 0) + 1);
-  const connections = plan.connections.map((edge) => {
+  for (const edge of plan.connections) incomingCounts.set(`${edge.to_id}|${edge.to_input}`, (incomingCounts.get(`${edge.to_id}|${edge.to_input}`) || 0) + 1);
+  const orderedEdges = [...plan.connections].sort((left, right) => left.to_id.localeCompare(right.to_id) || left.to_input.localeCompare(right.to_input) || left.order - right.order);
+  const connections = orderedEdges.map((edge) => {
     const resolved = resolveConnection(edge, byRef.get(edge.from_id), byRef.get(edge.to_id), catalog, used, incomingCounts);
     if (!resolved) throw Object.assign(new Error(`No concrete ${edge.media} port for ${edge.from_id} -> ${edge.to_id}.`), { code: 'ARCHITECT_HYDRATED_IR_INVALID' });
     return resolved;

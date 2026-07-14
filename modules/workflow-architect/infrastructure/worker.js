@@ -238,6 +238,7 @@ export async function processArchitectJob(jobId, deps = {}) {
       userRequest: context.request.prompt,
       catalog,
       apiKey,
+      onStage: async (stage, payloadRedacted) => appendEvent({ jobId, eventType: 'progress', stage, payloadRedacted }),
     });
 
     await appendEvent({
@@ -314,7 +315,7 @@ export async function processArchitectJob(jobId, deps = {}) {
         conversationId: job.conversationId,
         userId: job.userId,
         role: 'assistant',
-        contentRedacted: error?.message || 'Workflow Architect job failed.',
+        contentRedacted: 'Something went wrong, please try again.',
         jobId: job.id,
         metadataRedacted: { status: 'failed', code },
       });
