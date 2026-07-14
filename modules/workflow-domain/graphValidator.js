@@ -98,6 +98,16 @@ function isEmpty(value) {
   return value == null || value === '' || (Array.isArray(value) && value.length === 0);
 }
 
+function bindingConnections(binding) {
+  if (binding?.type === 'connection') {
+    return [{ sourceNodeId: binding.sourceNodeId, sourcePort: binding.sourcePort }];
+  }
+  if (binding?.type === 'connections' && Array.isArray(binding.connections)) {
+    return binding.connections;
+  }
+  return [];
+}
+
 export function validateWorkflowGraph(graph, {
   catalog = null,
   allowedProviders = PROVIDERS,
@@ -154,17 +164,29 @@ export function validateWorkflowGraph(graph, {
       if (Object.keys(inputDefs).length > 0 && !inputDef) {
         issues.push(issue('error', 'UNKNOWN_INPUT_PORT', `Unknown input port "${port}" on node "${node.id}".`, `${path}.inputs.${port}`));
       }
-      if (!binding || !['constant', 'connection'].includes(binding.type)) {
+      if (!binding || !['constant', 'connection', 'connections'].includes(binding.type)) {
         issues.push(issue('error', 'INVALID_INPUT_BINDING', `Invalid binding for input port "${port}".`, `${path}.inputs.${port}`));
       }
-      if (binding?.type === 'connection') {
-        if (!allNodeIds.has(binding.sourceNodeId)) {
-          issues.push(issue('error', 'UNKNOWN_BINDING_SOURCE_NODE', `Unknown connection source node "${binding.sourceNodeId}".`, `${path}.inputs.${port}`));
+      if (binding?.type === 'connections' && !Array.isArray(binding.connections)) {
+        issues.push(issue('error', 'INVALID_INPUT_BINDING', `Connections binding for input port "${port}" must contain a connections array.`, `${path}.inputs.${port}`));
+      }
+      if (binding?.type === 'connections' && (inputDef?.maxConnections ?? 1) !== Infinity) {
+        issues.push(issue('error', 'PORT_CARDINALITY', `Input port "${port}" does not accept multiple connection bindings.`, `${path}.inputs.${port}`));
+      }
+      const seenBindingConnections = new Set();
+      for (const connection of bindingConnections(binding)) {
+        const connectionKey = `${connection.sourceNodeId}:${connection.sourcePort}`;
+        if (seenBindingConnections.has(connectionKey)) {
+          issues.push(issue('error', 'DUPLICATE_BINDING_CONNECTION', `Duplicate connection binding for input port "${port}".`, `${path}.inputs.${port}`));
+        }
+        seenBindingConnections.add(connectionKey);
+        if (!allNodeIds.has(connection.sourceNodeId)) {
+          issues.push(issue('error', 'UNKNOWN_BINDING_SOURCE_NODE', `Unknown connection source node "${connection.sourceNodeId}".`, `${path}.inputs.${port}`));
         }
         if (
           !graph.edges.some((edge) =>
-            edge.source.nodeId === binding.sourceNodeId &&
-            edge.source.port === binding.sourcePort &&
+            edge.source.nodeId === connection.sourceNodeId &&
+            edge.source.port === connection.sourcePort &&
             edge.target.nodeId === node.id &&
             edge.target.port === port
           )
@@ -227,6 +249,13 @@ export function validateWorkflowGraph(graph, {
     const binding = targetNode.inputs?.[edge.target.port];
     if (binding?.type === 'constant' && maxConnections === 1) {
       issues.push(issue('error', 'CONSTANT_CONNECTION_CONFLICT', `Input port "${edge.target.port}" has both a constant and a connection.`, path));
+    }
+    const hasMatchingBinding = bindingConnections(binding).some((connection) =>
+      connection.sourceNodeId === edge.source.nodeId &&
+      connection.sourcePort === edge.source.port
+    );
+    if (!hasMatchingBinding && binding?.type !== 'constant') {
+      issues.push(issue('error', 'MISSING_EDGE_BINDING', `Edge "${edge.id}" has no matching input binding.`, path));
     }
   }
 

@@ -67,16 +67,18 @@ export function summarizePatchDiff(patch = {}, { proposalRevision = null } = {})
         };
           diff.edges_added.push(edge);
           diff.connection_changes.push({ action: 'connect', ...edge });
-          const replaced = [...disconnected.values()].find((item) =>
+          const replaced = [...disconnected.values()].filter((item) =>
             item.target?.node_id === operation.target?.node_id &&
             item.target?.port === operation.target?.port
           );
-          if (operation.mode === 'replace_existing' && replaced) {
-            diff.branch_replacements.push({
-              removed_edge_id: replaced.edge_id,
-              added_edge_id: operation.edge_id,
-              target: operation.target,
-            });
+          if (operation.mode === 'replace_existing' && replaced.length > 0) {
+            for (const removed of replaced) {
+              diff.branch_replacements.push({
+                removed_edge_id: removed.edge_id,
+                added_edge_id: operation.edge_id,
+                target: operation.target,
+              });
+            }
           }
         }
         break;

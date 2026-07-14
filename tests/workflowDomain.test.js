@@ -332,6 +332,90 @@ test('applyWorkflowPatch connects and disconnects bindings deterministically', (
   assert.equal(disconnected.nodes.find((node) => node.id === 'image-1').inputs.prompt, undefined);
 });
 
+test('many-cardinality input ports keep multiple canonical bindings and serialize as template lists', () => {
+  const graph = savedPayloadToWorkflowGraph({
+    workflow_id: 'wf-many',
+    revision: 1,
+    name: 'Many images',
+    category: 'image',
+    edges: [],
+    data: {
+      nodes: [
+        { id: 'image-a', category: 'image', model: 'image-passthrough', input_params: { image_url: 'https://cdn/a.png' }, params: { image_url: 'https://cdn/a.png' } },
+        { id: 'image-b', category: 'image', model: 'image-passthrough', input_params: { image_url: 'https://cdn/b.png' }, params: { image_url: 'https://cdn/b.png' } },
+        { id: 'final', category: 'image', model: 'nano-banana-2', input_params: { prompt: 'compose both' }, params: { prompt: 'compose both' } },
+      ],
+    },
+  }, { provider: 'replicate', catalog: catalog() });
+
+  const connected = applyWorkflowPatch(graph, createWorkflowPatch({
+    preconditions: [
+      { type: 'edge_not_exists', edge_id: 'edge-a-final-images' },
+      { type: 'edge_not_exists', edge_id: 'edge-b-final-images' },
+    ],
+    operations: [
+      {
+        op: 'connect',
+        edge_id: 'edge-a-final-images',
+        source: { node_id: 'image-a', port: 'image' },
+        target: { node_id: 'final', port: 'images_list' },
+        mode: 'append',
+      },
+      {
+        op: 'connect',
+        edge_id: 'edge-b-final-images',
+        source: { node_id: 'image-b', port: 'image' },
+        target: { node_id: 'final', port: 'images_list' },
+        mode: 'append',
+      },
+    ],
+  }), { catalog: catalog() });
+
+  const finalNode = connected.nodes.find((node) => node.id === 'final');
+  assert.deepEqual(finalNode.inputs.images_list, {
+    type: 'connections',
+    connections: [
+      { sourceNodeId: 'image-a', sourcePort: 'image' },
+      { sourceNodeId: 'image-b', sourcePort: 'image' },
+    ],
+  });
+  assert.equal(validateWorkflowGraph(connected, { catalog: catalog() }).valid, true);
+
+  const saved = workflowGraphToSavedPayload(connected);
+  assert.deepEqual(saved.data.nodes.find((node) => node.id === 'final').params.images_list, [
+    '{{ image-a.outputs[0].value }}',
+    '{{ image-b.outputs[0].value }}',
+  ]);
+
+  const reopened = savedPayloadToWorkflowGraph(saved, { provider: 'replicate', catalog: catalog() });
+  assert.deepEqual(reopened.nodes.find((node) => node.id === 'final').inputs.images_list, finalNode.inputs.images_list);
+  assert.equal(workflowGraphToReactFlowState(reopened).edges.length, 2);
+
+  const disconnected = applyWorkflowPatch(connected, createWorkflowPatch({
+    preconditions: [{ type: 'edge_exists', edge_id: 'edge-a-final-images' }],
+    operations: [{ op: 'disconnect', edge_id: 'edge-a-final-images' }],
+  }), { catalog: catalog() });
+  assert.deepEqual(disconnected.nodes.find((node) => node.id === 'final').inputs.images_list, {
+    type: 'connections',
+    connections: [{ sourceNodeId: 'image-b', sourcePort: 'image' }],
+  });
+
+  assert.throws(
+    () => applyWorkflowPatch(connected, createWorkflowPatch({
+      operations: [
+        {
+          op: 'connect',
+          edge_id: 'edge-duplicate',
+          source: { node_id: 'image-a', port: 'image' },
+          target: { node_id: 'final', port: 'images_list' },
+          mode: 'append',
+        },
+      ],
+    }), { catalog: catalog() }),
+    (error) => error instanceof WorkflowPatchConflict && error.code === 'PATCH_OPERATION_CONFLICT'
+  );
+});
+
 test('compatibility corpus preserves semantic save-envelope behavior', () => {
   const fixtures = [
     savedTextToImagePayload(),
@@ -374,6 +458,22 @@ test('compatibility corpus preserves semantic save-envelope behavior', () => {
           { id: 'video-a', category: 'video', model: 'video-passthrough', input_params: { video_url: 'https://a.test/a.mp4' }, params: { video_url: 'https://a.test/a.mp4' } },
           { id: 'video-b', category: 'video', model: 'video-passthrough', input_params: { video_url: 'https://a.test/b.mp4' }, params: { video_url: 'https://a.test/b.mp4' } },
           { id: 'combine', category: 'utility', model: 'video-combiner', input_params: { aspect_ratio: 'auto' }, params: { videos_list: ['{{ video-a.outputs[0].value }}', '{{ video-b.outputs[0].value }}'], aspect_ratio: 'auto' } },
+        ],
+      },
+    },
+    {
+      workflow_id: 'wf-text-utility',
+      name: 'Prompt utility',
+      category: 'text',
+      edges: [
+        { id: 'e1', source: 'text-a', target: 'concat', sourceHandle: 'textOutput', targetHandle: 'concatInput' },
+        { id: 'e2', source: 'text-b', target: 'concat', sourceHandle: 'textOutput', targetHandle: 'concatInput' },
+      ],
+      data: {
+        nodes: [
+          { id: 'text-a', category: 'text', model: 'text-passthrough', input_params: { prompt: 'first' }, params: { prompt: 'first' } },
+          { id: 'text-b', category: 'text', model: 'text-passthrough', input_params: { prompt: 'second' }, params: { prompt: 'second' } },
+          { id: 'concat', category: 'utility', model: 'prompt-concatenator', input_params: {}, params: { prompt: ['{{ text-a.outputs[0].value }}', '{{ text-b.outputs[0].value }}'] } },
         ],
       },
     },

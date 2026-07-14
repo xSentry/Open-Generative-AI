@@ -42,12 +42,26 @@ export function makeConnectionBinding(sourceNodeId, sourcePort = 'result') {
   return { type: 'connection', sourceNodeId, sourcePort };
 }
 
+export function makeConnectionsBinding(connections = []) {
+  return {
+    type: 'connections',
+    connections: connections.map((connection) => ({
+      sourceNodeId: connection.sourceNodeId,
+      sourcePort: connection.sourcePort || 'result',
+    })),
+  };
+}
+
 export function makeConstantBinding(value) {
   return { type: 'constant', value };
 }
 
 export function isConnectionBinding(value) {
   return value?.type === 'connection' && typeof value.sourceNodeId === 'string';
+}
+
+export function isConnectionsBinding(value) {
+  return value?.type === 'connections' && Array.isArray(value.connections);
 }
 
 export function isConstantBinding(value) {

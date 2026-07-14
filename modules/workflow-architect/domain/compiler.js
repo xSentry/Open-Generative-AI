@@ -1,5 +1,5 @@
 import { createWorkflowPatch } from '../../workflow-domain/patchSchema.js';
-import { makeConstantBinding, makeConnectionBinding } from '../../workflow-domain/graphSchema.js';
+import { makeConstantBinding, makeConnectionBinding, makeConnectionsBinding } from '../../workflow-domain/graphSchema.js';
 import {
   getInputPortDefinitions,
   getOutputPortDefinitions,
@@ -118,7 +118,11 @@ export function compileCreateWorkflowIrToPatch(ir, {
       error.code = 'ARCHITECT_NO_COMPATIBLE_PORT';
       throw error;
     }
-    delete targetNode.inputs?.[compatible.targetPort];
+    if (compatible.targetMaxConnections !== Infinity) {
+      delete targetNode.inputs?.[compatible.targetPort];
+    } else if (targetNode.inputs?.[compatible.targetPort]?.type === 'constant') {
+      delete targetNode.inputs[compatible.targetPort];
+    }
     const edgeId = `edge-${sourceNode.id}-${targetNode.id}-${compatible.targetPort}`;
     preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
     operations.push({
@@ -126,7 +130,7 @@ export function compileCreateWorkflowIrToPatch(ir, {
       edge_id: edgeId,
       source: { node_id: sourceNode.id, port: compatible.sourcePort },
       target: { node_id: targetNode.id, port: compatible.targetPort },
-      mode: 'fail_if_occupied',
+      mode: compatible.targetMaxConnections === Infinity ? 'append' : 'fail_if_occupied',
     });
   }
 
@@ -269,10 +273,51 @@ function compatibleConnection(sourceNode, targetNode, catalog, preferredTargetPo
       : Object.entries(inputs);
     const target = candidates.find(([, def]) => portTypesCompatible(sourceDef.type, def.type));
     if (!target) continue;
-    const [targetPort] = target;
-    return { sourcePort, targetPort };
+    const [targetPort, targetDef] = target;
+    return { sourcePort, targetPort, targetMaxConnections: targetDef?.maxConnections ?? 1 };
   }
   return null;
+}
+
+function compatibleManyConnection(sourceNode, targetNode, catalog) {
+  const outputs = getOutputPortDefinitions({
+    category: sourceNode.category,
+    modelId: sourceNode.modelId,
+  });
+  const inputs = getInputPortDefinitions({
+    category: targetNode.category,
+    modelId: targetNode.modelId,
+    nodeType: targetNode.nodeType,
+    catalog,
+  });
+
+  for (const [sourcePort, sourceDef] of Object.entries(outputs)) {
+    const target = Object.entries(inputs).find(([, def]) =>
+      def.maxConnections === Infinity && portTypesCompatible(sourceDef.type, def.type)
+    );
+    if (!target) continue;
+    const [targetPort, targetDef] = target;
+    return { sourcePort, targetPort, targetMaxConnections: targetDef.maxConnections };
+  }
+  return null;
+}
+
+function addConnectionInput(node, targetPort, sourceNodeId, sourcePort, maxConnections) {
+  node.inputs = node.inputs || {};
+  if (maxConnections === Infinity) {
+    const existing = node.inputs[targetPort];
+    const connections = existing?.type === 'connections'
+      ? [...existing.connections]
+      : existing?.type === 'connection'
+        ? [{ sourceNodeId: existing.sourceNodeId, sourcePort: existing.sourcePort }]
+        : [];
+    if (!connections.some((connection) => connection.sourceNodeId === sourceNodeId && connection.sourcePort === sourcePort)) {
+      connections.push({ sourceNodeId, sourcePort });
+    }
+    node.inputs[targetPort] = makeConnectionsBinding(connections);
+    return;
+  }
+  node.inputs[targetPort] = makeConnectionBinding(sourceNodeId, sourcePort);
 }
 
 function pushConnect(sourceNode, targetNode, catalog, preconditions, operations, {
@@ -287,20 +332,49 @@ function pushConnect(sourceNode, targetNode, catalog, preconditions, operations,
     throw error;
   }
   const id = edgeId || `edge-${sourceNode.id}-${targetNode.id}-${connection.targetPort}`;
+  const resolvedMode = connection.targetMaxConnections === Infinity && mode === 'fail_if_occupied' ? 'append' : mode;
   preconditions.push({ type: 'edge_not_exists', edge_id: id });
-  if (mode === 'fail_if_occupied') {
+  if (resolvedMode === 'fail_if_occupied') {
     preconditions.push({ type: 'target_port_unoccupied', node_id: targetNode.id, port: connection.targetPort });
   }
-  targetNode.inputs = targetNode.inputs || {};
-  targetNode.inputs[connection.targetPort] = makeConnectionBinding(sourceNode.id, connection.sourcePort);
+  addConnectionInput(targetNode, connection.targetPort, sourceNode.id, connection.sourcePort, connection.targetMaxConnections);
   operations.push({
     op: 'connect',
     edge_id: id,
     source: { node_id: sourceNode.id, port: connection.sourcePort },
     target: { node_id: targetNode.id, port: connection.targetPort },
-    mode,
+    mode: resolvedMode,
   });
   return { edgeId: id, ...connection };
+}
+
+function assertManyIncomingReplacementSupported(context, replaceEdges, firstInsertedNode) {
+  if (replaceEdges.length <= 1) return;
+  const targetPort = replaceEdges[0]?.target.port;
+  if (!targetPort || !replaceEdges.every((edge) => edge.target.nodeId === context.selectedNode.id && edge.target.port === targetPort)) {
+    const error = new Error('Replacing multiple incoming branch edges requires all edges to target the same selected-node input port.');
+    error.code = 'ARCHITECT_BRANCH_REPLACEMENT_UNSUPPORTED';
+    throw error;
+  }
+  const selectedInputs = getInputPortDefinitions({
+    category: context.selectedNode.category,
+    modelId: context.selectedNode.modelId,
+    nodeType: context.selectedNode.nodeType,
+    catalog: context.catalog,
+  });
+  if (selectedInputs[targetPort]?.maxConnections !== Infinity) {
+    const error = new Error('Replacing multiple incoming branch edges is supported only for many-cardinality selected-node input ports.');
+    error.code = 'ARCHITECT_BRANCH_REPLACEMENT_UNSUPPORTED';
+    throw error;
+  }
+  for (const replaceEdge of replaceEdges) {
+    const originalSource = findNode(context.graph, replaceEdge.source.nodeId);
+    if (!originalSource || !compatibleManyConnection(originalSource, firstInsertedNode, context.catalog)) {
+      const error = new Error('Replacing multiple incoming branch edges requires the first inserted node to accept the incoming media on a many-cardinality port.');
+      error.code = 'ARCHITECT_BRANCH_REPLACEMENT_UNSUPPORTED';
+      throw error;
+    }
+  }
 }
 
 function addInsertedNodes(nodes, preconditions, operations) {
@@ -324,21 +398,23 @@ function compileInsertBefore(insert, context, insertedNode, preconditions, opera
     catalog: context.catalog,
   });
   for (const [targetPort, targetDef] of Object.entries(selectedInputs)) {
-    if (occupied.has(targetPort)) continue;
+    if (occupied.has(targetPort) && targetDef.maxConnections !== Infinity) continue;
     const source = firstCompatibleOutput(insertedNode, targetDef.type);
     if (!source) continue;
     const [sourcePort] = source;
     const edgeId = `edge-${insertedNode.id}-${context.selectedNode.id}-${targetPort}`;
     preconditions.push({ type: 'node_not_exists', node_id: insertedNode.id });
     preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
-    preconditions.push({ type: 'target_port_unoccupied', node_id: context.selectedNode.id, port: targetPort });
+    if (targetDef.maxConnections !== Infinity) {
+      preconditions.push({ type: 'target_port_unoccupied', node_id: context.selectedNode.id, port: targetPort });
+    }
     operations.push({ op: 'add_node', node: insertedNode });
     operations.push({
       op: 'connect',
       edge_id: edgeId,
       source: { node_id: insertedNode.id, port: sourcePort },
       target: { node_id: context.selectedNode.id, port: targetPort },
-      mode: 'fail_if_occupied',
+      mode: targetDef.maxConnections === Infinity ? 'append' : 'fail_if_occupied',
     });
     return;
   }
@@ -393,19 +469,15 @@ function compileInsertedChain(edit, context, preconditions, operations) {
   }
 
   if (replaceEdges.length > 0) {
-    if (direction === 'before' && replaceEdges.length > 1) {
-      const error = new Error('Replacing multiple incoming branch edges before a selected node is not supported.');
-      error.code = 'ARCHITECT_BRANCH_REPLACEMENT_UNSUPPORTED';
-      throw error;
-    }
+    if (direction === 'before') assertManyIncomingReplacementSupported(context, replaceEdges, insertedNodes[0]);
     for (const replaceEdge of replaceEdges) {
-    preconditions.push({ type: 'edge_exists', edge_id: replaceEdge.id });
-    operations.push({
-      op: 'disconnect',
-      edge_id: replaceEdge.id,
-      source: { node_id: replaceEdge.source.nodeId, port: replaceEdge.source.port },
-      target: { node_id: replaceEdge.target.nodeId, port: replaceEdge.target.port },
-    });
+      preconditions.push({ type: 'edge_exists', edge_id: replaceEdge.id });
+      operations.push({
+        op: 'disconnect',
+        edge_id: replaceEdge.id,
+        source: { node_id: replaceEdge.source.nodeId, port: replaceEdge.source.port },
+        target: { node_id: replaceEdge.target.nodeId, port: replaceEdge.target.port },
+      });
     }
   }
 
@@ -429,9 +501,17 @@ function compileInsertedChain(edit, context, preconditions, operations) {
   }
 
   if (replaceEdges.length > 0) {
-    const replaceEdge = replaceEdges[0];
-    const originalSource = findNode(context.graph, replaceEdge.source.nodeId);
-    pushConnect(originalSource, insertedNodes[0], context.catalog, preconditions, operations);
+    for (const replaceEdge of replaceEdges) {
+      const originalSource = findNode(context.graph, replaceEdge.source.nodeId);
+      if (replaceEdges.length > 1) {
+        const manyConnection = compatibleManyConnection(originalSource, insertedNodes[0], context.catalog);
+        pushConnect(originalSource, insertedNodes[0], context.catalog, preconditions, operations, {
+          targetPort: manyConnection.targetPort,
+        });
+      } else {
+        pushConnect(originalSource, insertedNodes[0], context.catalog, preconditions, operations);
+      }
+    }
   }
   for (let index = 0; index < insertedNodes.length - 1; index += 1) {
     pushConnect(insertedNodes[index], insertedNodes[index + 1], context.catalog, preconditions, operations);
@@ -478,8 +558,18 @@ function compileExplicitConnections(edit, context, preconditions, operations) {
       throw error;
     }
     const edgeId = connection.edge_id || `edge-${sourceNode.id}-${targetNode.id}-${connection.target_port}`;
+    const targetDefs = getInputPortDefinitions({
+      category: targetNode.category,
+      modelId: targetNode.modelId,
+      nodeType: targetNode.nodeType,
+      catalog: context.catalog,
+    });
+    const targetMaxConnections = targetDefs[connection.target_port]?.maxConnections ?? 1;
+    const resolvedMode = targetMaxConnections === Infinity && connection.mode === 'fail_if_occupied'
+      ? 'append'
+      : connection.mode;
     preconditions.push({ type: 'edge_not_exists', edge_id: edgeId });
-    if (connection.mode === 'fail_if_occupied') {
+    if (resolvedMode === 'fail_if_occupied') {
       preconditions.push({ type: 'target_port_unoccupied', node_id: targetNode.id, port: connection.target_port });
     }
     operations.push({
@@ -487,7 +577,7 @@ function compileExplicitConnections(edit, context, preconditions, operations) {
       edge_id: edgeId,
       source: { node_id: sourceNode.id, port: connection.source_port },
       target: { node_id: targetNode.id, port: connection.target_port },
-      mode: connection.mode,
+      mode: resolvedMode,
     });
   }
 }

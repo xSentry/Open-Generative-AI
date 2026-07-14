@@ -1,6 +1,7 @@
-import { cloneJson } from './graphSchema.js';
+import { cloneJson, makeConnectionBinding, makeConnectionsBinding } from './graphSchema.js';
 import { validateWorkflowGraph } from './graphValidator.js';
 import { validateWorkflowPatch } from './patchValidator.js';
+import { getInputPortDefinitions } from './portRegistry.js';
 
 export class WorkflowPatchConflict extends Error {
   constructor(code, message, details = {}) {
@@ -29,7 +30,19 @@ function fieldValue(graph, path) {
   return current;
 }
 
-function assertPrecondition(graph, precondition) {
+function inputPortMaxConnections(graph, nodeId, port, catalog = null) {
+  const node = getNode(graph, nodeId);
+  if (!node) return 1;
+  const inputDefs = getInputPortDefinitions({
+    category: node.category,
+    modelId: node.modelId,
+    nodeType: node.nodeType,
+    catalog,
+  });
+  return inputDefs[port]?.maxConnections ?? 1;
+}
+
+function assertPrecondition(graph, precondition, { catalog = null } = {}) {
   switch (precondition.type) {
     case 'workflow_revision_equals':
       if (graph.revision !== precondition.revision) {
@@ -57,6 +70,7 @@ function assertPrecondition(graph, precondition) {
       }
       return;
     case 'target_port_unoccupied':
+      if (inputPortMaxConnections(graph, precondition.node_id, precondition.port, catalog) === Infinity) return;
       if (graph.edges.some((edge) => edge.target.nodeId === precondition.node_id && edge.target.port === precondition.port)) {
         throw new WorkflowPatchConflict('PATCH_PRECONDITION_FAILED', `Target port "${precondition.port}" is already occupied.`);
       }
@@ -75,7 +89,45 @@ function assertPrecondition(graph, precondition) {
   }
 }
 
-function applyOperation(graph, operation) {
+function addConnectionBinding(targetNode, targetPort, sourceNodeId, sourcePort, maxConnections) {
+  targetNode.inputs = targetNode.inputs || {};
+  if (maxConnections === Infinity) {
+    const existing = targetNode.inputs[targetPort];
+    const connections = existing?.type === 'connections'
+      ? [...existing.connections]
+      : existing?.type === 'connection'
+        ? [{ sourceNodeId: existing.sourceNodeId, sourcePort: existing.sourcePort }]
+        : [];
+    if (!connections.some((connection) => connection.sourceNodeId === sourceNodeId && connection.sourcePort === sourcePort)) {
+      connections.push({ sourceNodeId, sourcePort });
+    }
+    targetNode.inputs[targetPort] = makeConnectionsBinding(connections);
+    return;
+  }
+  targetNode.inputs[targetPort] = makeConnectionBinding(sourceNodeId, sourcePort);
+}
+
+function removeConnectionBinding(targetNode, targetPort, sourceNodeId, sourcePort) {
+  const binding = targetNode?.inputs?.[targetPort];
+  if (!binding) return;
+  if (
+    binding.type === 'connection' &&
+    binding.sourceNodeId === sourceNodeId &&
+    binding.sourcePort === sourcePort
+  ) {
+    delete targetNode.inputs[targetPort];
+    return;
+  }
+  if (binding.type === 'connections') {
+    const nextConnections = binding.connections.filter((connection) =>
+      connection.sourceNodeId !== sourceNodeId || connection.sourcePort !== sourcePort
+    );
+    if (nextConnections.length === 0) delete targetNode.inputs[targetPort];
+    else targetNode.inputs[targetPort] = makeConnectionsBinding(nextConnections);
+  }
+}
+
+function applyOperation(graph, operation, { catalog = null } = {}) {
   switch (operation.op) {
     case 'add_node':
       if (getNode(graph, operation.node.id)) throw new WorkflowPatchConflict('PATCH_OPERATION_CONFLICT', `Node "${operation.node.id}" already exists.`);
@@ -123,12 +175,29 @@ function applyOperation(graph, operation) {
     }
     case 'connect':
       if (getEdge(graph, operation.edge_id)) throw new WorkflowPatchConflict('PATCH_OPERATION_CONFLICT', `Edge "${operation.edge_id}" already exists.`);
+      {
+        const maxConnections = inputPortMaxConnections(graph, operation.target.node_id, operation.target.port, catalog);
+        if (maxConnections !== Infinity && graph.edges.some((edge) =>
+          edge.target.nodeId === operation.target.node_id &&
+          edge.target.port === operation.target.port
+        )) {
+          throw new WorkflowPatchConflict('PATCH_OPERATION_CONFLICT', `Target port "${operation.target.port}" is already occupied.`);
+        }
+        if (graph.edges.some((edge) =>
+          edge.source.nodeId === operation.source.node_id &&
+          edge.source.port === operation.source.port &&
+          edge.target.nodeId === operation.target.node_id &&
+          edge.target.port === operation.target.port
+        )) {
+          throw new WorkflowPatchConflict('PATCH_OPERATION_CONFLICT', 'Duplicate edge between the same source and target port.');
+        }
+      }
       if (operation.mode === 'fail_if_occupied') {
         assertPrecondition(graph, {
           type: 'target_port_unoccupied',
           node_id: operation.target.node_id,
           port: operation.target.port,
-        });
+        }, { catalog });
       }
       graph.edges.push({
         id: operation.edge_id,
@@ -138,12 +207,13 @@ function applyOperation(graph, operation) {
       {
         const targetNode = getNode(graph, operation.target.node_id);
         if (targetNode) {
-          targetNode.inputs = targetNode.inputs || {};
-          targetNode.inputs[operation.target.port] = {
-            type: 'connection',
-            sourceNodeId: operation.source.node_id,
-            sourcePort: operation.source.port,
-          };
+          addConnectionBinding(
+            targetNode,
+            operation.target.port,
+            operation.source.node_id,
+            operation.source.port,
+            inputPortMaxConnections(graph, operation.target.node_id, operation.target.port, catalog)
+          );
         }
       }
       return;
@@ -153,14 +223,7 @@ function applyOperation(graph, operation) {
         graph.edges = graph.edges.filter((item) => item.id !== operation.edge_id);
         if (edge) {
           const targetNode = getNode(graph, edge.target.nodeId);
-          const binding = targetNode?.inputs?.[edge.target.port];
-          if (
-            binding?.type === 'connection' &&
-            binding.sourceNodeId === edge.source.nodeId &&
-            binding.sourcePort === edge.source.port
-          ) {
-            delete targetNode.inputs[edge.target.port];
-          }
+          removeConnectionBinding(targetNode, edge.target.port, edge.source.nodeId, edge.source.port);
         }
       }
       return;
@@ -180,8 +243,8 @@ export function applyWorkflowPatch(graph, patch, { catalog = null, validate = tr
   }
 
   const next = cloneJson(graph);
-  for (const precondition of patch.preconditions || []) assertPrecondition(next, precondition);
-  for (const operation of patch.operations || []) applyOperation(next, operation);
+  for (const precondition of patch.preconditions || []) assertPrecondition(next, precondition, { catalog });
+  for (const operation of patch.operations || []) applyOperation(next, operation, { catalog });
 
   if (validate) {
     const graphValidation = validateWorkflowGraph(next, { catalog });

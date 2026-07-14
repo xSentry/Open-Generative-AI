@@ -1,4 +1,4 @@
-import { createWorkflowGraph, cloneJson, makeConstantBinding, makeConnectionBinding } from './graphSchema.js';
+import { createWorkflowGraph, cloneJson, makeConstantBinding, makeConnectionBinding, makeConnectionsBinding } from './graphSchema.js';
 import {
   categoryFromNodeType,
   inferNodeKind,
@@ -107,7 +107,7 @@ function buildNodeFromSaved(savedNode, provider, catalog) {
   };
 }
 
-function applyConnectionBindings(graph, savedEdges = []) {
+function applyConnectionBindings(graph, savedEdges = [], catalog = null) {
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
   for (const edge of savedEdges || []) {
     const sourceNode = nodesById.get(String(edge.source));
@@ -115,7 +115,26 @@ function applyConnectionBindings(graph, savedEdges = []) {
     if (!sourceNode || !targetNode) continue;
     const source = sourcePortFromHandle(edge.sourceHandle, sourceNode);
     const target = targetPortFromHandle(edge.targetHandle);
-    targetNode.inputs[target.port] = makeConnectionBinding(sourceNode.id, source.port);
+    const inputDefs = getInputPortDefinitions({
+      category: targetNode.category,
+      modelId: targetNode.modelId,
+      nodeType: targetNode.nodeType,
+      catalog,
+    });
+    if (inputDefs[target.port]?.maxConnections === Infinity) {
+      const existing = targetNode.inputs[target.port];
+      const connections = existing?.type === 'connections'
+        ? [...existing.connections]
+        : existing?.type === 'connection'
+          ? [{ sourceNodeId: existing.sourceNodeId, sourcePort: existing.sourcePort }]
+          : [];
+      if (!connections.some((connection) => connection.sourceNodeId === sourceNode.id && connection.sourcePort === source.port)) {
+        connections.push({ sourceNodeId: sourceNode.id, sourcePort: source.port });
+      }
+      targetNode.inputs[target.port] = makeConnectionsBinding(connections);
+    } else {
+      targetNode.inputs[target.port] = makeConnectionBinding(sourceNode.id, source.port);
+    }
   }
 }
 
@@ -147,7 +166,7 @@ export function savedPayloadToWorkflowGraph(payload = {}, { provider = 'replicat
     nodes: graphNodes,
     edges: graphEdges,
   });
-  applyConnectionBindings(graph, edges);
+  applyConnectionBindings(graph, edges, catalog);
   return graph;
 }
 

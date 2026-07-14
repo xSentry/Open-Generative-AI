@@ -156,13 +156,15 @@ function propertiesFromCatalog(catalog, category, model) {
 
 export function getInputPortDefinitions({ category, modelId, nodeType, catalog } = {}) {
   const compat = category === 'api' ? {} : COMPAT_INPUT_PORTS;
+  if (nodeType === 'concatNode' || modelId === 'prompt-concatenator') {
+    return { prompt: { type: PORT_TYPES.text, maxConnections: Infinity } };
+  }
   if (category === 'utility' && modelId) {
     const schema = getUtilityNodeSchema(modelId);
     if (Object.keys(schema).length > 0) return schemaToPorts(schema);
   }
   const props = propertiesFromCatalog(catalog, category, modelId);
   if (Object.keys(props).length > 0) return { ...compat, ...schemaToPorts(props) };
-  if (nodeType === 'concatNode') return { prompt: { type: PORT_TYPES.text, maxConnections: Infinity } };
   return { ...compat };
 }
 
