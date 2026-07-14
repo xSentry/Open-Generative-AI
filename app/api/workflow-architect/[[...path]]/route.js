@@ -3,6 +3,7 @@ import {
   getActiveProviderKey,
   getProviderMissingKeyMessage,
 } from '@/modules/providers/server/providerKeys';
+import { getUserReplicateApiKey } from '@/modules/auth/server/users';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { handleWorkflowArchitect } from '@/modules/workflow-architect/api/router';
 
@@ -18,7 +19,7 @@ async function dispatch(request, ctx, method) {
     return NextResponse.json(body, { status });
   }
 
-  const { user, provider, apiKey } = active;
+  const { user, provider } = active;
 
   if (provider !== 'replicate') {
     return NextResponse.json(
@@ -32,7 +33,9 @@ async function dispatch(request, ctx, method) {
     );
   }
 
-  if (!apiKey) {
+  const userReplicateApiKey = await getUserReplicateApiKey(user.id);
+
+  if (!userReplicateApiKey) {
     return NextResponse.json(
       {
         error: {
@@ -44,7 +47,7 @@ async function dispatch(request, ctx, method) {
     );
   }
 
-  return handleWorkflowArchitect(request, ctx, method, { user, provider, apiKey });
+  return handleWorkflowArchitect(request, ctx, method, { user, provider, apiKey: userReplicateApiKey });
 }
 
 export const GET = (request, ctx) => dispatch(request, ctx, 'GET');

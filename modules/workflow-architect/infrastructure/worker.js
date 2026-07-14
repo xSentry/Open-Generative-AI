@@ -6,6 +6,7 @@ import {
   getArchitectWorkflow,
   markArchitectJobRunning,
 } from './repository.js';
+import { getUserReplicateApiKey } from '../../auth/server/users.js';
 import { buildNodeSchemas } from '../../workflow/server/schemas.js';
 import { applyWorkflowPatch } from '../../workflow-domain/applyPatch.js';
 import { buildArchitectCapabilityCatalog } from '../domain/capabilityCatalog.js';
@@ -30,6 +31,7 @@ export async function processArchitectJob(jobId, deps = {}) {
   const getWorkflow = deps.getArchitectWorkflow || getArchitectWorkflow;
   const buildSchemas = deps.buildNodeSchemas || buildNodeSchemas;
   const generateIr = deps.generateCreateWorkflowIr || generateCreateWorkflowIr;
+  const getReplicateApiKey = deps.getUserReplicateApiKey || getUserReplicateApiKey;
 
   const job = await markRunning(jobId);
   if (!job) return null;
@@ -189,9 +191,17 @@ export async function processArchitectJob(jobId, deps = {}) {
       payloadRedacted: { catalog_version: catalog.version },
     });
 
+    const apiKey = await getReplicateApiKey(job.userId);
+    if (!apiKey) {
+      const error = new Error('Missing saved user Replicate API key for Architect model calls.');
+      error.code = 'ARCHITECT_MODEL_KEY_MISSING';
+      throw error;
+    }
+
     const rawIr = await generateIr({
       userRequest: context.request.prompt,
       catalog,
+      apiKey,
     });
 
     await appendEvent({

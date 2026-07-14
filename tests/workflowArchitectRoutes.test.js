@@ -3,6 +3,12 @@ import test from 'node:test';
 import { handleWorkflowArchitect } from '../modules/workflow-architect/api/router.js';
 import { processArchitectJob } from '../modules/workflow-architect/infrastructure/worker.js';
 import { summarizePatchDiff } from '../modules/workflow-architect/domain/proposalDiff.js';
+import {
+  ARCHITECT_REPLICATE_MODEL_REF,
+  ARCHITECT_GPT_MODEL,
+  generateCreateWorkflowIr,
+  runStructuredReplicatePrediction,
+} from '../modules/workflow-architect/infrastructure/models/replicateStructuredModel.js';
 import { createWorkflowPatch } from '../modules/workflow-domain/patchSchema.js';
 import { WorkflowRevisionConflict } from '../modules/workflow-domain/revisionService.js';
 
@@ -539,6 +545,10 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
       },
     }),
     appendArchitectEvent: async (event) => events.push(event),
+    getUserReplicateApiKey: async (userId) => {
+      assert.equal(userId, 'user-1');
+      return 'r8_user_saved_key';
+    },
     getArchitectWorkflow: async () => ({
       id: 'wf-empty',
       userId: 'user-1',
@@ -550,14 +560,17 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
       isTemplate: false,
       revision: 1,
     }),
-    generateCreateWorkflowIr: async () => ({
+    generateCreateWorkflowIr: async ({ apiKey }) => {
+      assert.equal(apiKey, 'r8_user_saved_key');
+      return ({
       operation: 'create_workflow',
       workflow_name: 'Neon product photos',
       target_category: 'image',
       model_id: 'flux-schnell',
       prompt: 'Neon product photo on a glossy black surface',
       parameters: { aspect_ratio: '1:1' },
-    }),
+    });
+    },
     createProposalForJob: async (job, input) => ({
       id: 'proposal-create',
       jobId: job.id,
@@ -575,6 +588,83 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
   assert.deepEqual(events.map((event) => event.stage), ['running', 'calling_model', 'normalizing_ir', 'completed']);
   assert.equal(result.proposal.patch.operations.filter((op) => op.op === 'add_node').length, 2);
   assert.equal(result.proposal.patch.operations.some((op) => op.op === 'connect'), true);
+});
+
+test('structured Replicate model uses saved user key and hardcoded GPT-5.6 Luna input', async () => {
+  let call;
+  const ir = await generateCreateWorkflowIr({
+    userRequest: 'Create an image workflow.',
+    apiKey: 'r8_user_saved_key',
+    env: {
+      WORKFLOW_ARCHITECT_MODEL_ID: 'should-not-be-used',
+      WORKFLOW_ARCHITECT_REPLICATE_API_KEY: 'should-not-be-used',
+      WORKFLOW_ARCHITECT_MODEL_MAX_TOKENS: '777',
+      WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS: '3',
+      WORKFLOW_ARCHITECT_MODEL_POLL_MS: '0',
+    },
+    catalog: {
+      compact: [{ category: 'image', model_id: 'flux-schnell' }],
+    },
+    runPrediction: async (input) => {
+      call = input;
+      return {
+        operation: 'create_workflow',
+        workflow_name: 'Generated',
+        target_category: 'image',
+        model_id: 'flux-schnell',
+        prompt: 'A generated prompt',
+      };
+    },
+  });
+
+  assert.equal(call.apiKey, 'r8_user_saved_key');
+  assert.equal(call.input.model, ARCHITECT_GPT_MODEL);
+  assert.equal(call.input.model, 'gpt-5.6-luna');
+  assert.equal(call.input.reasoning_effort, 'minimal');
+  assert.equal(call.input.verbosity, 'low');
+  assert.equal(call.input.enable_web_search, false);
+  assert.equal(call.input.max_output_tokens, 777);
+  assert.equal(call.maxAttempts, 3);
+  assert.equal(call.interval, 0);
+  assert.equal(call.input.json_schema.properties.operation.enum[0], 'create_workflow');
+  assert.equal(ir.model_id, 'flux-schnell');
+});
+
+test('structured Replicate prediction posts to the hardcoded model endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, options = {}) => {
+      calls.push({ url, options });
+      if (calls.length === 1) {
+        return new Response(JSON.stringify({
+          id: 'pred-1',
+          status: 'starting',
+          urls: { get: 'https://api.replicate.com/v1/predictions/pred-1' },
+        }), { status: 201 });
+      }
+      return new Response(JSON.stringify({
+        id: 'pred-1',
+        status: 'succeeded',
+        output: { ok: true },
+      }), { status: 200 });
+    };
+
+    const output = await runStructuredReplicatePrediction({
+      apiKey: 'r8_user_saved_key',
+      input: { model: ARCHITECT_GPT_MODEL, prompt: '{}' },
+      interval: 0,
+      maxAttempts: 2,
+    });
+
+    assert.deepEqual(output, { ok: true });
+    assert.equal(ARCHITECT_REPLICATE_MODEL_REF, 'openai/gpt-5-structured');
+    assert.equal(calls[0].url, 'https://api.replicate.com/v1/models/openai/gpt-5-structured/predictions');
+    assert.equal(calls[0].options.headers.Authorization, 'Bearer r8_user_saved_key');
+    assert.equal(JSON.parse(calls[0].options.body).input.model, 'gpt-5.6-luna');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('phase 3 worker explains and validates an existing workflow deterministically', async () => {
