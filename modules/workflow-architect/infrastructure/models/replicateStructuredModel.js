@@ -303,11 +303,19 @@ function modelInput({ prompt, instructions, schema, schemaName, previousResponse
   // to json_schema can still make the upstream Responses request invalid.
   return {
     model: ARCHITECT_GPT_MODEL,
+    store: true,
     prompt: JSON.stringify(prompt),
     instructions,
     json_schema: buildReplicateJsonSchemaFormat(schema, schemaName),
     ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
   };
+}
+
+function isPreviousResponseNotFound(error) {
+  const details = `${error?.message || ''} ${JSON.stringify(error?.response || {})}`;
+  return details.includes('previous_response_not_found')
+    || details.includes('Previous response with id')
+    || details.includes('previous_response_id');
 }
 
 export function buildCreateWorkflowPlannerPayload({ userRequest, nodeOptions } = {}) {
@@ -387,7 +395,14 @@ export async function generateCreateWorkflowPlanRepair({ userRequest, nodeOption
   const prompt = previousResponseId
     ? buildCreateWorkflowContinuationRepairPayload({ nodeOptions, invalidPlan, validationErrors })
     : buildCreateWorkflowRepairPayload({ userRequest, nodeOptions, invalidPlan, validationErrors });
-  const output = await runPrediction({ apiKey, input: modelInput({ prompt, instructions: 'The previous workflow graph was invalid. Fix only the supplied validation issues and return a complete corrected workflow-architect-plan/v2 graph. These instructions replace the previous turn instructions.', schema: createWorkflowPlanJsonSchema(nodeOptions), schemaName: 'workflow_architect_plan_repair', previousResponseId }), maxAttempts: Number(env.WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS || 120), interval: Number(env.WORKFLOW_ARCHITECT_MODEL_POLL_MS || 1000) });
+  let output;
+  try {
+    output = await runPrediction({ apiKey, input: modelInput({ prompt, instructions: 'The previous workflow graph was invalid. Fix only the supplied validation issues and return a complete corrected workflow-architect-plan/v2 graph. These instructions replace the previous turn instructions.', schema: createWorkflowPlanJsonSchema(nodeOptions), schemaName: 'workflow_architect_plan_repair', previousResponseId }), maxAttempts: Number(env.WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS || 120), interval: Number(env.WORKFLOW_ARCHITECT_MODEL_POLL_MS || 1000) });
+  } catch (error) {
+    if (!previousResponseId || !isPreviousResponseNotFound(error)) throw error;
+    const fallbackPrompt = buildCreateWorkflowRepairPayload({ userRequest, nodeOptions, invalidPlan, validationErrors });
+    output = await runPrediction({ apiKey, input: modelInput({ prompt: fallbackPrompt, instructions: 'Fix the supplied invalid workflow graph using the validation issues and return a complete corrected workflow-architect-plan/v2 graph.', schema: createWorkflowPlanJsonSchema(nodeOptions), schemaName: 'workflow_architect_plan_repair' }), maxAttempts: Number(env.WORKFLOW_ARCHITECT_MODEL_MAX_ATTEMPTS || 120), interval: Number(env.WORKFLOW_ARCHITECT_MODEL_POLL_MS || 1000) });
+  }
   return structuredModelResult(output);
 }
 
