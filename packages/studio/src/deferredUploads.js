@@ -11,7 +11,7 @@
 // given an `uploader(file) -> Promise<url>`, resolve them on demand. The concrete
 // uploader (the S3/MinIO XHR) lives in `muapi.js`.
 
-// blob: URL -> { file, promise, url }
+// blob: URL -> { file }
 const registry = new Map();
 
 // Register a selected File and return a local blob: URL to use for preview.
@@ -23,7 +23,7 @@ export function registerDeferredFile(file) {
         throw new Error('registerDeferredFile requires a browser environment');
     }
     const key = URL.createObjectURL(file);
-    registry.set(key, { file, promise: null, url: null });
+    registry.set(key, { file });
     return key;
 }
 
@@ -32,34 +32,31 @@ export function isDeferredUrl(value) {
     return typeof value === 'string' && registry.has(value);
 }
 
-// Upload a single held file (once), caching the resulting URL so repeated
-// resolutions (e.g. batch generations reusing the same input) upload only once.
-async function uploadDeferred(key, uploader) {
+// Upload a single held file once per submit. The returned bucket object is
+// deleted after the generation finishes, so retained form inputs must upload
+// again on the next submit instead of reusing a stale URL.
+async function uploadDeferred(key, uploader, uploads) {
     const entry = registry.get(key);
     if (!entry) return key;
-    if (entry.url) return entry.url;
-    if (!entry.promise) {
-        entry.promise = Promise.resolve(uploader(entry.file)).then((url) => {
-            entry.url = url;
-            return url;
-        });
+    if (!uploads.has(key)) {
+        uploads.set(key, Promise.resolve(uploader(entry.file)));
     }
-    return entry.promise;
+    return uploads.get(key);
 }
 
 // Deep-walk any params value and replace deferred blob: URLs with their uploaded
 // S3 URLs. Non-deferred strings (e.g. already-hosted URLs restored from history)
 // pass through untouched. `uploader` is `(file) => Promise<url>`.
-export async function resolveDeferred(value, uploader) {
+export async function resolveDeferred(value, uploader, uploads = new Map()) {
     if (typeof value === 'string') {
-        return isDeferredUrl(value) ? uploadDeferred(value, uploader) : value;
+        return isDeferredUrl(value) ? uploadDeferred(value, uploader, uploads) : value;
     }
     if (Array.isArray(value)) {
-        return Promise.all(value.map((item) => resolveDeferred(item, uploader)));
+        return Promise.all(value.map((item) => resolveDeferred(item, uploader, uploads)));
     }
     if (value && typeof value === 'object') {
         const entries = await Promise.all(
-            Object.entries(value).map(async ([k, v]) => [k, await resolveDeferred(v, uploader)]),
+            Object.entries(value).map(async ([k, v]) => [k, await resolveDeferred(v, uploader, uploads)]),
         );
         const out = {};
         for (const [k, v] of entries) out[k] = v;
