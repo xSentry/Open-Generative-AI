@@ -304,14 +304,63 @@ export async function listArchitectMessages(conversationId, { userId, limit = 50
 }
 
 export async function archiveArchitectConversation(conversationId, { userId }) {
-  const result = await query(
-    `update workflow_architect_conversations
-        set status = 'archived', updated_at = now()
-      where id = $1 and user_id = $2 and status = 'active'
-      returning id, user_id, workflow_id, provider, title, status, created_at, updated_at`,
-    [conversationId, userId]
-  );
-  return mapConversation(result.rows[0]);
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const existingResult = await client.query(
+      `select id, user_id, workflow_id, provider, title, status, created_at, updated_at
+         from workflow_architect_conversations
+        where id = $1 and user_id = $2
+        for update`,
+      [conversationId, userId]
+    );
+    const conversation = mapConversation(existingResult.rows[0]);
+    if (!conversation) {
+      await client.query('commit');
+      return null;
+    }
+
+    const jobIdsResult = await client.query(
+      `select id
+         from workflow_architect_jobs
+        where conversation_id = $1 and user_id = $2`,
+      [conversationId, userId]
+    );
+    const jobIds = jobIdsResult.rows.map((row) => row.id);
+
+    if (jobIds.length) {
+      await client.query(
+        `delete from workflow_architect_proposals
+          where user_id = $1 and job_id = any($2::uuid[])`,
+        [userId, jobIds]
+      );
+      await client.query(
+        `delete from workflow_architect_events
+          where job_id = any($1::uuid[])`,
+        [jobIds]
+      );
+      await client.query(
+        `update workflow_architect_jobs
+            set conversation_id = null, parent_message_id = null
+          where user_id = $1 and id = any($2::uuid[])`,
+        [userId, jobIds]
+      );
+    }
+
+    await client.query(
+      `delete from workflow_architect_conversations
+        where id = $1 and user_id = $2`,
+      [conversationId, userId]
+    );
+
+    await client.query('commit');
+    return conversation;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listArchitectHistory({ userId, workflowId = null, limit = 20 }) {
@@ -465,6 +514,18 @@ export async function listArchitectEvents(jobId, { userId, afterSequence = 0 }) 
   return result.rows;
 }
 
+export async function clearArchitectEventsForJob(jobId, { userId }) {
+  const result = await query(
+    `delete from workflow_architect_events e
+      using workflow_architect_jobs j
+      where e.job_id = j.id
+        and e.job_id = $1
+        and j.user_id = $2`,
+    [jobId, userId]
+  );
+  return result.rowCount || 0;
+}
+
 export async function createFixtureProposal({
   userId,
   workflowId,
@@ -608,14 +669,45 @@ export async function getProposal(id, { userId }) {
 }
 
 export async function rejectProposal(id, { userId }) {
-  const result = await query(
-    `update workflow_architect_proposals
-        set status = 'rejected', rejected_at = now()
-      where id = $1 and user_id = $2 and status = 'pending'
-      returning ${PROPOSAL_COLUMNS}`,
-    [id, userId]
-  );
-  return mapProposal(result.rows[0]);
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const result = await client.query(
+      `update workflow_architect_proposals
+          set status = 'rejected', rejected_at = now()
+        where id = $1 and user_id = $2 and status = 'pending'
+        returning ${PROPOSAL_COLUMNS}`,
+      [id, userId]
+    );
+    const proposal = mapProposal(result.rows[0]);
+    if (!proposal) {
+      await client.query('commit');
+      return null;
+    }
+
+    await client.query(
+      `update workflow_architect_messages
+          set proposal_id = null
+        where proposal_id = $1 and user_id = $2`,
+      [proposal.id, userId]
+    );
+    await client.query(
+      `delete from workflow_architect_events where job_id = $1`,
+      [proposal.jobId]
+    );
+    await client.query(
+      `delete from workflow_architect_proposals where id = $1 and user_id = $2`,
+      [proposal.id, userId]
+    );
+
+    await client.query('commit');
+    return proposal;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function applyProposalTransaction(id, {
@@ -704,7 +796,7 @@ export async function applyProposalTransaction(id, {
       `update workflows
           set name = $3, category = $4, edges = $5::jsonb, nodes = $6::jsonb,
               parent_revision = revision, revision = $7, revision_source = 'architect',
-              proposal_id = $8, compiler_version = $9, catalog_version = $10,
+              proposal_id = null, compiler_version = $8, catalog_version = $9,
               updated_at = now()
         where id = $1 and user_id = $2 and is_template = false
         returning ${WORKFLOW_COLUMNS}`,
@@ -716,7 +808,6 @@ export async function applyProposalTransaction(id, {
         JSON.stringify(saved.edges || []),
         JSON.stringify(saved.data?.nodes || []),
         nextRevision,
-        proposal.id,
         proposal.compilerVersion,
         proposal.catalogVersion,
       ]
@@ -728,13 +819,12 @@ export async function applyProposalTransaction(id, {
       `insert into workflow_revisions
          (workflow_id, revision, parent_revision, source, proposal_id,
           compiler_version, catalog_version, graph_json)
-       values ($1, $2, $3, 'architect', $4, $5, $6, $7::jsonb)
+       values ($1, $2, $3, 'architect', null, $4, $5, $6::jsonb)
        on conflict (workflow_id, revision) do nothing`,
       [
         updatedWorkflow.id,
         updatedWorkflow.revision,
         updatedWorkflow.parentRevision,
-        proposal.id,
         proposal.compilerVersion,
         proposal.catalogVersion,
         JSON.stringify(revisionGraph),
@@ -748,10 +838,26 @@ export async function applyProposalTransaction(id, {
         returning ${PROPOSAL_COLUMNS}`,
       [proposal.id, idempotencyKey]
     );
+    const acceptedProposal = mapProposal(acceptedResult.rows[0]);
+
+    await client.query(
+      `update workflow_architect_messages
+          set proposal_id = null
+        where proposal_id = $1 and user_id = $2`,
+      [proposal.id, userId]
+    );
+    await client.query(
+      `delete from workflow_architect_events where job_id = $1`,
+      [proposal.jobId]
+    );
+    await client.query(
+      `delete from workflow_architect_proposals where id = $1 and user_id = $2`,
+      [proposal.id, userId]
+    );
 
     await client.query('commit');
     return {
-      proposal: mapProposal(acceptedResult.rows[0]),
+      proposal: acceptedProposal,
       workflow: updatedWorkflow,
       idempotent: false,
     };

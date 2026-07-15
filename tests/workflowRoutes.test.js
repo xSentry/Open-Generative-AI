@@ -305,79 +305,15 @@ test('clone endpoint returns 404 for an unreadable workflow', async () => {
   assert.equal(response.status, 404);
 });
 
-test('revert endpoint creates a new server revision from the previous revision', async () => {
-  let received;
-  const deps = {
-    getWorkflow: async () => ({
-      id: 'wf-1',
-      userId: 'user-1',
-      provider: 'replicate',
-      name: 'Current',
-      revision: 4,
-      isTemplate: false,
-    }),
-    revertWorkflowToRevision: async (id, revision, input) => {
-      received = { id, revision, ...input };
-      return {
-        id,
-        userId: 'user-1',
-        name: 'Restored',
-        category: 'image',
-        edges: [{ id: 'e-restored' }],
-        nodes: [{ id: 'n-restored' }],
-        published: false,
-        revision: 5,
-        parentRevision: 4,
-      };
-    },
-  };
-
-  const response = await handleLocalWorkflow(
-    request('http://test.local/api/workflow', {
-      expected_revision: 4,
-    }),
-    routeCtx(['wf-1', 'revert']),
-    'POST',
-    ctxFor('user-1', 'replicate'),
-    deps
-  );
-
-  assert.equal(response.status, 200);
-  assert.deepEqual(received, {
-    id: 'wf-1',
-    revision: 3,
-    userId: 'user-1',
-    provider: 'replicate',
-    expectedRevision: 4,
-  });
-  const body = await readJson(response);
-  assert.equal(body.workflow_id, 'wf-1');
-  assert.equal(body.name, 'Restored');
-  assert.equal(body.revision, 5);
-  assert.equal(body.parent_revision, 4);
-  assert.deepEqual(body.edges, [{ id: 'e-restored' }]);
-});
-
-test('revert endpoint rejects missing previous revision', async () => {
+test('revert endpoint is not available', async () => {
   const response = await handleLocalWorkflow(
     request('http://test.local/api/workflow', {}),
     routeCtx(['wf-1', 'revert']),
     'POST',
-    ctxFor('user-1', 'replicate'),
-    {
-      getWorkflow: async () => ({
-        id: 'wf-1',
-        userId: 'user-1',
-        provider: 'replicate',
-        revision: 1,
-        isTemplate: false,
-      }),
-    }
+    ctxFor('user-1', 'replicate')
   );
 
-  assert.equal(response.status, 400);
-  const body = await readJson(response);
-  assert.equal(body.error.code, 'INVALID_REVERT_REVISION');
+  assert.equal(response.status, 404);
 });
 
 test('template list marks ownership via is_owner', async () => {

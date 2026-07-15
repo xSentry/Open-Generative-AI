@@ -267,13 +267,15 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
         operation: job.operation,
         status: job.status,
         queueStatus: 'queued',
+        eventType: 'progress',
+        stage: 'queued',
       });
       if (userMessage?.id) {
         await tryConversationSideEffect(() => impl.appendArchitectMessage?.({
           conversationId: conversation.id,
           userId,
           role: 'system',
-          contentRedacted: 'Request queued.',
+          contentRedacted: "I'm on it. I'll share a proposal here when it's ready.",
           jobId: job.id,
           metadataRedacted: { status: 'queued' },
         }));
@@ -369,7 +371,6 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
           role: 'system',
           contentRedacted: 'Proposal rejected.',
           jobId: job.id,
-          proposalId: proposal.id,
           metadataRedacted: { status: 'rejected' },
         }));
       }
@@ -394,7 +395,6 @@ export async function handleWorkflowArchitect(request, { params }, method, ctx, 
           role: 'system',
           contentRedacted: 'Proposal accepted and applied.',
           jobId: job.id,
-          proposalId: result.proposal.id,
           metadataRedacted: {
             status: 'accepted',
             workflow_revision: result.workflow?.revision ?? null,

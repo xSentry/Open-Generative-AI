@@ -259,12 +259,79 @@ export async function renameWorkflow(id, { userId, name }) {
 }
 
 export async function deleteWorkflow(id, { userId }) {
-  const result = await query(
-    `delete from workflows where id = $1 and user_id = $2
-     returning ${SELECT_COLUMNS}`,
-    [id, userId]
-  );
-  return mapRow(result.rows[0]);
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+
+    const existing = await client.query(
+      `select ${SELECT_COLUMNS}
+         from workflows
+        where id = $1 and user_id = $2
+        for update`,
+      [id, userId]
+    );
+    const workflow = mapRow(existing.rows[0]);
+    if (!workflow) {
+      await client.query('commit');
+      return null;
+    }
+
+    const jobIdsResult = await client.query(
+      `select id
+         from workflow_architect_jobs
+        where workflow_id = $1 and user_id = $2`,
+      [id, userId]
+    );
+    const jobIds = jobIdsResult.rows.map((row) => row.id);
+
+    await client.query(
+      `update workflow_architect_messages
+          set proposal_id = null
+        where user_id = $1
+          and proposal_id in (
+            select id
+              from workflow_architect_proposals
+             where workflow_id = $2 and user_id = $1
+          )`,
+      [userId, id]
+    );
+    await client.query(
+      `delete from workflow_architect_proposals
+        where workflow_id = $1 and user_id = $2`,
+      [id, userId]
+    );
+    if (jobIds.length) {
+      await client.query(
+        `delete from workflow_architect_events
+          where job_id = any($1::uuid[])`,
+        [jobIds]
+      );
+      await client.query(
+        `update workflow_architect_jobs
+            set workflow_id = null, conversation_id = null, parent_message_id = null
+          where user_id = $1 and id = any($2::uuid[])`,
+        [userId, jobIds]
+      );
+    }
+    await client.query(
+      `delete from workflow_architect_conversations
+        where workflow_id = $1 and user_id = $2`,
+      [id, userId]
+    );
+
+    await client.query(
+      `delete from workflows where id = $1 and user_id = $2`,
+      [id, userId]
+    );
+
+    await client.query('commit');
+    return workflow;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function setPublished(id, { userId, published }) {
@@ -341,27 +408,6 @@ export async function getWorkflowRevision(workflowId, revision, { userId, provid
     [workflowId, revision, provider, userId]
   );
   return mapRevisionRow(result.rows[0]);
-}
-
-export async function revertWorkflowToRevision(workflowId, revision, {
-  userId,
-  provider,
-  expectedRevision = null,
-}) {
-  const target = await getWorkflowRevision(workflowId, revision, { userId, provider });
-  if (!target) return null;
-  const payload = workflowGraphToSavedPayload(target.graph);
-  return upsertWorkflow({
-    id: workflowId,
-    userId,
-    provider,
-    name: payload.name,
-    category: payload.category,
-    edges: payload.edges,
-    nodes: payload.data.nodes,
-    expectedRevision,
-    revisionSource: 'revert',
-  });
 }
 
 export { WorkflowRevisionConflict };
