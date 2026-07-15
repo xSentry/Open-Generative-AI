@@ -67,6 +67,18 @@ function filterSupportedParameters(parameters = {}, node, catalog) {
   );
 }
 
+const createWorkflowMessageOptions = [
+  'I drafted the workflow. Review the proposal below.',
+  'I put together a workflow draft. Take a look at the proposal below.',
+  'I have a workflow proposal ready for you to review.',
+  'The workflow draft is ready. Review it below when you are ready.',
+  'I mapped out a workflow for this request. The proposal is ready below.',
+];
+
+function randomCreateWorkflowMessage() {
+  return createWorkflowMessageOptions[Math.floor(Math.random() * createWorkflowMessageOptions.length)];
+}
+
 export function compileCreateWorkflowIrToPatch(ir, {
   provider = 'replicate',
   baseRevision = null,
@@ -145,7 +157,7 @@ export function summarizeCreateWorkflowProposal(ir) {
   const selection = ir.diagnostics?.model_selection || [];
   return {
     title: ir.workflow_name,
-    message: `Create a ${ir.target_category} workflow with ${ir.nodes.length} Architect-planned node roles.`,
+    message: randomCreateWorkflowMessage(),
     assumptions: ir.assumptions || [],
     warnings: [],
     diagnostics: {

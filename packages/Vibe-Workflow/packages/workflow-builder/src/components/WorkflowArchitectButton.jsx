@@ -5,13 +5,11 @@ import axios from "axios";
 import {
   FaCheck,
   FaClipboard,
-  FaHistory,
   FaPaperPlane,
   FaRobot,
   FaStar,
   FaTimes,
   FaTrashAlt,
-  FaUndo,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { subscribeWorkflowArchitectJobs } from "./workflowStream";
@@ -64,14 +62,53 @@ const formatTime = (value) => {
   }
 };
 
-const followUpSuggestions = (proposal, workflowRevision) => {
-  if (proposal?.status === "pending") {
-    return ["Explain this proposal", "Validate current workflow"];
+const DEFAULT_ASSISTANT_MESSAGE =
+  "Tell me what you want this workflow to do. I can draft the graph, choose suitable nodes, and prepare a proposal for you to review.";
+
+const stageLabelOptions = {
+  queued: ["Getting started", "Warming up", "Getting ready"],
+  running: ["Reading your workflow", "Checking the canvas", "Looking over the graph"],
+  compiling_fixture: ["Preparing a proposal", "Putting the proposal together", "Shaping the changes"],
+  calling_model: ["Thinking through the workflow", "Exploring the idea", "Whipping up a plan"],
+  plan_generation: ["Whipping up a plan", "Sketching the workflow", "Turning the idea into steps"],
+  plan_validation: ["Checking the plan", "Reviewing the structure", "Making sure the plan holds up"],
+  plan_repair: ["Refining the plan", "Tightening the workflow", "Smoothing out the plan"],
+  repair_validation: ["Checking the refined plan", "Reviewing the updates", "Making sure the refinements work"],
+  model_selection: ["Selecting the best models", "Matching models to each step", "Choosing the right building blocks"],
+  hydration: ["Filling in node settings", "Preparing the node details", "Wiring up the configuration"],
+  planning_workflow: ["Whipping up a plan", "Sketching the workflow", "Refining the idea"],
+  selecting_nodes: ["Selecting the best models", "Choosing the right nodes", "Finding the right building blocks"],
+  configuring_nodes: ["Preparing node settings", "Dialing in the nodes", "Filling in the details"],
+  connecting_nodes: ["Wiring the workflow", "Connecting the steps", "Linking everything together"],
+  validating_plan: ["Checking the plan", "Reviewing the structure", "Making sure the plan holds up"],
+  hydrating_ir: ["Preparing node settings", "Filling in node details", "Dialing in the configuration"],
+  normalizing_ir: ["Finalizing the proposal", "Polishing the plan", "Checking the final details"],
+  completed: ["Proposal ready", "Ready for review", "Plan is ready"],
+  failed: ["Something stopped", "Could not finish", "Needs another try"],
+  working: ["Working on it", "Thinking it through", "Building the plan"],
+};
+
+const formatStageLabel = (stage) => {
+  if (!stage) return "Working on it";
+  return String(stage)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+
+const latestProgressStage = (events = [], status) => {
+  let latestStage = null;
+  for (const event of events) {
+    const stage = event.stage || event.event_type;
+    if (stage) latestStage = stage;
   }
-  if (workflowRevision > 1) {
-    return ["Validate current workflow", "Explain current workflow"];
-  }
-  return ["Explain current workflow", "Validate current workflow"];
+  if (!latestStage && status && !terminalJobStatuses.includes(status)) latestStage = status;
+  return latestStage || "working";
+};
+
+const randomStageLabel = (stage) => {
+  const options = stageLabelOptions[stage];
+  if (!options?.length) return formatStageLabel(stage);
+  return options[Math.floor(Math.random() * options.length)];
 };
 
 function AssistantMark({ compact = false }) {
@@ -90,20 +127,29 @@ function AssistantMark({ compact = false }) {
 }
 
 function ThinkingBubble({ events = [], status }) {
-  const latest = events[events.length - 1]?.stage || events[events.length - 1]?.event_type || status || "thinking";
+  const stage = latestProgressStage(events, status);
+  const [step, setStep] = useState(() => randomStageLabel(stage));
+
+  useEffect(() => {
+    setStep(randomStageLabel(stage));
+  }, [stage]);
+
   return (
-    <div className="flex items-start gap-3">
+    <div className="workflow-architect-message-in-left flex items-start gap-3">
       <AssistantMark compact />
-      <div className="max-w-[82%] rounded-2xl rounded-tl-md border border-white/10 bg-[#151b24] px-4 py-3 text-sm text-gray-200 shadow-lg shadow-black/20">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.2s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300 [animation-delay:-0.1s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300" />
+      <div className="max-w-[82%]">
+        <div className="mb-2">
+          <span className="inline-flex animate-pulse items-center gap-2 rounded-full border border-blue-300/30 bg-blue-400/10 px-2.5 py-1 text-[10px] font-medium text-blue-100">
+            {step}
           </span>
-          <span>Architect is thinking</span>
         </div>
-        <div className="mt-1 text-xs capitalize text-gray-500">{latest}</div>
+        <div className="rounded-2xl rounded-tl-md border border-white/10 bg-[#151b24] px-4 py-3 text-sm text-gray-200 shadow-lg shadow-black/20">
+          <span className="flex items-center gap-1.5" aria-label="Assistant is typing">
+            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-200 [animation-delay:-0.2s]" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-200 [animation-delay:-0.1s]" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-blue-200" />
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -114,7 +160,7 @@ function ChatMessage({ message }) {
   const content = message.content_redacted || message.content || "";
   if (!content) return null;
   return (
-    <div className={`flex items-start gap-3 ${isUser ? "justify-end" : ""}`}>
+    <div className={`${isUser ? "workflow-architect-message-in-right justify-end" : "workflow-architect-message-in-left"} flex items-start gap-3`}>
       {!isUser && <AssistantMark compact />}
       <div
         className={`max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg shadow-black/15 ${
@@ -132,31 +178,32 @@ function ChatMessage({ message }) {
   );
 }
 
-function PreviewSection({ title, items, format = (item) => item, empty = null }) {
-  if (!items?.length && !empty) return null;
-  return (
-    <div className="border-t border-white/10 pt-3">
-      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">{title}</div>
-      {items?.length ? (
-        <div className="mt-2 flex flex-col gap-1.5">
-          {items.map((item, index) => (
-            <div key={`${title}-${index}`} className="break-words text-xs leading-relaxed text-gray-300">
-              {format(item)}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-1 text-xs text-gray-500">{empty}</div>
-      )}
-    </div>
-  );
-}
+const isQueuedSystemMessage = (message = {}) =>
+  message.role === "system" && message.metadata_redacted?.status === "queued";
+
+const compactProposalSummary = (proposal = {}) => {
+  const diff = proposal.diff || {};
+  const metadata = list(diff.workflow_metadata_changes);
+  const nodesAdded = list(diff.nodes_added);
+  const edgesAdded = list(diff.edges_added);
+  const pieces = [];
+  if (nodesAdded.length) pieces.push(`${nodesAdded.length} node${nodesAdded.length === 1 ? "" : "s"}`);
+  if (edgesAdded.length) pieces.push(`${edgesAdded.length} connection${edgesAdded.length === 1 ? "" : "s"}`);
+  if (metadata.length) pieces.push("workflow details");
+  return pieces.length ? `Adds ${pieces.join(", ")}.` : "No graph changes in this proposal.";
+};
+
+const compactNodeNames = (nodes = []) => {
+  const names = list(nodes).map((node) => node.title || node.node_id || "Node").filter(Boolean);
+  if (!names.length) return "";
+  const visible = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${visible}, +${names.length - 3} more` : visible;
+};
 
 function ProposalBubble({
   proposal,
   changeCount,
   diff,
-  assumptions,
   summaryWarnings,
   validationWarnings,
   validationErrors,
@@ -166,52 +213,51 @@ function ProposalBubble({
   onCopy,
 }) {
   if (!proposal) return null;
+  const nodesAdded = list(diff.nodes_added);
+  const edgesAdded = list(diff.edges_added);
+  const issues = [...summaryWarnings, ...validationWarnings, ...validationErrors];
+  const hasIssues = issues.length > 0;
   return (
-    <div className="flex items-start gap-3">
+    <div className="workflow-architect-message-in-left flex items-start gap-3">
       <AssistantMark compact />
       <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-white/10 bg-[#151b24] p-3 text-gray-100 shadow-lg shadow-black/20">
-        <div className="px-1 pb-2">
+        <div className="px-1">
           <div className="text-sm font-semibold">{proposal.summary?.title || "Workflow proposal"}</div>
-          <div className="mt-1 text-xs leading-relaxed text-gray-400">
+          <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-400">
             {proposal.summary?.message || "Review the proposed changes."}
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Changes</div>
-            <div className="mt-1 text-sm font-semibold text-gray-100">{changeCount}</div>
-          </div>
-          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Revision</div>
-            <div className="mt-1 text-sm font-semibold text-gray-100">{proposal.base_revision ?? "New"}</div>
-          </div>
-          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
-            <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Check</div>
-            <div className={proposal.validation?.valid === false ? "mt-1 text-sm font-semibold text-red-300" : "mt-1 text-sm font-semibold text-emerald-300"}>
-              {proposal.validation?.valid === false ? "Invalid" : "Valid"}
-            </div>
-          </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-gray-300">
+            {changeCount} change{changeCount === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-gray-300">
+            {nodesAdded.length} node{nodesAdded.length === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-gray-300">
+            {edgesAdded.length} link{edgesAdded.length === 1 ? "" : "s"}
+          </span>
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${proposal.validation?.valid === false ? "border-red-400/30 bg-red-500/10 text-red-200" : "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"}`}>
+            {proposal.validation?.valid === false ? "Needs review" : "Validated"}
+          </span>
         </div>
 
-        <div className="mt-3 flex flex-col gap-3">
-          <PreviewSection title="Workflow" items={list(diff.workflow_metadata_changes)} format={formatMetadata} />
-          <PreviewSection title="Nodes Added" items={list(diff.nodes_added)} format={formatNode} empty="None" />
-          <PreviewSection title="Connections" items={list(diff.edges_added)} format={formatEdge} empty="None" />
-          <PreviewSection title="Assumptions" items={assumptions} />
-          <PreviewSection
-            title="Warnings"
-            items={[...summaryWarnings, ...validationWarnings]}
-            format={(item) => item.message || item.code || item}
-          />
-          <PreviewSection
-            title="Errors"
-            items={validationErrors}
-            format={(item) => item.message || item.code || item}
-          />
+        <div className="mt-3 rounded-md border border-white/10 bg-black/15 px-3 py-2">
+          <div className="text-xs leading-relaxed text-gray-300">{compactProposalSummary(proposal)}</div>
+          {nodesAdded.length > 0 && (
+            <div className="mt-1 truncate text-[11px] text-gray-500">{compactNodeNames(nodesAdded)}</div>
+          )}
         </div>
 
-        <div className="mt-4 flex items-center gap-2">
+        {hasIssues && (
+          <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100">
+            {issues[0].message || issues[0].code || issues[0]}
+            {issues.length > 1 ? ` (+${issues.length - 1} more)` : ""}
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
             suppressHydrationWarning={true}
@@ -263,10 +309,9 @@ export default function WorkflowArchitectButton({
   const [proposal, setProposal] = useState(null);
   const [conversationId, setConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [proposalVisible, setProposalVisible] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [reverting, setReverting] = useState(false);
   const [resettingChat, setResettingChat] = useState(false);
   const transcriptRef = useRef(null);
   const assistantPending = !!job && !terminalJobStatuses.includes(job.status);
@@ -288,8 +333,6 @@ export default function WorkflowArchitectButton({
   const refreshConversation = async (nextConversationId = conversationId) => {
     if (!workflowId) return;
     try {
-      const historyResponse = await axios.get(`/api/workflow-architect/history?workflow_id=${workflowId}&limit=8`);
-      setHistory(historyResponse.data.history || []);
       let activeConversationId = nextConversationId;
       if (!activeConversationId) {
         const conversationResponse = await axios.get(`/api/workflow-architect/conversations?workflow_id=${workflowId}&limit=1`);
@@ -304,22 +347,6 @@ export default function WorkflowArchitectButton({
       // History is helpful, but proposal creation/review should keep working if it fails.
     }
   };
-
-  useEffect(() => {
-    if (!job?.id || terminalJobStatuses.includes(job.status)) return undefined;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      refreshJob(job.id).catch(() => {
-        if (!cancelled) toast.error("Failed to refresh Architect job.");
-      }).then((nextJob) => {
-        if (!cancelled && terminalJobStatuses.includes(nextJob?.status)) refreshConversation(nextJob.conversation_id).catch(() => {});
-      });
-    }, 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [job?.id, job?.status]);
 
   useEffect(() => {
     if (!job?.id || terminalJobStatuses.includes(job.status)) return undefined;
@@ -347,7 +374,7 @@ export default function WorkflowArchitectButton({
   useEffect(() => {
     if (!open || !transcriptRef.current) return;
     transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-  }, [open, messages.length, assistantPending, proposal?.id, events.length]);
+  }, [open, messages.length, assistantPending, proposalVisible, events.length]);
 
   const submitArchitectRequest = async (operation = "create", explicitText = null) => {
     const requestedWorkflow = (explicitText ?? request).trim();
@@ -359,6 +386,20 @@ export default function WorkflowArchitectButton({
       toast.error("Save the workflow before creating a proposal.");
       return;
     }
+    const optimisticMessageId = `optimistic-${Date.now()}`;
+    if (requestedWorkflow) {
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: optimisticMessageId,
+          role: "user",
+          content_redacted: requestedWorkflow,
+          created_at: new Date().toISOString(),
+          metadata_redacted: { optimistic: true },
+        },
+      ]);
+    }
+    setRequest("");
     setLoading(true);
     try {
       const response = await axios.post("/api/workflow-architect/jobs", {
@@ -372,11 +413,15 @@ export default function WorkflowArchitectButton({
       setConversationId(response.data.conversation?.id || response.data.job?.conversation_id || conversationId);
       setJob(response.data.job);
       setProposal(null);
+      setProposalVisible(false);
       setEvents([]);
-      setRequest("");
       await refreshJob(response.data.job.id);
       await refreshConversation(response.data.conversation?.id || response.data.job?.conversation_id || conversationId);
     } catch (error) {
+      if (requestedWorkflow) {
+        setMessages((currentMessages) => currentMessages.filter((message) => message.id !== optimisticMessageId));
+        setRequest(requestedWorkflow);
+      }
       toast.error(error.response?.data?.error?.message || error.response?.data?.error || "Failed to create proposal.");
     } finally {
       setLoading(false);
@@ -390,7 +435,6 @@ export default function WorkflowArchitectButton({
     try {
       const response = await axios.post(`/api/workflow-architect/proposals/${proposal.id}/reject`, {});
       setProposal(response.data.proposal);
-      if (job?.id) refreshJob(job.id).catch(() => {});
       refreshConversation().catch(() => {});
     } catch (error) {
       toast.error(error.response?.data?.error?.message || "Failed to reject proposal.");
@@ -427,23 +471,6 @@ export default function WorkflowArchitectButton({
     }
   };
 
-  const revertWorkflow = async () => {
-    if (!workflowId || workflowRevision <= 1) return;
-    setReverting(true);
-    try {
-      const response = await axios.post(`/api/workflow/${workflowId}/revert`, {
-        expected_revision: workflowRevision,
-      });
-      onApplied?.(response.data);
-      toast.success("Workflow reverted.");
-    } catch (error) {
-      const err = error.response?.data?.error;
-      toast.error(err?.message || err || "Failed to revert workflow.");
-    } finally {
-      setReverting(false);
-    }
-  };
-
   const resetChat = async () => {
     if (assistantPending) {
       toast.error("Wait for the current Architect request to finish before resetting chat.");
@@ -462,11 +489,8 @@ export default function WorkflowArchitectButton({
       setJob(null);
       setEvents([]);
       setProposal(null);
+      setProposalVisible(false);
       setRequest("");
-      if (workflowId) {
-        const historyResponse = await axios.get(`/api/workflow-architect/history?workflow_id=${workflowId}&limit=8`);
-        setHistory(historyResponse.data.history || []);
-      }
       toast.success("Architect chat reset.");
     } catch (error) {
       toast.error(error.response?.data?.error?.message || error.response?.data?.error || "Failed to reset Architect chat.");
@@ -480,8 +504,30 @@ export default function WorkflowArchitectButton({
   const validationWarnings = list(proposal?.validation?.warnings);
   const validationErrors = list(proposal?.validation?.errors);
   const summaryWarnings = list(proposal?.summary?.warnings);
-  const assumptions = list(proposal?.summary?.assumptions);
-  const suggestions = followUpSuggestions(proposal, workflowRevision);
+  const visibleMessages = messages.filter((message) => !isQueuedSystemMessage(message));
+  const proposalMatchesMessage = (message) =>
+    !!proposal && message.role === "assistant" && (message.proposal_id === proposal.id || message.job_id === proposal.job_id);
+  const hasProposalAssistantMessage = proposal
+    ? visibleMessages.some(proposalMatchesMessage)
+    : false;
+
+  useEffect(() => {
+    if (!proposal?.id) {
+      setProposalVisible(false);
+      return undefined;
+    }
+    if (proposal.status !== "pending") {
+      setProposalVisible(true);
+      return undefined;
+    }
+    if (!hasProposalAssistantMessage) {
+      setProposalVisible(false);
+      return undefined;
+    }
+    setProposalVisible(false);
+    const timer = setTimeout(() => setProposalVisible(true), 220);
+    return () => clearTimeout(timer);
+  }, [proposal?.id, proposal?.status, hasProposalAssistantMessage]);
 
   return (
     <div className="fixed right-4 bottom-4 z-30">
@@ -502,14 +548,54 @@ export default function WorkflowArchitectButton({
       </button>
 
       {open && (
-        <div className="absolute right-0 bottom-16 flex h-[min(760px,calc(100vh-6rem))] w-[520px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b1018] text-white shadow-2xl shadow-black/50">
+        <div className="absolute right-0 bottom-16 flex h-[min(680px,calc(100dvh-9.5rem))] w-[520px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b1018] text-white shadow-2xl shadow-black/50 sm:h-[min(760px,calc(100vh-6rem))]">
+          <style jsx>{`
+            @keyframes workflowArchitectMessageInLeft {
+              from {
+                opacity: 0;
+                transform: translate3d(-10px, 8px, 0) scale(0.985);
+              }
+              to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+              }
+            }
+
+            @keyframes workflowArchitectMessageInRight {
+              from {
+                opacity: 0;
+                transform: translate3d(10px, 8px, 0) scale(0.985);
+              }
+              to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+              }
+            }
+
+            :global(.workflow-architect-message-in-left) {
+              animation: workflowArchitectMessageInLeft 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+              transform-origin: left bottom;
+            }
+
+            :global(.workflow-architect-message-in-right) {
+              animation: workflowArchitectMessageInRight 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+              transform-origin: right bottom;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+              :global(.workflow-architect-message-in-left),
+              :global(.workflow-architect-message-in-right) {
+                animation: none;
+              }
+            }
+          `}</style>
           <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-[#111822] px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <AssistantMark compact />
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold">Workflow Architect</div>
                 <div className="truncate text-[11px] text-gray-400">
-                  {assistantPending ? "Thinking through your workflow" : "Ask for a workflow plan, explanation, or validation"}
+                  {assistantPending ? "Working on your workflow" : "Describe the workflow you want to build"}
                 </div>
               </div>
             </div>
@@ -524,42 +610,45 @@ export default function WorkflowArchitectButton({
               >
                 {resettingChat ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <FaTrashAlt size={12} />}
               </button>
-              <button
-                type="button"
-                suppressHydrationWarning={true}
-                onClick={revertWorkflow}
-                disabled={reverting || !workflowId || workflowRevision <= 1}
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-gray-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Revert last revision"
-              >
-                <FaUndo size={12} className={reverting ? "animate-spin" : ""} />
-              </button>
             </div>
           </div>
 
           <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             <div className="flex flex-col gap-4">
-              {messages.length === 0 && !proposal && !assistantPending && (
-                <div className="flex items-start gap-3">
-                  <AssistantMark compact />
-                  <div className="max-w-[82%] rounded-2xl rounded-tl-md border border-white/10 bg-[#151b24] px-4 py-3 text-sm leading-relaxed text-gray-100 shadow-lg shadow-black/20">
-                    Tell me what you want this workflow to do. I can create a proposal, explain the current graph, or validate it before you apply changes.
-                  </div>
+              <div className="workflow-architect-message-in-left flex items-start gap-3">
+                <AssistantMark compact />
+                <div className="max-w-[82%] rounded-2xl rounded-tl-md border border-white/10 bg-[#151b24] px-4 py-3 text-sm leading-relaxed text-gray-100 shadow-lg shadow-black/20">
+                  {DEFAULT_ASSISTANT_MESSAGE}
                 </div>
-              )}
+              </div>
 
-              {messages.slice(-30).map((message) => (
-                <ChatMessage key={message.id} message={message} />
+              {visibleMessages.slice(-30).map((message) => (
+                <React.Fragment key={message.id}>
+                  <ChatMessage message={message} />
+                  {proposal && proposalVisible && proposalMatchesMessage(message) && (
+                    <ProposalBubble
+                      proposal={proposal}
+                      changeCount={changeCount}
+                      diff={diff}
+                      summaryWarnings={summaryWarnings}
+                      validationWarnings={validationWarnings}
+                      validationErrors={validationErrors}
+                      applying={applying}
+                      onApply={applyProposal}
+                      onReject={rejectProposal}
+                      onCopy={copyProposalSummary}
+                    />
+                  )}
+                </React.Fragment>
               ))}
 
               {assistantPending && <ThinkingBubble events={events} status={job?.status} />}
 
-              {proposal && (
+              {proposal && proposalVisible && !hasProposalAssistantMessage && (
                 <ProposalBubble
                   proposal={proposal}
                   changeCount={changeCount}
                   diff={diff}
-                  assumptions={assumptions}
                   summaryWarnings={summaryWarnings}
                   validationWarnings={validationWarnings}
                   validationErrors={validationErrors}
@@ -573,38 +662,6 @@ export default function WorkflowArchitectButton({
           </div>
 
           <div className="border-t border-white/10 bg-[#111822] p-3">
-            <div className="mb-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                suppressHydrationWarning={true}
-                onClick={() => submitArchitectRequest("explain", request || "Explain current workflow")}
-                disabled={loading || !workflowId}
-                className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Explain
-              </button>
-              <button
-                type="button"
-                suppressHydrationWarning={true}
-                onClick={() => submitArchitectRequest("validate", request || "Validate current workflow")}
-                disabled={loading || !workflowId}
-                className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Validate
-              </button>
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  suppressHydrationWarning={true}
-                  onClick={() => setRequest(suggestion)}
-                  className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-gray-300 transition hover:bg-white/10"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-
             <div className="flex items-end gap-2 rounded-xl border border-white/10 bg-[#0b1018] p-2 focus-within:border-blue-400/60">
               <textarea
                 value={request}
@@ -630,34 +687,6 @@ export default function WorkflowArchitectButton({
                 {loading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <FaPaperPlane size={13} />}
               </button>
             </div>
-
-            {history.length > 0 && (
-              <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500">
-                  <FaHistory size={12} />
-                </div>
-                {history.slice(0, 5).map((item) => (
-                  <button
-                    key={item.job.id}
-                    type="button"
-                    suppressHydrationWarning={true}
-                    onClick={() => {
-                      setJob(item.job);
-                      if (item.job.conversation_id) setConversationId(item.job.conversation_id);
-                      if (item.proposal?.id) {
-                        axios.get(`/api/workflow-architect/proposals/${item.proposal.id}`).then((response) => {
-                          setProposal(response.data.proposal);
-                        }).catch(() => {});
-                      }
-                    }}
-                    className="max-w-44 shrink-0 truncate rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-left text-[11px] text-gray-300 transition hover:bg-white/10"
-                    title={item.proposal?.summary?.title || item.job.operation}
-                  >
-                    {item.proposal?.summary?.title || item.job.operation}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}

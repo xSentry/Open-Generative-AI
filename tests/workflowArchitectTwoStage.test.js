@@ -217,6 +217,7 @@ test('planner repairs with validation errors before model selection', async () =
   const invalidPlan = { ...validPlan, version: 'bad', workflow_name: 'First-round image workflow' };
   const ir = await generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async (request) => {
     calls += 1;
+    assert.equal(request.input.store, true);
     if (calls === 1) return { text: JSON.stringify(invalidPlan), response_id: 'resp_planner_123' };
     if (calls === 2) {
       const payload = JSON.parse(request.input.prompt);
@@ -235,6 +236,8 @@ test('planner repairs with validation errors before model selection', async () =
   assert.equal(ir.nodes.find((item) => item.ref === 'output').model_id, 'gpt-image-2');
   const summary = summarizeCreateWorkflowProposal(ir);
   assert.equal(/repair|invalid|fixed/i.test(`${summary.title} ${summary.message}`), false);
+  assert.equal(/Architect-planned node roles/i.test(summary.message), false);
+  assert.match(summary.message, /workflow (draft|proposal)|drafted the workflow|mapped out a workflow/i);
 });
 
 test('planner allows two chained continuation repairs and uses the immediately previous response id', async () => {
@@ -244,6 +247,7 @@ test('planner allows two chained continuation repairs and uses the immediately p
   const invalidRepair = { ...validPlan, connections: [{ ...validPlan.connections[0], order: 1 }] };
   const ir = await generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async (request) => {
     calls += 1;
+    assert.equal(request.input.store, true);
     if (calls === 1) return { text: JSON.stringify(invalidInitial), response_id: 'resp_initial' };
     if (calls === 2) {
       assert.equal(request.input.previous_response_id, 'resp_initial');
@@ -259,6 +263,33 @@ test('planner allows two chained continuation repairs and uses the immediately p
   } });
   assert.equal(calls, 4);
   assert.equal(ir.workflow_name, 'Twice repaired workflow');
+});
+
+test('planner retries repair without previous response id when provider cannot find it', async () => {
+  let calls = 0;
+  const validPlan = plan([node('prompt', 'text-input'), node('output', 'image-generate')], [edge('prompt', 'output', 'text')], 'image');
+  const invalidPlan = { ...validPlan, version: 'bad', workflow_name: 'Fallback repaired workflow' };
+  const ir = await generateCreateWorkflowIr({ userRequest: 'image', catalog, apiKey: 'key', runPrediction: async (request) => {
+    calls += 1;
+    assert.equal(request.input.store, true);
+    if (calls === 1) return { text: JSON.stringify(invalidPlan), response_id: 'resp_missing' };
+    if (calls === 2) {
+      assert.equal(request.input.previous_response_id, 'resp_missing');
+      const error = new Error("Previous response with id 'resp_missing' not found.");
+      error.response = { error: { code: 'previous_response_not_found', param: 'previous_response_id' } };
+      throw error;
+    }
+    if (calls === 3) {
+      assert.equal(Object.prototype.hasOwnProperty.call(request.input, 'previous_response_id'), false);
+      const payload = JSON.parse(request.input.prompt);
+      assert.equal(Object.prototype.hasOwnProperty.call(payload, 'invalid_plan_untrusted'), true);
+      assert.equal(Object.prototype.hasOwnProperty.call(payload, 'user_request_untrusted'), true);
+      return { text: JSON.stringify(validPlan), response_id: 'resp_repair_fallback' };
+    }
+    return { version: 'workflow-model-selection/v1', nodes: [{ id: 'prompt', model_id: 'text-passthrough' }, { id: 'output', model_id: 'gpt-image-2' }] };
+  } });
+  assert.equal(calls, 4);
+  assert.equal(ir.workflow_name, 'Fallback repaired workflow');
 });
 
 test('invalid configuration output is rejected before hydration or compilation', async () => {
