@@ -1,6 +1,7 @@
 import {
   appendArchitectEvent,
   appendArchitectMessage,
+  clearArchitectEventsForJob,
   completeArchitectJob,
   createProposalForJob,
   failArchitectJob,
@@ -23,6 +24,8 @@ import {
 import { normalizeBoundedEditRequest, normalizeCreateWorkflowIr } from '../domain/normalizer.js';
 import { generateCreateWorkflowIr } from './models/replicateStructuredModel.js';
 
+const terminalEventTypes = new Set(['failed', 'completed']);
+
 export async function processArchitectJob(jobId, deps = {}) {
   const markRunning = deps.markArchitectJobRunning || markArchitectJobRunning;
   const failJob = deps.failArchitectJob || failArchitectJob;
@@ -30,6 +33,8 @@ export async function processArchitectJob(jobId, deps = {}) {
   const createProposal = deps.createProposalForJob || createProposalForJob;
   const appendEvent = deps.appendArchitectEvent || appendArchitectEvent;
   const appendMessage = deps.appendArchitectMessage || appendArchitectMessage;
+  const clearEvents = deps.clearArchitectEventsForJob || clearArchitectEventsForJob;
+  const publishEvent = deps.publishArchitectEvent || (async () => {});
   const getWorkflow = deps.getArchitectWorkflow || getArchitectWorkflow;
   const buildSchemas = deps.buildNodeSchemas || buildNodeSchemas;
   const generateIr = deps.generateCreateWorkflowIr || generateCreateWorkflowIr;
@@ -39,17 +44,55 @@ export async function processArchitectJob(jobId, deps = {}) {
   const job = await markRunning(jobId);
   if (!job) return null;
 
-  try {
-    await appendEvent({
+  const publishJobUpdate = async (overrides = {}) => {
+    try {
+      await publishEvent({
+        userId: job.userId,
+        workflowId: job.workflowId,
+        conversationId: job.conversationId,
+        jobId: job.id,
+        operation: job.operation,
+        status: job.status,
+        ...overrides,
+      });
+    } catch {
+      // Live UI notifications are best-effort; REST hydration remains available.
+    }
+  };
+
+  const recordEvent = async ({ eventType, stage = null, payloadRedacted = {} }) => {
+    const event = await appendEvent({
       jobId,
+      eventType,
+      stage,
+      payloadRedacted,
+    });
+    await publishJobUpdate({
+      queueStatus: terminalEventTypes.has(eventType) ? eventType : 'active',
+      status: eventType === 'failed' ? 'failed' : job.status,
+      eventType,
+      stage,
+    });
+    return event;
+  };
+
+  const clearTerminalEvents = async () => {
+    try {
+      await clearEvents(jobId, { userId: job.userId });
+    } catch {
+      // Event cleanup is storage hygiene only; the terminal job result should stand.
+    }
+  };
+
+  try {
+    await recordEvent({
       eventType: 'progress',
       stage: 'running',
       payloadRedacted: {},
     });
 
     if (job.request?.type === 'fixture_proposal') {
-      await appendEvent({
-        jobId,
+      await recordEvent({
         eventType: 'progress',
         stage: 'compiling_fixture',
         payloadRedacted: {},
@@ -74,8 +117,7 @@ export async function processArchitectJob(jobId, deps = {}) {
           metadataRedacted: { status: 'completed', operation: job.operation || 'edit' },
         });
       }
-      await appendEvent({
-        jobId,
+      await recordEvent({
         eventType: 'proposal',
         stage: 'completed',
         payloadRedacted: {
@@ -83,6 +125,8 @@ export async function processArchitectJob(jobId, deps = {}) {
           diff: proposal?.diff || {},
         },
       });
+      await publishJobUpdate({ status: completed.status, queueStatus: 'completed', proposalId: proposal?.id });
+      await clearTerminalEvents();
 
       return { job: completed, proposal };
     }
@@ -132,8 +176,7 @@ export async function processArchitectJob(jobId, deps = {}) {
           metadataRedacted: { status: 'completed', operation: job.operation },
         });
       }
-      await appendEvent({
-        jobId,
+      await recordEvent({
         eventType: 'proposal',
         stage: 'completed',
         payloadRedacted: {
@@ -141,6 +184,8 @@ export async function processArchitectJob(jobId, deps = {}) {
           diff: proposal?.diff || {},
         },
       });
+      await publishJobUpdate({ status: completed.status, queueStatus: 'completed', proposalId: proposal?.id });
+      await clearTerminalEvents();
       return { job: completed, proposal };
     }
 
@@ -188,8 +233,7 @@ export async function processArchitectJob(jobId, deps = {}) {
           metadataRedacted: { status: 'completed', operation: job.operation },
         });
       }
-      await appendEvent({
-        jobId,
+      await recordEvent({
         eventType: 'proposal',
         stage: 'completed',
         payloadRedacted: {
@@ -197,6 +241,8 @@ export async function processArchitectJob(jobId, deps = {}) {
           diff: proposal?.diff || {},
         },
       });
+      await publishJobUpdate({ status: completed.status, queueStatus: 'completed', proposalId: proposal?.id });
+      await clearTerminalEvents();
       return { job: completed, proposal };
     }
 
@@ -220,8 +266,7 @@ export async function processArchitectJob(jobId, deps = {}) {
     });
     const context = buildCreateWorkflowContext(job, workflow, { catalog: fullCatalog });
 
-    await appendEvent({
-      jobId,
+    await recordEvent({
       eventType: 'progress',
       stage: 'calling_model',
       payloadRedacted: { catalog_version: catalog.version },
@@ -238,11 +283,10 @@ export async function processArchitectJob(jobId, deps = {}) {
       userRequest: context.request.prompt,
       catalog,
       apiKey,
-      onStage: async (stage, payloadRedacted) => appendEvent({ jobId, eventType: 'progress', stage, payloadRedacted }),
+      onStage: async (stage, payloadRedacted) => recordEvent({ eventType: 'progress', stage, payloadRedacted }),
     });
 
-    await appendEvent({
-      jobId,
+    await recordEvent({
       eventType: 'progress',
       stage: 'normalizing_ir',
       payloadRedacted: {},
@@ -286,8 +330,7 @@ export async function processArchitectJob(jobId, deps = {}) {
         metadataRedacted: { status: 'completed', operation: job.operation },
       });
     }
-    await appendEvent({
-      jobId,
+    await recordEvent({
       eventType: 'proposal',
       stage: 'completed',
       payloadRedacted: {
@@ -295,6 +338,8 @@ export async function processArchitectJob(jobId, deps = {}) {
         diff: proposal?.diff || {},
       },
     });
+    await publishJobUpdate({ status: completed.status, queueStatus: 'completed', proposalId: proposal?.id });
+    await clearTerminalEvents();
 
     return { job: completed, proposal };
   } catch (error) {
@@ -304,8 +349,7 @@ export async function processArchitectJob(jobId, deps = {}) {
       message: error?.message || 'Workflow Architect job failed.',
     });
 
-    await appendEvent({
-      jobId,
+    await recordEvent({
       eventType: 'failed',
       stage: 'failed',
       payloadRedacted: { code },
@@ -320,6 +364,12 @@ export async function processArchitectJob(jobId, deps = {}) {
         metadataRedacted: { status: 'failed', code },
       });
     }
+    await publishJobUpdate({
+      status: failed?.status || 'failed',
+      queueStatus: 'failed',
+      error: error?.message || 'Workflow Architect job failed.',
+    });
+    await clearTerminalEvents();
 
     return failed;
   }

@@ -60,6 +60,8 @@ export function workflowArchitectJobEvent({
   operation,
   status,
   queueStatus,
+  eventType,
+  stage,
   proposalId,
   error,
 }) {
@@ -72,6 +74,8 @@ export function workflowArchitectJobEvent({
     operation: operation || null,
     status: status || null,
     queueStatus: queueStatus || null,
+    eventType: eventType || null,
+    stage: stage || null,
     proposalId: proposalId || null,
     error: error || null,
     updatedAt: new Date().toISOString(),

@@ -60,11 +60,10 @@ const worker = new Worker(
       architectJobId: job.data.jobId,
       attempt: job.attemptsMade + 1,
     });
-    await publishUserEvent(job.data.userId, architectEventForJob(job, {
-      queueStatus: 'active',
-      status: 'running',
-    }), env);
-    const result = await processArchitectJob(job.data.jobId);
+    const result = await processArchitectJob(job.data.jobId, {
+      publishArchitectEvent: (event) =>
+        publishUserEvent(event.userId, workflowArchitectJobEvent(event), env),
+    });
     if (result?.job?.status === 'failed' || result?.status === 'failed') {
       const error = result?.job?.errorMessageRedacted || result?.errorMessageRedacted || 'Workflow Architect job failed.';
       const code = result?.job?.errorCode || result?.errorCode || 'ARCHITECT_JOB_FAILED';
@@ -78,19 +77,9 @@ const worker = new Worker(
         code,
       };
       await saveHandledFailureLog(logData);
-      await publishUserEvent(job.data.userId, architectEventForJob(job, {
-        queueStatus: 'failed',
-        status: 'failed',
-        error,
-      }), env);
       console.error('[workflow-architect-worker] job failed', logData);
       return;
     }
-    await publishUserEvent(job.data.userId, architectEventForJob(job, {
-      queueStatus: 'completed',
-      status: 'completed',
-      proposalId: result?.proposal?.id,
-    }), env);
     console.log('[workflow-architect-worker] job complete', {
       jobId: job.id,
       architectJobId: job.data.jobId,

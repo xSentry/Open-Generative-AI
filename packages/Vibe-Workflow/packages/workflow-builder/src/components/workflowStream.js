@@ -145,8 +145,8 @@ export function subscribeWorkflowUpdates(onEvent) {
 }
 
 // Subscribe to Workflow Architect live job notifications:
-// `{ type, jobId, workflowId, conversationId, status, queueStatus, proposalId, error }`.
-// Returns an unsubscribe fn. REST polling remains the fallback in callers.
+// `{ type, jobId, workflowId, conversationId, status, queueStatus, eventType, stage, proposalId, error }`.
+// Returns an unsubscribe fn. Callers hydrate current state from REST when events arrive.
 export function subscribeWorkflowArchitectJobs(onEvent) {
   architectListeners.add(onEvent);
   ensureStream();

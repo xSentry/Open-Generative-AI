@@ -175,6 +175,8 @@ test('POST jobs persists, records progress, and enqueues an architect job', asyn
     operation: 'edit',
     status: 'queued',
     queueStatus: 'queued',
+    eventType: 'progress',
+    stage: 'queued',
   });
 });
 
@@ -251,7 +253,7 @@ test('GET conversation messages returns redacted persisted chat', async () => {
   assert.equal(body.messages[0].content_redacted, 'Validate current workflow');
 });
 
-test('DELETE conversation archives the Architect chat for reset', async () => {
+test('DELETE conversation removes the Architect chat for reset', async () => {
   const deps = {
     archiveArchitectConversation: async (conversationId, input) => {
       assert.equal(conversationId, 'conversation-1');
@@ -261,7 +263,7 @@ test('DELETE conversation archives the Architect chat for reset', async () => {
         workflowId: 'wf-1',
         provider: 'replicate',
         title: 'Workflow Architect',
-        status: 'archived',
+        status: 'active',
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:01:00.000Z',
       };
@@ -279,7 +281,7 @@ test('DELETE conversation archives the Architect chat for reset', async () => {
   assert.equal(response.status, 200);
   const body = await readJson(response);
   assert.equal(body.deleted, true);
-  assert.equal(body.conversation.status, 'archived');
+  assert.equal(body.conversation.id, 'conversation-1');
 });
 
 test('POST jobs accepts fixture proposal payload for async Phase 1 processing', async () => {
@@ -575,8 +577,17 @@ test('fixture proposal endpoint returns a previewable proposal without applying 
 });
 
 test('proposal apply returns the server-updated workflow envelope', async () => {
+  let appendedMessage;
   const deps = {
     buildNodeSchemas: () => ({}),
+    getArchitectJob: async (id) => ({
+      id,
+      conversationId: 'conversation-1',
+    }),
+    appendArchitectMessage: async (message) => {
+      appendedMessage = message;
+      return { id: 'message-1' };
+    },
     applyProposalTransaction: async (id, input) => {
       assert.equal(id, 'proposal-1');
       assert.equal(input.userId, 'user-1');
@@ -628,6 +639,10 @@ test('proposal apply returns the server-updated workflow envelope', async () => 
   assert.equal(body.proposal.status, 'accepted');
   assert.equal(body.workflow.workflow_id, 'wf-1');
   assert.equal(body.workflow.revision, 4);
+  assert.equal(appendedMessage.conversationId, 'conversation-1');
+  assert.equal(appendedMessage.jobId, 'job-1');
+  assert.equal(appendedMessage.proposalId, undefined);
+  assert.equal(appendedMessage.metadataRedacted.status, 'accepted');
 });
 
 test('proposal apply maps revision conflicts to 409', async () => {
@@ -656,7 +671,16 @@ test('proposal apply maps revision conflicts to 409', async () => {
 });
 
 test('proposal reject marks a pending proposal rejected', async () => {
+  let appendedMessage;
   const deps = {
+    getArchitectJob: async (id) => ({
+      id,
+      conversationId: 'conversation-1',
+    }),
+    appendArchitectMessage: async (message) => {
+      appendedMessage = message;
+      return { id: 'message-1' };
+    },
     rejectProposal: async (id, input) => ({
       id,
       jobId: 'job-1',
@@ -684,6 +708,10 @@ test('proposal reject marks a pending proposal rejected', async () => {
   assert.equal(response.status, 200);
   const body = await readJson(response);
   assert.equal(body.proposal.status, 'rejected');
+  assert.equal(appendedMessage.conversationId, 'conversation-1');
+  assert.equal(appendedMessage.jobId, 'job-1');
+  assert.equal(appendedMessage.proposalId, undefined);
+  assert.equal(appendedMessage.metadataRedacted.status, 'rejected');
 });
 
 test('phase 1 worker creates proposals for fixture jobs', async () => {
@@ -693,6 +721,7 @@ test('phase 1 worker creates proposals for fixture jobs', async () => {
     operations: [{ op: 'set_workflow_metadata', metadata: { name: 'Worker fixture' } }],
   });
   const events = [];
+  const published = [];
   const result = await processArchitectJob('job-1', {
     markArchitectJobRunning: async (id) => ({
       id,
@@ -708,6 +737,7 @@ test('phase 1 worker creates proposals for fixture jobs', async () => {
       },
     }),
     appendArchitectEvent: async (event) => events.push(event),
+    publishArchitectEvent: async (event) => published.push(event),
     createProposalForJob: async (job, input) => ({
       id: 'proposal-1',
       jobId: job.id,
@@ -721,6 +751,9 @@ test('phase 1 worker creates proposals for fixture jobs', async () => {
   assert.equal(result.job.status, 'completed');
   assert.equal(result.proposal.id, 'proposal-1');
   assert.deepEqual(events.map((event) => event.stage), ['running', 'compiling_fixture', 'completed']);
+  assert.deepEqual(published.map((event) => event.stage), ['running', 'compiling_fixture', 'completed', undefined]);
+  assert.deepEqual(published.map((event) => event.queueStatus), ['active', 'active', 'active', 'completed']);
+  assert.equal(published.at(-1).proposalId, 'proposal-1');
 });
 
 test('phase 2 worker creates a proposal for an empty workflow create job', async () => {
@@ -836,7 +869,8 @@ test('structured Replicate model uses saved user key and configured GPT input', 
   assert.equal(calls.length, 2);
   for (const call of calls) {
     assert.equal(call.apiKey, 'r8_user_saved_key'); assert.equal(call.input.model, ARCHITECT_GPT_MODEL);
-    assert.deepEqual(Object.keys(call.input).sort(), ['instructions', 'json_schema', 'model', 'prompt']);
+    assert.deepEqual(Object.keys(call.input).sort(), ['instructions', 'json_schema', 'model', 'prompt', 'store']);
+    assert.equal(call.input.store, true);
     assert.equal(call.maxAttempts, 3); assert.equal(call.interval, 0);
   }
   assert.equal(calls[0].input.json_schema.format.name, 'workflow_architect_plan');
