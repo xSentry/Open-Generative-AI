@@ -28,7 +28,7 @@ import TextGeneration from "./TextNode";
 import ImageGeneration from "./ImageNode";
 import VideoGeneration from "./VideoNode";
 import { setWorkflowIds } from "./WorkflowStore";
-import { apiNodeModels, audioModels, concatModels, imageModels, textModels, videoModels, videoCombinerModels, presets } from "./utility";
+import { apiNodeModels, audioModels, concatModels, getPresets, imageModels, textModels, videoModels, videoCombinerModels } from "./utility";
 import Link from "next/link";
 import RenderField from "./RenderField";
 import PromptConcate from "./PromptConcate";
@@ -117,7 +117,7 @@ const getEdgeColor = (sourceHandle, targetHandle, sourceNode = null, targetNode 
   if (["videoOutput"].includes(sourceHandle)) return "orange";
   if (["audioOutput"].includes(sourceHandle)) return "yellow";
 
-  if (["textInput", "textInput4", "imageInput", "videoInput", "audioInput2", "concatInput", "apiInput"].includes(targetHandle)) return "blue";
+  if (["textInput", "textInput4", "imageInput", "videoInput", "audioInput2", "audioInput5", "concatInput", "apiInput"].includes(targetHandle)) return "blue";
   if (["textInput2", "textInput3", "imageInput2", "imageInput3", "videoInput2", "videoInput3", "videoInput6", "audioInput3", "apiInput2", "apiInput3"].includes(targetHandle)) return "green";
   if (["videoInput4", "audioInput4", "videoInput7"].includes(targetHandle)) return "orange";
   if (["audioInput", "videoInput5", "videoInput8"].includes(targetHandle)) return "yellow";
@@ -332,7 +332,7 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
   };
 };
 
-const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
+const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
   const params = useParams();
   const { id: routeWorkflowId } = params || {};
   const id = explicitWorkflowId || routeWorkflowId;
@@ -422,6 +422,11 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     apiModelsFromBackend.includes(model.id)
   );
 
+  const availablePresets = useMemo(
+    () => getPresets(provider, nodeSchemas),
+    [provider, nodeSchemas]
+  );
+
   const autosaveGraphSignature = useMemo(() => JSON.stringify({
     nodes: nodes.map((node) => ({
       id: node.id,
@@ -443,7 +448,13 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
 
   const loadPreset = (preset) => {
     setIsPresetsDismissed(true);
-    setNodes(preset.nodes);
+    setNodes(preset.nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        nodeSchemas,
+      },
+    })));
     setEdges(preset.edges);
     setTimeout(() => fitView({ padding: 0.4, duration: 500 }), 100);
   };
@@ -515,6 +526,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       const targetHandle = edge.targetHandle;
       if (["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"].includes(targetHandle)) {
         nextValues.prompt = sourceValue;
+      } else if (targetHandle === "audioInput5") {
+        nextValues.text = sourceValue;
       } else if (targetHandle === "textInput4") {
         nextValues.system_prompt = sourceValue;
       } else if (["textInput2", "videoInput2", "imageInput3", "audioInput3", "apiInput3"].includes(targetHandle)) {
@@ -753,6 +766,10 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
           updatedFormValues.prompt = sourceValue;
         }
 
+        else if (targetHandle === "audioInput5") {
+          updatedFormValues.text = sourceValue;
+        }
+
         else if (targetHandle === "textInput4") {
           updatedFormValues.system_prompt = sourceValue;
         }
@@ -908,7 +925,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
             if (edge.targetHandle !== params.targetHandle) return false;
 
             const edgeColor =
-              ["textInput", "imageInput", "videoInput", "audioInput2", "concatInput", "textInput4"].includes(edge.targetHandle) ||
+              ["textInput", "imageInput", "videoInput", "audioInput2", "audioInput5", "concatInput", "textInput4"].includes(edge.targetHandle) ||
                 ["textOutput", "concatOutput"].includes(edge.sourceHandle)
                 ? "blue"
                 : "other";
@@ -988,6 +1005,9 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
 
               else if (["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"].includes(params.targetHandle)) {
                 updatedFormValues.prompt = sourceValue || "";
+              }
+              else if (params.targetHandle === "audioInput5") {
+                updatedFormValues.text = sourceValue || "";
               }
               else if (params.targetHandle === "textInput4") {
                 updatedFormValues.system_prompt = sourceValue || "";
@@ -1250,6 +1270,13 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
           ? `{{ ${systemPromptConnections[0].source}.outputs[0].value }}`
           : formValues?.system_prompt || null;
 
+      const textConnections = connectedEdges.filter((e) =>
+        e.targetHandle === "audioInput5"
+      );
+      const dynamicText = textConnections.length > 0
+        ? `{{ ${textConnections[0].source}.outputs[0].value }}`
+        : formValues?.text;
+
       const imageListConnections = connectedEdges.filter((e) =>
         ["textInput3", "imageInput2", "videoInput6", "apiInput2"].includes(e.targetHandle)
       );
@@ -1330,6 +1357,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       const localSources = {
         ...formValues,
         prompt: dynamicPrompt ? dynamicPrompt : formValues?.prompt,
+        text: dynamicText,
         system_prompt: dynamicSystemPrompt,
         images_list: dynamicImagesList,
         images: dynamicImagesList,
@@ -2066,7 +2094,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
         textInput: "blue", textInput2: "green", textInput3: "green", textInput4: "blue", textOutput: "blue",
         imageInput: "blue", imageInput2: "green", imageInput3: "green", imageOutput: "green",
         videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoInput8: "yellow", videoOutput: "orange",
-        audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioOutput: "yellow",
+        audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioInput5: "blue", audioOutput: "yellow",
       }
     },
   }));
@@ -2144,11 +2172,13 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       case "audioNode":
         const hasAudioUrl = "audio_url" in formValues;
         const hasAudioPrompt = "prompt" in formValues;
+        const hasAudioText = "text" in formValues;
         const hasAudioImageUrl = "image_url" in formValues;
         const hasAudioVideoUrl = "video_url" in formValues;
         validHandles = [
           hasAudioUrl && "audioInput",
           hasAudioPrompt && "audioInput2",
+          hasAudioText && "audioInput5",
           hasAudioImageUrl && "audioInput3",
           hasAudioVideoUrl && "audioInput4",
         ].filter(Boolean);
@@ -2227,7 +2257,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       textInput: "blue", textInput2: "green", textInput3: "green", textInput4: "blue", textOutput: "blue",
       imageInput: "blue", imageInput2: "green", imageInput3: "green", imageOutput: "green",
       videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoInput8: "yellow", videoOutput: "orange",
-      audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioOutput: "yellow",
+      audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioInput5: "blue", audioOutput: "yellow",
     };
     const utilityProps = nodeType === "utilityNode"
       ? getUtilityProperties(nodeSchemas, initialData?.selectedModel?.id)
@@ -2267,7 +2297,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
         textNode: ["textInput", "textInput2", "textInput3", "textInput4"],
         imageNode: ["imageInput", "imageInput2", "imageInput3"],
         videoNode: ["videoInput", "videoInput2", "videoInput3", "videoInput4", "videoInput5", "videoInput6", "videoInput7", "videoInput8"],
-        audioNode: ["audioInput", "audioInput2", "audioInput3", "audioInput4"],
+        audioNode: ["audioInput", "audioInput2", "audioInput3", "audioInput4", "audioInput5"],
         apiNode: ["apiInput", "apiInput2", "apiInput3"],
         concatNode: ["concatInput"],
         vidConcatNode: ["videoInput7"],
@@ -3312,7 +3342,13 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
               <p className="text-xs text-gray-400 font-medium uppercase tracking-widest">or start from scratch</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              {presets.map((preset) => (
+              {availablePresets.length === 0 && (
+                <div className="col-span-full flex items-center justify-center gap-3 px-8 py-6 rounded-lg border border-white/10 bg-black/40 text-xs text-gray-300 uppercase tracking-widest">
+                  <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-blue-500 animate-spin" />
+                  Loading provider model catalog...
+                </div>
+              )}
+              {availablePresets.map((preset) => (
                 <button
                   type="button"
                   suppressHydrationWarning={true}

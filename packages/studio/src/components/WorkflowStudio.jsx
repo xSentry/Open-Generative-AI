@@ -1256,6 +1256,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
               {nodeSchemas && workflowDef ? (
                 <WorkflowUI
                   workflowId={selectedWorkflow?.id}
+                  provider={provider}
                   initialNodeSchemas={nodeSchemas}
                   initialWorkflowData={{
                     ...workflowDef,

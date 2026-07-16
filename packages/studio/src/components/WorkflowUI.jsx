@@ -6,7 +6,7 @@ import "reactflow/dist/style.css";
 import "react-toastify/dist/ReactToastify.css";
 
 
-const WorkflowUI = ({ workflowId, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
+const WorkflowUI = ({ workflowId, provider, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
   useEffect(() => {
     sessionStorage.setItem("fromWorkflowBuilder", "true");
   }, []);
@@ -15,6 +15,7 @@ const WorkflowUI = ({ workflowId, initialNodeSchemas, initialWorkflowData, onWor
     <div className="w-full h-full bg-black">
       <WorkflowBuilder 
         workflowId={workflowId}
+        provider={provider}
         initialNodeSchemas={initialNodeSchemas} 
         initialWorkflowData={initialWorkflowData}
         onWorkflowSaved={onWorkflowSaved}

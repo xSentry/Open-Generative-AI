@@ -25,6 +25,7 @@ const inputHandles = [
   "audioInput2",
   "audioInput3",
   "audioInput4",
+  "audioInput5",
 ];
 
 const outputHandles = [
@@ -293,6 +294,7 @@ const AudioGeneration = ({ id, data, selected }) => {
   };
 
   const hasPrompt = properties && "prompt" in properties && !data.selectedModel?.id.includes("passthrough");
+  const hasText = properties && "text" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasImageUrl = properties && "image_url" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasVideoUrl = properties && "video_url" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasAudioUrl = properties && "audio_url" in properties && !data.selectedModel?.id.includes("passthrough");
@@ -302,6 +304,7 @@ const AudioGeneration = ({ id, data, selected }) => {
       const validHandles = [
         hasAudioUrl && "audioInput",
         hasPrompt && "audioInput2",
+        hasText && "audioInput5",
         hasImageUrl && "audioInput3",
         hasVideoUrl && "audioInput4",
       ].filter(Boolean);
@@ -314,7 +317,7 @@ const AudioGeneration = ({ id, data, selected }) => {
       );
       }, 2000);
     return () => clearTimeout(timeout);
-  }, [hasAudioUrl, hasPrompt, hasImageUrl, hasVideoUrl, id, setEdges]);
+  }, [hasAudioUrl, hasPrompt, hasText, hasImageUrl, hasVideoUrl, id, setEdges]);
 
   const handlePrev = (e) => {
     e.stopPropagation();
@@ -689,6 +692,37 @@ const AudioGeneration = ({ id, data, selected }) => {
           }`}
         > 
           Video
+        </p>
+      )}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="audioInput5"
+        style={{
+          top: 190,
+          opacity: hasText ? 1 : 0,
+          pointerEvents: hasText ? "auto" : "none",
+          width: 12,
+          height: 12,
+          transition: "all 0.2s ease-in-out",
+        }}
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
+          ${connectedInputs.audioInput5
+            ? "!bg-blue-600 !border-zinc-900 shadow-[0_0_15px_rgba(37,99,235,0.8)]"
+            : "!bg-zinc-900 !border-blue-600/50 hover:!border-blue-600 shadow-sm"
+          }
+        `}
+        data-type="blue"
+      />
+      {hasText && (
+        <p
+          className={`absolute -left-8 top-[190px] text-xs text-blue-500 transition-opacity duration-200 ${
+            data.activeHandleColor === "blue"
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          Text
         </p>
       )}
       <Handle 
