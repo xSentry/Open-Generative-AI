@@ -1,15 +1,16 @@
 import React, { useState } from "react";
-import { useReactFlow } from "reactflow";
-
 const NodeSendButton = ({ id, data, outputHistory, currentHistoryIndex, currentOutputIndex = 0 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const connectedEdges = data.connectedEdges || [];
   if (connectedEdges.length === 0) return null;
 
   const handleSend = (targetId) => {
-    const latest = outputHistory[currentHistoryIndex];
+    const safeHistoryIndex = currentHistoryIndex >= 0
+      ? currentHistoryIndex
+      : outputHistory.length - 1;
+    const latest = outputHistory[safeHistoryIndex];
     const outputs = latest?.result?.outputs;
-    if (outputs) {
+    if (outputs?.length) {
       const specificOutput = outputs[currentOutputIndex]?.value || outputs[0]?.value;
       data.onDataChange(id, { outputs, resultUrl: specificOutput }, targetId);
     }
