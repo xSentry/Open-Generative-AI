@@ -16,11 +16,13 @@ export async function createDefaultRunDeps() {
     runsRepo,
     workflowsRepo,
     { getUserMuapiApiKey, getUserReplicateApiKey },
+    { publishUserEvent, workflowRunEvent },
   ] = await Promise.all([
     import('../../storage/server/s3.js'),
     import('./runsRepo.js'),
     import('./workflowsRepo.js'),
     import('../../auth/server/users.js'),
+    import('../../events/server/publisher.js'),
   ]);
 
   return {
@@ -43,6 +45,8 @@ export async function createDefaultRunDeps() {
     executeSingleNode,
     executeNode: defaultExecuteNode,
     fetchFn: (...args) => fetch(...args),
+    publishWorkflowEvent: (event) =>
+      publishUserEvent(event.userId, workflowRunEvent(event)),
     resolveProviderKey: async ({ userId, provider }) =>
       provider === 'muapi'
         ? (await getUserMuapiApiKey(userId)) || process.env.MUAPI_API_KEY || null
@@ -56,9 +60,44 @@ export async function runClaimedRun(run, injectedDeps) {
   const deps = injectedDeps || (await createDefaultRunDeps());
   const config = deps.getS3Config();
 
+  // The browser's shared event stream hydrates the run status whenever it
+  // receives a workflow notification. Publish after every persisted run/node
+  // transition, not only when the BullMQ job starts and ends, so long-running
+  // graphs visibly advance from queued -> running -> generated node by node.
+  // Event delivery is best-effort: a Redis outage must not fail the workflow.
+  const publishUpdate = async ({ nodeRunId = null, status = null, error = null } = {}) => {
+    if (!deps.publishWorkflowEvent) return;
+    try {
+      await deps.publishWorkflowEvent({
+        userId: run.userId,
+        workflowId: run.workflowId,
+        runId: run.id,
+        nodeRunId,
+        status,
+        error,
+      });
+    } catch {
+      // The persisted status remains authoritative and clients can still poll.
+    }
+  };
+
+  const eventedRepo = {
+    ...deps,
+    updateRun: async (id, patch) => {
+      const updated = await deps.updateRun(id, patch);
+      await publishUpdate({ status: updated?.status || patch?.status, error: updated?.error || patch?.error });
+      return updated;
+    },
+    updateNodeRun: async (id, patch) => {
+      const updated = await deps.updateNodeRun(id, patch);
+      await publishUpdate({ nodeRunId: id, status: updated?.status || patch?.status, error: updated?.error || patch?.error });
+      return updated;
+    },
+  };
+
   const workflow = await deps.getWorkflowById(run.workflowId);
   if (!workflow) {
-    await deps.updateRun(run.id, { status: 'failed', error: 'Workflow not found.' });
+    await eventedRepo.updateRun(run.id, { status: 'failed', error: 'Workflow not found.' });
     return { status: 'failed', error: 'Workflow not found.' };
   }
 
@@ -68,7 +107,7 @@ export async function runClaimedRun(run, injectedDeps) {
     apiKey = await deps.resolveProviderKey({ userId: run.userId, provider });
     if (!apiKey) throw new Error('No provider API key available for this user.');
   } catch (error) {
-    await deps.updateRun(run.id, { status: 'failed', error: error.message });
+    await eventedRepo.updateRun(run.id, { status: 'failed', error: error.message });
     return { status: 'failed', error: error.message };
   }
 
@@ -101,7 +140,7 @@ export async function runClaimedRun(run, injectedDeps) {
     const node = nodes.find((n) => n.id === run.targetNodeId);
     const nodeRun = nodeRuns.find((nr) => nr.nodeId === run.targetNodeId);
     if (!node || !nodeRun) {
-      await deps.updateRun(run.id, { status: 'failed', error: 'Target node not found.' });
+      await eventedRepo.updateRun(run.id, { status: 'failed', error: 'Target node not found.' });
       return { status: 'failed', error: 'Target node not found.' };
     }
     // Upstream values come from whatever this workflow generated before, plus the
@@ -117,7 +156,7 @@ export async function runClaimedRun(run, injectedDeps) {
       provider,
       apiKey,
       resultsByNodeId,
-      repo: deps,
+      repo: eventedRepo,
       executeNode: deps.executeNode,
       storeOutputs,
     });
@@ -136,7 +175,7 @@ export async function runClaimedRun(run, injectedDeps) {
     nodeRunIds,
     inputOverrides: run.inputs || {},
     initialResults: latestResultsFromRuns(nodeRuns),
-    repo: deps,
+    repo: eventedRepo,
     executeNode: deps.executeNode,
     storeOutputs,
   });
