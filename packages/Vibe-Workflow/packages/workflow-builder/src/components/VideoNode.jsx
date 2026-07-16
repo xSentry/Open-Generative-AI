@@ -17,6 +17,7 @@ import { useGenerationCost } from "./useGenerationCost";
 import VideoPlayer from "./VideoPlayer";
 import { getNodeTitle } from "./nodeTitles";
 import QueuedState from "./QueuedState";
+import { outputSelectionPatch } from "./workflowOutputSelection";
 
 const inputHandles = [
   "videoInput",   // prompt
@@ -547,7 +548,10 @@ const VideoGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentVideoIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                      const next = currentVideoIndex > 0 ? currentVideoIndex - 1 : currentOutputList.length - 1;
+                      setCurrentVideoIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
                   >
@@ -558,7 +562,10 @@ const VideoGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentVideoIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                      const next = currentVideoIndex < currentOutputList.length - 1 ? currentVideoIndex + 1 : 0;
+                      setCurrentVideoIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
                   >

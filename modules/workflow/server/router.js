@@ -426,13 +426,22 @@ async function startNodeRun(impl, ctx, workflowId, nodeId, body) {
   // the client-submitted (schema-resolved) params we persist on the node-run.
   const params = body?.params || node.params || {};
   const model = body?.model || node.model || null;
+  const submittedResults = body?.upstream_results && typeof body.upstream_results === 'object' && !Array.isArray(body.upstream_results)
+    ? body.upstream_results
+    : {};
+  const workflowNodeIds = new Set((wf.nodes || []).map((workflowNode) => workflowNode.id));
+  const upstreamResults = Object.fromEntries(
+    Object.entries(submittedResults).filter(([upstreamNodeId, outputs]) =>
+      upstreamNodeId !== nodeId && workflowNodeIds.has(upstreamNodeId) && Array.isArray(outputs)
+    )
+  );
 
   const run = await impl.createRun({
     workflowId: wf.id,
     userId: ctx.user.id,
     provider: ctx.provider,
     targetNodeId: nodeId,
-    inputs: {},
+    inputs: { upstreamResults },
   });
   await impl.createNodeRun({ runId: run.id, nodeId, model, params });
   await impl.enqueueRun(run);

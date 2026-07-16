@@ -43,6 +43,7 @@ import VideoCombiner from "./VideoCombiner";
 import UtilityNode from "./UtilityNode";
 import { useGenerationCost } from "./useGenerationCost";
 import { watchNodeRun, watchWorkflowRun } from "./workflowStream";
+import { buildActiveUpstreamResults, resolveConnectedImageInputs } from "./workflowOutputSelection";
 import { getGeneratedNodeTitle, getNodeTitle } from "./nodeTitles";
 import WorkflowArchitectButton from "./WorkflowArchitectButton";
 
@@ -253,8 +254,12 @@ const getUtilityOutputColor = (nodeSchemas, modelId) => {
 
 const getNodeOutputValue = (node) => {
   if (!node) return null;
-  if (node.data?.viewingOutput !== undefined) return node.data.viewingOutput;
-  return node.data?.resultUrl || node.data?.outputs?.[0]?.value || null;
+  // resultUrl is the canonical active output. History navigation updates it as
+  // well, so an older viewingOutput must never mask a freshly generated result.
+  return node.data?.resultUrl
+    ?? node.data?.outputs?.[0]?.value
+    ?? node.data?.viewingOutput
+    ?? null;
 };
 
 const appendUniqueValue = (values, value) => {
@@ -544,6 +549,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
 
     const nextValues = { ...(node.data?.formValues || {}) };
     const connectedImageRefs = [];
+    const rebuiltListFields = new Set();
     const utilitySchema = node.type === "utilityNode"
       ? getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)
       : {};
@@ -573,20 +579,36 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         nextValues.video_url = sourceValue;
       } else if (targetHandle === "videoInput7") {
         const key = nextValues.video_files ? "video_files" : "videos_list";
+        if (!rebuiltListFields.has(key)) {
+          nextValues[key] = [];
+          rebuiltListFields.add(key);
+        }
         nextValues[key] = appendUniqueValue(nextValues[key], sourceValue);
       } else if (targetHandle === "videoInput8") {
         const key = nextValues.audio_files ? "audio_files" : "audios_list";
+        if (!rebuiltListFields.has(key)) {
+          nextValues[key] = [];
+          rebuiltListFields.add(key);
+        }
         nextValues[key] = appendUniqueValue(nextValues[key], sourceValue);
       } else if (["videoInput5", "audioInput"].includes(targetHandle)) {
         nextValues.audio_url = sourceValue;
       } else if (node.type === "utilityNode" && targetHandle in utilitySchema) {
         const meta = utilitySchema[targetHandle] || {};
+        if (meta.type === "array" && !rebuiltListFields.has(targetHandle)) {
+          nextValues[targetHandle] = [];
+          rebuiltListFields.add(targetHandle);
+        }
         nextValues[targetHandle] = meta.type === "array"
           ? appendUniqueValue(nextValues[targetHandle], sourceValue)
           : sourceValue;
       } else if (node.type === "apiNode" && targetHandle) {
         const isList = ["images", "image_urls", "images_list"].includes(targetHandle)
           || node.data?.taskData?.[targetHandle]?.type === "array";
+        if (isList && !rebuiltListFields.has(targetHandle)) {
+          nextValues[targetHandle] = [];
+          rebuiltListFields.add(targetHandle);
+        }
         nextValues[targetHandle] = isList
           ? appendUniqueValue(nextValues[targetHandle], sourceValue)
           : sourceValue;
@@ -596,6 +618,9 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
     if (connectedImageRefs.length === 1) {
       nextValues.image_url = connectedImageRefs[0];
       nextValues.image = connectedImageRefs[0];
+      nextValues.images_list = [];
+      nextValues.images = [];
+      nextValues.image_urls = [];
     } else if (connectedImageRefs.length >= 2) {
       nextValues.image_url = "";
       nextValues.image = "";
@@ -947,9 +972,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         if (!sourceNode || !targetNode || !sourceNode.data) return newEdges;
 
         const sourceData = sourceNode.data;
-        const resultValue = sourceData.viewingOutput !== undefined
-          ? sourceData.viewingOutput
-          : (sourceData.resultUrl || sourceData.outputs?.[0]?.value || null);
+        const resultValue = getNodeOutputValue(sourceNode);
         // if (!resultValue || resultValue.trim() === "") return newEdges;
 
         const sourceValue = sourceNode?.type === "concatNode"
@@ -1091,45 +1114,77 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
   const sourceOutputValue = (node) => {
     if (!node) return "";
     if (node.type === "concatNode") return node.data?.formValues?.prompt || "";
-    return node.data?.viewingOutput ?? node.data?.resultUrl ?? node.data?.outputs?.[0]?.value ?? "";
+    return getNodeOutputValue(node) ?? "";
   };
 
   const defaultValueForSchemaField = (meta = {}) => (
     meta.default !== undefined ? meta.default : meta.type === "array" ? [] : ""
   );
 
-  const resetUtilityInputsAfterEdgeRemoval = (removedEdges, nextEdges) => {
+  const resetInputsAfterEdgeRemoval = (removedEdges, nextEdges) => {
     if (!removedEdges.length) return;
     setNodes((prev) =>
       prev.map((node) => {
-        if (node.type !== "utilityNode") return node;
-
         const affectedHandles = removedEdges
           .filter((edge) => edge.target === node.id && edge.targetHandle)
           .map((edge) => edge.targetHandle);
         if (!affectedHandles.length) return node;
 
-        const schema = getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id);
         const formValues = { ...(node.data?.formValues || {}) };
+        const activeEdgesFor = (handles) => nextEdges.filter((edge) =>
+          edge.target === node.id && handles.includes(edge.targetHandle)
+        );
+        const valuesFor = (handles) => activeEdgesFor(handles)
+          .map((edge) => sourceOutputValue(prev.find((source) => source.id === edge.source)))
+          .filter((value) => value !== undefined && value !== null && value !== "");
         let changed = false;
 
-        for (const handle of [...new Set(affectedHandles)]) {
-          const meta = schema[handle];
-          if (!meta || meta.connectable === false) continue;
-
-          const remainingEdges = nextEdges.filter((e) =>
-            e.target === node.id && e.targetHandle === handle
-          );
-
-          if (meta.type === "array") {
-            formValues[handle] = remainingEdges
-              .map((e) => sourceOutputValue(prev.find((source) => source.id === e.source)))
-              .filter((value) => value !== undefined && value !== null && value !== "");
-          } else if (remainingEdges.length > 0) {
-            formValues[handle] = sourceOutputValue(prev.find((source) => source.id === remainingEdges[0].source));
-          } else {
-            formValues[handle] = defaultValueForSchemaField(meta);
+        if (node.type === "utilityNode" || node.type === "apiNode") {
+          const schema = node.type === "utilityNode"
+            ? getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)
+            : node.data?.taskData || {};
+          for (const handle of [...new Set(affectedHandles)]) {
+            const meta = schema[handle];
+            if (!meta || meta.connectable === false) continue;
+            const remainingValues = valuesFor([handle]);
+            formValues[handle] = meta.type === "array"
+              ? remainingValues
+              : remainingValues[0] ?? defaultValueForSchemaField(meta);
+            changed = true;
           }
+          return changed ? { ...node, data: { ...node.data, formValues } } : node;
+        }
+
+        const imageHandles = ["textInput2", "textInput3", "imageInput2", "imageInput3", "videoInput2", "videoInput6", "audioInput3", "apiInput2", "apiInput3"];
+        if (affectedHandles.some((handle) => imageHandles.includes(handle))) {
+          const remainingImages = valuesFor(imageHandles);
+          formValues.image_url = remainingImages.length === 1 ? remainingImages[0] : null;
+          formValues.image = formValues.image_url;
+          formValues.images_list = remainingImages.length >= 2 ? remainingImages : [];
+          formValues.images = formValues.images_list;
+          formValues.image_urls = formValues.images_list;
+          changed = true;
+        }
+
+        const fieldMappings = [
+          { handles: ["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"], field: "prompt", empty: "" },
+          { handles: ["audioInput5"], field: "text", empty: "" },
+          { handles: ["textInput4"], field: "system_prompt", empty: "" },
+          { handles: ["videoInput3"], field: "last_image", empty: null },
+          { handles: ["videoInput4", "audioInput4"], field: "video_url", empty: null },
+          { handles: ["audioInput", "videoInput5"], field: "audio_url", empty: null },
+          { handles: ["videoInput7"], field: formValues.video_files ? "video_files" : "videos_list", empty: [] },
+          { handles: ["videoInput8"], field: formValues.audio_files ? "audio_files" : "audios_list", empty: [] },
+          { handles: ["concatInput"], field: "prompt", empty: "", join: true },
+        ];
+        for (const mapping of fieldMappings) {
+          if (!affectedHandles.some((handle) => mapping.handles.includes(handle))) continue;
+          const remainingValues = valuesFor(mapping.handles);
+          formValues[mapping.field] = Array.isArray(mapping.empty)
+            ? remainingValues
+            : mapping.join
+              ? remainingValues.join(" ")
+              : remainingValues[0] ?? mapping.empty;
           changed = true;
         }
 
@@ -1210,9 +1265,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         );
       }
 
-      if (targetNode?.type === "utilityNode") {
-        resetUtilityInputsAfterEdgeRemoval([edge], updatedEdges);
-      }
+      resetInputsAfterEdgeRemoval([edge], updatedEdges);
 
       return updatedEdges;
     });
@@ -1226,7 +1279,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
     if (removedIds.length > 0) {
       const removedEdges = edges.filter((edge) => removedIds.includes(edge.id));
       const nextEdges = edges.filter((edge) => !removedIds.includes(edge.id));
-      resetUtilityInputsAfterEdgeRemoval(removedEdges, nextEdges);
+      resetInputsAfterEdgeRemoval(removedEdges, nextEdges);
     }
 
     onEdgesChange(changes);
@@ -1299,11 +1352,9 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       const connectedImageRefs = [...imageUrlConnections, ...imageListConnections].map(
         (conn) => `{{ ${conn.source}.outputs[0].value }}`
       );
+      const connectedImageInputs = resolveConnectedImageInputs(connectedImageRefs, formValues);
 
-      const dynamicImagesList =
-        connectedImageRefs.length >= 2
-          ? connectedImageRefs
-          : formValues?.images_list || []; // || [node.data?.outputs?.[0]?.value]
+      const dynamicImagesList = connectedImageInputs.imagesList;
 
       const videoUrlConnections = connectedEdges.filter((e) =>
         ["videoInput4", "audioInput4"].includes(e.targetHandle)
@@ -1333,12 +1384,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         ["audioInput", "videoInput5"].includes(e.targetHandle)
       );
 
-      const dynamicImageUrl =
-        connectedImageRefs.length === 1
-          ? connectedImageRefs[0]
-          : connectedImageRefs.length >= 2
-            ? null
-            : formValues?.image_url || null;
+      const dynamicImageUrl = connectedImageInputs.imageUrl;
 
       const lastImageConnections = connectedEdges.filter(
         (e) => e.targetHandle === "videoInput3"
@@ -1380,6 +1426,12 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
 
       if (node.type === "apiNode") {
         const listFields = ["images", "image_urls", "images_list"];
+        const connectedArrayHandles = new Set(
+          connectedEdges
+            .filter((edge) => listFields.includes(edge.targetHandle) || wavespeedSchema?.[edge.targetHandle]?.type === "array")
+            .map((edge) => edge.targetHandle)
+        );
+        connectedArrayHandles.forEach((handle) => { localSources[handle] = []; });
         connectedEdges.forEach((edge) => {
           if (edge.target === node.id) {
             const val = `{{ ${edge.source}.outputs[0].value }}`;
@@ -1400,6 +1452,12 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       }
 
       if (isGenericUtility) {
+        const connectedArrayHandles = new Set(
+          connectedEdges
+            .filter((edge) => utilitySchema[edge.targetHandle]?.type === "array")
+            .map((edge) => edge.targetHandle)
+        );
+        connectedArrayHandles.forEach((handle) => { localSources[handle] = []; });
         connectedEdges.forEach((edge) => {
           if (edge.target !== node.id || !edge.targetHandle || !(edge.targetHandle in utilitySchema)) return;
           const val = `{{ ${edge.source}.outputs[0].value }}`;
@@ -1983,6 +2041,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         params: payloadNode?.params || node.data?.formValues || {},
         cost: node.data?.cost,
         node_id: node.id,
+        upstream_results: buildActiveUpstreamResults(nodes, node.id),
       });
 
       watchNodeRun(response.data.run_id, node.id, {

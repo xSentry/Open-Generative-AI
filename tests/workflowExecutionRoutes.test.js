@@ -175,7 +175,11 @@ test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async
   let nodeRunArgs = null;
   const enqueued = [];
   const deps = {
-    getWorkflow: async () => ({ id: 'wf-1', nodes: [{ id: 'img-1', model: 'flux', params: {} }], edges: [] }),
+    getWorkflow: async () => ({
+      id: 'wf-1',
+      nodes: [{ id: 'text' }, { id: 'img-1', model: 'flux', params: {} }],
+      edges: [{ source: 'text', target: 'img-1' }],
+    }),
     createRun: async (args) => { createdRun = args; return { id: 'run-node' }; },
     createNodeRun: async (args) => { nodeRunArgs = args; return { id: 'nr-new' }; },
     enqueueRun: async (run) => { enqueued.push(run); },
@@ -187,6 +191,7 @@ test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async
       model: 'flux',
       params: { prompt: 'p' },
       node_id: 'AI Image',
+      upstream_results: { text: [{ type: 'text', value: 'selected text' }] },
     }),
     routeCtx(['wf-1', 'node', 'img-1', 'run']),
     'POST',
@@ -197,6 +202,9 @@ test('POST {id}/node/{nodeId}/run creates a targeted run and enqueues it', async
   assert.equal(response.status, 200);
   assert.deepEqual(await readJson(response), { run_id: 'run-node' });
   assert.equal(createdRun.targetNodeId, 'img-1');
+  assert.deepEqual(createdRun.inputs, {
+    upstreamResults: { text: [{ type: 'text', value: 'selected text' }] },
+  });
   assert.equal(nodeRunArgs.nodeId, 'img-1');
   assert.deepEqual(nodeRunArgs.params, { prompt: 'p' });
   assert.deepEqual(enqueued, [{ id: 'run-node' }]);

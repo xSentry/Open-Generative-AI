@@ -19,6 +19,7 @@ import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
 import QueuedState from "./QueuedState";
+import { outputSelectionPatch } from "./workflowOutputSelection";
 
 const inputHandles = [
   "audioInput",
@@ -531,7 +532,10 @@ const AudioGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentAudioIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                      const next = currentAudioIndex > 0 ? currentAudioIndex - 1 : currentOutputList.length - 1;
+                      setCurrentAudioIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
                   >
@@ -545,7 +549,10 @@ const AudioGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentAudioIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                      const next = currentAudioIndex < currentOutputList.length - 1 ? currentAudioIndex + 1 : 0;
+                      setCurrentAudioIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
                   >
