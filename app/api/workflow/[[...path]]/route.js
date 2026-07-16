@@ -7,9 +7,11 @@ import { errorResponse } from '@/modules/auth/server/errors';
 import { proxyToMuapi } from '@/modules/providers/muapi/server/workflowProxy';
 import { handleLocalWorkflow } from '@/modules/workflow/server/router';
 import {
+  createWorkflowThumbnailObjectKey,
   createPresignedGetUrl,
   deleteObject,
   getS3Config,
+  uploadObject,
 } from '@/modules/storage/server/s3';
 import {
   enqueueWorkflowRunJob,
@@ -28,8 +30,10 @@ export const dynamic = 'force-dynamic';
 // studio DI pattern.
 const executionDeps = {
   getS3Config,
+  createWorkflowThumbnailObjectKey,
   createPresignedGetUrl,
   deleteObject,
+  uploadObject,
   enqueueRun: (run) => enqueueWorkflowRunJob(run),
   publishWorkflowEvent: (event) =>
     publishUserEvent(event.userId, workflowRunEvent(event)),

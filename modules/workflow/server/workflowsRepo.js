@@ -7,9 +7,13 @@ import { assertRevisionMatches, WorkflowRevisionConflict } from '../../workflow-
 
 const SELECT_COLUMNS = `
   id, user_id, provider, name, category, edges, nodes, published, is_template,
-  thumbnail_key, source_workflow_id, revision, parent_revision, revision_source,
+  thumbnail_key, thumbnail_object_key, source_workflow_id, revision, parent_revision, revision_source,
   proposal_id, compiler_version, catalog_version, created_at, updated_at
 `;
+
+// Must stay within the revision_source/source check constraints introduced by
+// migration 011. Template publication is a user-initiated definition snapshot.
+export const TEMPLATE_REVISION_SOURCE = 'manual';
 
 function mapRow(row) {
   if (!row) return null;
@@ -24,6 +28,7 @@ function mapRow(row) {
     published: row.published,
     isTemplate: row.is_template,
     thumbnailKey: row.thumbnail_key,
+    thumbnailObjectKey: row.thumbnail_object_key,
     sourceWorkflowId: row.source_workflow_id,
     revision: row.revision || 1,
     parentRevision: row.parent_revision,
@@ -355,6 +360,75 @@ export async function setTemplate(id, { userId, isTemplate }) {
   return mapRow(result.rows[0]);
 }
 
+function cleanNodeForFreshCopy(node) {
+  const copy = structuredClone(node);
+  if (copy.output_params) {
+    copy.output_params = { ...copy.output_params, outputs: [], resultUrl: null };
+  }
+  for (const target of [copy, copy.data]) {
+    if (!target || typeof target !== 'object') continue;
+    delete target.outputHistory;
+    delete target.errorMsg;
+    delete target.isLoading;
+    delete target.isQueued;
+    delete target.viewingOutput;
+    delete target.triggerRun;
+  }
+  return copy;
+}
+
+export function cleanNodesForFreshCopy(nodes = []) {
+  return (nodes || []).map(cleanNodeForFreshCopy);
+}
+
+// Publish an owned workflow by creating a new immutable, run-free definition.
+// The source row is left untouched, including all of its executions and media.
+export async function createTemplate(id, { userId, provider }) {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const sourceResult = await client.query(
+      `select ${SELECT_COLUMNS} from workflows
+       where id = $1 and user_id = $2 and provider = $3
+       for update`,
+      [id, userId, provider]
+    );
+    const source = mapRow(sourceResult.rows[0]);
+    if (!source) {
+      await client.query('commit');
+      return null;
+    }
+
+    const inserted = await client.query(
+      `insert into workflows
+         (user_id, provider, name, category, edges, nodes, published, is_template,
+          source_workflow_id, revision, parent_revision, revision_source)
+       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, false, true,
+               $7, 1, null, $8)
+       returning ${SELECT_COLUMNS}`,
+      [
+        userId,
+        provider,
+        source.name,
+        source.category,
+        JSON.stringify(source.edges || []),
+        JSON.stringify(cleanNodesForFreshCopy(source.nodes)),
+        source.id,
+        TEMPLATE_REVISION_SOURCE,
+      ]
+    );
+    const template = mapRow(inserted.rows[0]);
+    await insertRevisionSnapshot(client, template);
+    await client.query('commit');
+    return template;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 // Clone a readable workflow into a fresh private workflow owned by the caller.
 export async function cloneWorkflow(id, { userId, provider }) {
   const source = await getWorkflow(id, { userId, provider });
@@ -366,19 +440,74 @@ export async function cloneWorkflow(id, { userId, provider }) {
     name: `${source.name || 'Untitled'} (Copy)`,
     category: source.category,
     edges: source.edges || [],
-    nodes: source.nodes || [],
+    nodes: cleanNodesForFreshCopy(source.nodes),
     sourceWorkflowId: source.id,
   });
 }
 
-export async function setThumbnail(id, { userId, thumbnailKey }) {
-  const result = await query(
-    `update workflows set thumbnail_key = $3, updated_at = now()
-     where id = $1 and user_id = $2
-     returning ${SELECT_COLUMNS}`,
-    [id, userId, thumbnailKey]
-  );
-  return mapRow(result.rows[0]);
+export async function setThumbnail(id, { userId, thumbnailUrl, thumbnailObjectKey }) {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const existing = await client.query(
+      `select thumbnail_object_key from workflows
+       where id = $1 and user_id = $2 for update`,
+      [id, userId]
+    );
+    if (!existing.rows[0]) {
+      await client.query('commit');
+      return null;
+    }
+    const result = await client.query(
+      `update workflows set thumbnail_key = $3, thumbnail_object_key = $4, updated_at = now()
+       where id = $1 and user_id = $2
+       returning ${SELECT_COLUMNS}`,
+      [id, userId, thumbnailUrl, thumbnailObjectKey]
+    );
+    await client.query('commit');
+    const workflow = mapRow(result.rows[0]);
+    return workflow
+      ? { ...workflow, replacedThumbnailObjectKey: existing.rows[0].thumbnail_object_key || null }
+      : null;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function clearThumbnail(id, { userId }) {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const existing = await client.query(
+      `select thumbnail_object_key from workflows
+       where id = $1 and user_id = $2 for update`,
+      [id, userId]
+    );
+    if (!existing.rows[0]) {
+      await client.query('commit');
+      return null;
+    }
+    const result = await client.query(
+      `update workflows
+       set thumbnail_key = null, thumbnail_object_key = null, updated_at = now()
+       where id = $1 and user_id = $2
+       returning ${SELECT_COLUMNS}`,
+      [id, userId]
+    );
+    await client.query('commit');
+    const workflow = mapRow(result.rows[0]);
+    return workflow
+      ? { ...workflow, removedThumbnailObjectKey: existing.rows[0].thumbnail_object_key || null }
+      : null;
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listWorkflowRevisions(workflowId, { userId, provider }) {

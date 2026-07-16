@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleLocalWorkflow } from '../modules/workflow/server/router.js';
+import {
+  cleanNodesForFreshCopy,
+  TEMPLATE_REVISION_SOURCE,
+} from '../modules/workflow/server/workflowsRepo.js';
 
 function ctxFor(userId = 'user-1', provider = 'replicate') {
   return { user: { id: userId }, provider, apiKey: 'r8_test' };
@@ -18,6 +22,26 @@ function request(url = 'http://test.local/api/workflow', body) {
 async function readJson(response) {
   return JSON.parse(await response.text());
 }
+
+test('fresh workflow copies remove persisted run outputs and transient state', () => {
+  const source = [{
+    id: 'image-1',
+    params: { prompt: 'keep me' },
+    output_params: { outputs: [{ type: 'image_url', value: 'https://stale/image.png' }], resultUrl: 'https://stale/image.png' },
+    data: { outputHistory: [{ id: 'run-1' }], errorMsg: 'old failure', isLoading: true },
+  }];
+  const copy = cleanNodesForFreshCopy(source);
+  assert.deepEqual(copy[0].params, { prompt: 'keep me' });
+  assert.deepEqual(copy[0].output_params, { outputs: [], resultUrl: null });
+  assert.equal(copy[0].data.outputHistory, undefined);
+  assert.equal(copy[0].data.errorMsg, undefined);
+  assert.equal(copy[0].data.isLoading, undefined);
+  assert.equal(source[0].output_params.outputs.length, 1, 'source graph is not mutated');
+});
+
+test('template snapshots use a revision source allowed by migration 011', () => {
+  assert.equal(TEMPLATE_REVISION_SOURCE, 'manual');
+});
 
 test('get-workflow-defs returns serialized summaries scoped to caller', async () => {
   const calls = [];
@@ -255,18 +279,25 @@ test('publish toggles published state', async () => {
   assert.deepEqual(await readJson(response), { publish: true });
 });
 
-test('template endpoint marks a workflow as a provider-wide template', async () => {
+test('template endpoint publishes a fresh clone and leaves the source unchanged', async () => {
   let received;
   const response = await handleLocalWorkflow(
     request('http://test.local/api/workflow', { is_template: true }),
     routeCtx(['workflow', 'wf-1', 'template']),
     'POST',
     ctxFor('user-1'),
-    { setTemplate: async (id, opts) => { received = { id, ...opts }; return { isTemplate: true }; } }
+    {
+      getWorkflow: async () => ({ id: 'wf-1', userId: 'user-1', thumbnailKey: null }),
+      createTemplate: async (id, opts) => {
+        received = { id, ...opts };
+        return { id: 'template-1', isTemplate: true };
+      },
+      setTemplate: async () => { throw new Error('source must not be marked as a template'); },
+    }
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(await readJson(response), { is_template: true });
-  assert.deepEqual(received, { id: 'wf-1', userId: 'user-1', isTemplate: true });
+  assert.deepEqual(await readJson(response), { workflow_id: 'template-1', is_template: true });
+  assert.deepEqual(received, { id: 'wf-1', userId: 'user-1', provider: 'replicate' });
 });
 
 test('template endpoint returns 404 when the workflow is not owned', async () => {
@@ -275,9 +306,45 @@ test('template endpoint returns 404 when the workflow is not owned', async () =>
     routeCtx(['workflow', 'missing', 'template']),
     'POST',
     ctxFor('user-1'),
-    { setTemplate: async () => null }
+    { getWorkflow: async () => null }
   );
   assert.equal(response.status, 404);
+});
+
+test('template publishing clones the selected thumbnail into template storage', async () => {
+  let savedThumbnail = null;
+  const response = await handleLocalWorkflow(
+    request('http://test.local/api/workflow', { is_template: true }),
+    routeCtx(['workflow', 'wf-1', 'template']),
+    'POST',
+    ctxFor('user-1', 'replicate'),
+    {
+      getWorkflow: async (id) => id === 'wf-1'
+        ? { id, userId: 'user-1', thumbnailKey: 'https://old/cover.png', thumbnailObjectKey: 'workflow-thumbnails/u/wf-1/old.png' }
+        : { id, userId: 'user-1', isTemplate: true },
+      createTemplate: async () => ({ id: 'template-1', userId: 'user-1', isTemplate: true }),
+      getS3Config: () => ({ bucket: 'b' }),
+      createPresignedGetUrl: ({ key }) => `https://signed/${key}`,
+      fetchFn: async (url) => {
+        assert.equal(url, 'https://signed/workflow-thumbnails/u/wf-1/old.png');
+        return new Response(Buffer.from('cover'), { headers: { 'content-type': 'image/png' } });
+      },
+      createWorkflowThumbnailObjectKey: ({ workflowId }) => `workflow-thumbnails/u/${workflowId}/new.png`,
+      uploadObject: async ({ key }) => `https://cdn/${key}`,
+      setThumbnail: async (id, args) => {
+        savedThumbnail = { id, ...args };
+        return { id, thumbnailKey: args.thumbnailUrl };
+      },
+      deleteObject: async () => {},
+    }
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(savedThumbnail, {
+    id: 'template-1',
+    userId: 'user-1',
+    thumbnailUrl: 'https://cdn/workflow-thumbnails/u/template-1/new.png',
+    thumbnailObjectKey: 'workflow-thumbnails/u/template-1/new.png',
+  });
 });
 
 test('clone endpoint copies a readable workflow and returns the new id', async () => {

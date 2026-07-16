@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getTemplateWorkflows,
@@ -10,6 +10,8 @@ import {
   updateWorkflowName,
   deleteWorkflow,
   setWorkflowTemplate,
+  uploadWorkflowThumbnail,
+  removeWorkflowThumbnail,
   cloneWorkflow,
   getWorkflowInputs,
   executeWorkflow,
@@ -32,8 +34,9 @@ const WorkflowUI = dynamic(() => import("./WorkflowUI"), {
   ),
 });
 
-function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onToggleTemplate, onClone }) {
+function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onToggleTemplate, onClone, onThumbnailUpload, onThumbnailRemove }) {
   const [showOptions, setShowOptions] = useState(false);
+  const thumbnailInputRef = useRef(null);
   const isShared = activeTab === 'templates' || activeTab === 'published';
   // A published template you own stays in My Workflows but is frozen: you can
   // rename or delete it, but not open it in the editor.
@@ -99,6 +102,36 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onTogg
                 </svg>
                 Rename
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOptions(false);
+                  thumbnailInputRef.current?.click();
+                }}
+                className="w-full px-4 py-2 text-left text-[11px] font-bold text-white/70 hover:text-[var(--primary-color)] hover:bg-white/5 transition-colors flex items-center gap-2"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <path d="M21 15l-5-5L5 21" />
+                </svg>
+                Change Cover
+              </button>
+              {workflow.thumbnail && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOptions(false);
+                    onThumbnailRemove?.(workflow);
+                  }}
+                  className="w-full px-4 py-2 text-left text-[11px] font-bold text-white/70 hover:text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                  </svg>
+                  Remove Cover
+                </button>
+              )}
               {!workflow.is_template && (
                 <button
                   onClick={() => onToggleTemplate?.(workflow)}
@@ -121,6 +154,17 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onTogg
               </button>
             </div>
           )}
+          <input
+            ref={thumbnailInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onThumbnailUpload?.(workflow, file);
+              e.target.value = '';
+            }}
+          />
         </div>
       )}
 
@@ -143,7 +187,9 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onTogg
         <div className="text-[10px] font-bold text-[var(--primary-color)] uppercase tracking-wider mb-1 opacity-80">
           {workflow.category || "General"}
         </div>
-        <h3 className="text-sm font-bold text-white truncate group-hover:text-[var(--primary-color)] transition-colors">
+        <h3 className={`text-sm font-bold text-white truncate transition-colors ${
+          activeTab === 'templates' ? '' : 'group-hover:text-[var(--primary-color)]'
+        }`}>
           {workflow.name || "Untitled Flow"}
         </h3>
 
@@ -151,7 +197,7 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete, onTogg
         {isShared && (
           <button
             onClick={(e) => { e.stopPropagation(); onClone?.(workflow); }}
-            className="mt-3 w-full px-3 py-2 bg-[var(--primary-color)] text-black text-[10px] font-black uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-white flex items-center justify-center gap-1.5"
+            className="mt-3 w-full px-3 py-2 bg-[var(--primary-color)] text-black text-[10px] font-black uppercase tracking-widest rounded-md opacity-60 group-hover:opacity-100 transition-all hover:bg-white flex items-center justify-center gap-1.5"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -455,7 +501,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
   const [loading, setLoading] = useState(true);
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
   const [activeSubTab, setActiveSubTab] = useState("playground"); // 'playground' | 'builder'
-  const [activeMainTab, setActiveMainTab] = useState("templates"); // 'templates' | 'my-workflows' | 'published'
+  const [activeMainTab, setActiveMainTab] = useState("my-workflows"); // 'templates' | 'my-workflows' | 'published'
   const [renamingWorkflow, setRenamingWorkflow] = useState(null);
   const [newWorkflowName, setNewWorkflowName] = useState("");
   const [isDeletingId, setIsDeletingId] = useState(null);
@@ -651,18 +697,39 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
     }
   };
 
-  // Toggle one of your own workflows as a provider-wide template so every user
-  // sees it under Templates (and can clone it).
+  // Publish a fresh clone as a provider-wide template. The source workflow and
+  // its run history remain in My Workflows unchanged.
   const handleToggleTemplate = async (wf) => {
-    const next = !wf.is_template;
     try {
-      await setWorkflowTemplate(apiKey, wf.id, next);
-      setWorkflows((prev) =>
-        prev.map((w) => (w.id === wf.id ? { ...w, is_template: next } : w)),
-      );
+      await setWorkflowTemplate(apiKey, wf.id, true);
+      setActiveMainTab('templates');
     } catch (err) {
-      console.error("Template toggle failed:", err);
-      alert("Failed to update template status");
+      console.error("Template publish failed:", err);
+      alert("Failed to publish template");
+    }
+  };
+
+  const handleThumbnailUpload = async (wf, file) => {
+    try {
+      const result = await uploadWorkflowThumbnail(apiKey, wf.id, file);
+      setWorkflows((prev) => prev.map((item) => (
+        item.id === wf.id ? { ...item, thumbnail: result.thumbnail } : item
+      )));
+    } catch (err) {
+      console.error("Thumbnail upload failed:", err);
+      alert("Failed to update template thumbnail");
+    }
+  };
+
+  const handleThumbnailRemove = async (wf) => {
+    try {
+      await removeWorkflowThumbnail(apiKey, wf.id);
+      setWorkflows((prev) => prev.map((item) => (
+        item.id === wf.id ? { ...item, thumbnail: null } : item
+      )));
+    } catch (err) {
+      console.error("Thumbnail removal failed:", err);
+      alert("Failed to remove workflow thumbnail");
     }
   };
 
@@ -691,6 +758,12 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
       }
     }
   }, [urlWorkflowId, urlTab, router]);
+
+  // Opening or returning to the workflow listing always starts on the user's
+  // own workflows. Subsequent tab clicks remain untouched until navigation.
+  useEffect(() => {
+    if (!urlWorkflowId) setActiveMainTab('my-workflows');
+  }, [urlWorkflowId]);
 
   // 1. Sync state with URL on mount or URL change
   useEffect(() => {
@@ -1299,6 +1372,8 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
                 onDelete={handleDeleteWorkflow}
                 onToggleTemplate={handleToggleTemplate}
                 onClone={handleCloneWorkflow}
+                onThumbnailUpload={handleThumbnailUpload}
+                onThumbnailRemove={handleThumbnailRemove}
               />
             ))}
             {!loading && workflows.length === 0 && (
