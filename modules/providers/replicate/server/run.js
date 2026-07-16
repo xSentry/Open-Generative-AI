@@ -29,7 +29,11 @@ const RECAST_SYSTEM_PROMPT =
 // workflows may still contain max_output_tokens: 0. Omitting the field at this
 // final request boundary repairs those workflows and avoids provider-specific
 // minimums (which can be stricter than the imported schema metadata).
-const OMITTED_INPUT_FIELDS = new Set(['max_output_tokens']);
+const OMITTED_INPUT_FIELDS = new Set([
+  'max_output_tokens',
+  'max_completion_tokens',
+  'max_tokens',
+]);
 
 // Generic keys the Studio components post for media, mapped onto the model's
 // actual Replicate input field via model.imageField/swapField/etc.

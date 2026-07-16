@@ -196,16 +196,31 @@ test('normalizeMediaProperties maps single image/video/audio fields and keeps ge
   assert.ok(!('src_video' in props));
 });
 
-test('workflow schemas omit provider-managed max_output_tokens', () => {
+test('workflow schemas omit provider-managed output-token limit aliases', () => {
   const props = normalizeMediaProperties({
     inputs: {
       prompt: { type: 'string' },
       max_output_tokens: { type: 'int', default: 65535 },
+      max_completion_tokens: { type: 'int' },
+      max_tokens: { type: 'int' },
     },
   });
 
   assert.ok('prompt' in props);
   assert.equal(props.max_output_tokens, undefined);
+  assert.equal(props.max_completion_tokens, undefined);
+  assert.equal(props.max_tokens, undefined);
+});
+
+test('Architect text schemas do not expose completion token controls', () => {
+  const schemas = buildNodeSchemas('replicate');
+  const props = schemas.categories.text.models['gpt-5-6-luna']
+    ?.input_schema?.schemas?.input_data?.properties;
+  if (!props) return;
+
+  assert.equal(props.max_completion_tokens, undefined);
+  assert.equal(props.max_output_tokens, undefined);
+  assert.equal(props.max_tokens, undefined);
 });
 
 test('replicate node-schemas expose an image handle key for image models with refs', () => {
