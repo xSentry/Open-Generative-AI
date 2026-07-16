@@ -56,21 +56,43 @@ test('Replicate buildInput keeps declared params, coerces enums, and routes medi
   });
 });
 
-test('Replicate buildInput always omits max_output_tokens and uses the provider default', () => {
+test('Replicate buildInput always omits output-token limit aliases and uses the provider default', () => {
   const model = {
     id: 'text-model',
     inputs: {
       prompt: { type: 'string' },
       max_output_tokens: { type: 'int', minValue: 1, default: 65535 },
+      max_completion_tokens: { type: 'int' },
+      max_tokens: { type: 'int' },
     },
   };
 
   assert.deepEqual(buildInput(model, { prompt: 'hello', max_output_tokens: 0 }), {
     prompt: 'hello',
   });
-  assert.deepEqual(buildInput(model, { prompt: 'hello', max_output_tokens: 512 }), {
+  assert.deepEqual(buildInput(model, {
+    prompt: 'hello',
+    max_output_tokens: 512,
+    max_completion_tokens: 0,
+    max_tokens: 0,
+  }), {
     prompt: 'hello',
   });
+});
+
+test('AI Architect GPT-5.6 nodes omit legacy zero completion-token values', () => {
+  const model = getReplicateStudioModel('t2t', 'gpt-5-6-luna');
+  if (!model) return;
+
+  const input = buildInput(model, {
+    prompt: 'Refine this prompt',
+    reasoning_effort: 'none',
+    verbosity: 'medium',
+    max_completion_tokens: 0,
+  });
+
+  assert.equal(input.prompt, 'Refine this prompt');
+  assert.equal(input.max_completion_tokens, undefined);
 });
 
 test('Replicate buildInput routes multiple unique images to reference arrays', () => {
