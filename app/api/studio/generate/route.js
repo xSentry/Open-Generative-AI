@@ -13,6 +13,7 @@ import { createGeneration } from '@/modules/studio/server/generationsRepo';
 import { mediaTypeForMode } from '@/modules/studio/server/generationMedia';
 import {
   createDefaultProcessDeps,
+  failGeneration,
   storeGenerationOutputs,
 } from '@/modules/studio/server/processGeneration';
 import { enqueueGenerationJob } from '@/modules/studio/server/generationQueue';
@@ -44,6 +45,8 @@ export async function POST(request) {
     env: process.env,
     storeGenerationOutputs: ({ generation, providerResult }) =>
       storeGenerationOutputs({ generation, providerResult, deps: processDeps }),
+    failGeneration: ({ generation, error }) =>
+      failGeneration({ generation, error, deps: processDeps }),
     enqueueGeneration: (generation) => enqueueGenerationJob(generation),
     publishGenerationEvent: (event) =>
       publishUserEvent(event.userId, studioGenerationEvent(event)),

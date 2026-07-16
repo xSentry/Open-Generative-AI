@@ -1,10 +1,111 @@
 import React, { useState, useEffect, useRef } from "react";
 import { uploadFile, generateI2I } from "../muapi.js";
+import ModelProviderMark from "./ModelProviderMark.jsx";
+import {
+  getDefaultDrawAspectRatio,
+  getDrawAspectRatios,
+  getDrawModels,
+} from "../drawModels.js";
+
+const MUAPI_DRAW_MODELS = [
+  { id: "nano-banana-2-edit", name: "Nano Banana 2 Edit", description: "Google's Advanced Image Editing Model" },
+  { id: "nano-banana-pro-edit", name: "Nano Banana Pro Edit", description: "Best 4K Image Model Ever" },
+];
+
+function DrawModelDropdown({ models, selectedModel, onSelect, onClose }) {
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
+  const filteredModels = models.filter((model) =>
+    [model.name, model.id, model.description, model.provider_name, model.replicate?.owner]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query)),
+  );
+
+  return (
+    <div className="flex flex-col h-full max-h-[70vh]">
+      <div className="px-2 pb-3 mb-2 border-b border-white/5 shrink-0">
+        <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-2.5 border border-white/5 focus-within:border-primary/50 transition-colors">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            className="text-muted shrink-0"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            autoFocus
+            placeholder="Search models..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            className="bg-transparent border-none text-xs text-white focus:ring-0 w-full p-0 outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="text-xs font-bold text-secondary px-3 py-2 shrink-0">
+        Image editing models
+      </div>
+      <div className="flex flex-col gap-1.5 overflow-y-auto custom-scrollbar pr-1 pb-2">
+        {filteredModels.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-white/35">
+            {models.length === 0
+              ? "No prompt + image models are available for this provider."
+              : "No models match your search."}
+          </div>
+        ) : filteredModels.map((model) => (
+          <button
+            key={model.id}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(model);
+              onClose();
+            }}
+            className={`flex items-center justify-between p-3.5 hover:bg-white/5 rounded-2xl cursor-pointer transition-all border border-transparent hover:border-white/5 text-left ${
+              selectedModel === model.id ? "bg-white/5 border-white/5" : ""
+            }`}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 bg-primary/10 text-primary border border-white/5 rounded-lg flex items-center justify-center font-black text-xs shadow-inner uppercase overflow-hidden shrink-0">
+                <ModelProviderMark model={model} glyphClassName="w-4 h-4" />
+              </div>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-xs font-bold text-white tracking-tight truncate">
+                  {model.name || model.id}
+                </span>
+                {model.description && (
+                  <span className="text-[9px] text-white/35 leading-snug line-clamp-2">
+                    {model.description}
+                  </span>
+                )}
+              </div>
+            </div>
+            {selectedModel === model.id && (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-primary shrink-0 ml-3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function DrawModal({
   isOpen,
   onClose,
   apiKey,
+  provider = "muapi",
+  modelsByMode,
+  generatePersisted,
   batchSize = 1,
   onAddHistoryItem,
 }) {
@@ -39,6 +140,28 @@ export default function DrawModal({
     height: 450,
   });
   const [generating, setGenerating] = useState(false);
+
+  const usesProviderCatalog = provider !== "muapi";
+  const drawModels = usesProviderCatalog ? getDrawModels(modelsByMode) : MUAPI_DRAW_MODELS;
+  const selectedModelObj = drawModels.find((model) => model.id === selectedModel) || null;
+  const modelAspectRatios = usesProviderCatalog
+    ? getDrawAspectRatios(selectedModelObj)
+    : ["16:9", "9:16", "4:3", "3:4", "1:1", "Auto"];
+
+  useEffect(() => {
+    if (drawModels.length === 0 || drawModels.some((model) => model.id === selectedModel)) return;
+    const first = drawModels[0];
+    setSelectedModel(first.id);
+    setAspectRatio(usesProviderCatalog ? getDefaultDrawAspectRatio(first) : "16:9");
+  }, [provider, modelsByMode, selectedModel]);
+
+  useEffect(() => {
+    if (!usesProviderCatalog || !selectedModelObj) return;
+    const options = getDrawAspectRatios(selectedModelObj);
+    if (options.length > 0 && !options.includes(aspectRatio)) {
+      setAspectRatio(getDefaultDrawAspectRatio(selectedModelObj));
+    }
+  }, [selectedModel, provider]);
 
   // Refs
   const canvasRef = useRef(null);
@@ -935,16 +1058,33 @@ export default function DrawModal({
 
       const uploadedUrl = await uploadFile(apiKey, blob);
 
+      const resolvedAspectRatio = aspectRatio === "Auto" ? "1:1" : aspectRatio;
+      const genParams = {
+        model: selectedModel,
+        prompt: promptText.trim() || "Edit the image based on the drawing overlay",
+        images_list: [uploadedUrl],
+        ...(selectedModelObj?.inputs?.aspect_ratio || !usesProviderCatalog
+          ? { aspect_ratio: resolvedAspectRatio }
+          : {}),
+      };
+
+      // Custom providers use the same persisted generation path as the rest of
+      // Image Studio. startGeneration resolves the deferred canvas to S3 at
+      // submit time; the server records and removes it after success/failure.
+      if (usesProviderCatalog && generatePersisted) {
+        await generatePersisted({
+          mode: "i2i",
+          model: selectedModel,
+          params: genParams,
+          count: batchSize,
+        });
+        alert("Generation started!");
+        onClose();
+        return;
+      }
+
       const results = await Promise.all(
-        Array.from({ length: batchSize }).map(async () => {
-          const genParams = {
-            model: selectedModel,
-            prompt: promptText.trim() || "Edit the image based on the drawing overlay",
-            images_list: [uploadedUrl],
-            aspect_ratio: aspectRatio === "Auto" ? "1:1" : aspectRatio,
-          };
-          return await generateI2I(apiKey, genParams);
-        }),
+        Array.from({ length: batchSize }).map(() => generateI2I(apiKey, genParams)),
       );
 
       results.forEach((res) => {
@@ -952,12 +1092,12 @@ export default function DrawModal({
           const entry = {
             id: res.id || Math.random().toString(36).substring(7),
             url: res.url,
-            prompt: `Draw to Edit with ${selectedModel === "nano-banana-pro-edit" ? "Nano Banana Pro Edit" : "Nano Banana 2 Edit"}`,
+            prompt: `Draw to Edit with ${selectedModelObj?.name || selectedModel}`,
             model: selectedModel,
             aspect_ratio: aspectRatio === "Auto" ? "1:1" : aspectRatio,
             timestamp: new Date().toISOString(),
           };
-          onAddHistoryItem(entry);
+          onAddHistoryItem?.(entry);
         }
       });
 
@@ -1558,7 +1698,7 @@ export default function DrawModal({
                 {/* Generate Action Button */}
                 <button
                   onClick={handleGenerateClick}
-                  disabled={generating}
+                  disabled={generating || drawModels.length === 0}
                   className="ml-1 bg-[#b5f500] hover:opacity-90 active:scale-[0.97] transition-all text-black font-extrabold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-md shadow-[#b5f500]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {generating ? (
@@ -1588,64 +1728,24 @@ export default function DrawModal({
                   onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                   className="h-[38px] flex items-center gap-2 px-3 bg-[#131316]/80 hover:bg-[#1c1c22] rounded-xl border border-white/5 text-xs text-white/70 whitespace-nowrap shadow-xl"
                 >
-                  <span className="text-[10px] text-[#b5f500] font-black bg-[#b5f500]/10 px-1.5 rounded border border-[#b5f500]/25">
-                    G
+                  <span className="w-5 h-5 text-[#b5f500] bg-[#b5f500]/10 rounded border border-[#b5f500]/25 flex items-center justify-center overflow-hidden shrink-0">
+                    <ModelProviderMark model={selectedModelObj} glyphClassName="w-3 h-3" />
                   </span>
-                  {selectedModel === "nano-banana-pro-edit"
-                    ? "Nano Banana Pro Edit"
-                    : "Nano Banana 2 Edit"}
+                  {selectedModelObj?.name || selectedModel || "No compatible model"}
                   <span className="opacity-45 text-[8px] ml-0.5">▼</span>
                 </button>
 
                 {isModelDropdownOpen && (
-                  <div className="absolute bottom-[calc(100%+8px)] left-0 bg-[#0f0f12] border border-white/10 rounded-2xl p-2 w-64 shadow-2xl flex flex-col gap-1 z-30">
-                    <div className="text-[10px] font-black text-white/30 uppercase tracking-widest p-1.5 pb-1 select-none">
-                      Select model
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setSelectedModel("nano-banana-2-edit");
-                        setIsModelDropdownOpen(false);
-                      }}
-                      className={`flex flex-col text-left p-2.5 rounded-xl transition-all ${
-                        selectedModel === "nano-banana-2-edit"
-                          ? "bg-[#b5f500]/10 text-white"
-                          : "hover:bg-white/5 text-white/70"
-                      }`}
-                    >
-                      <div className="text-xs font-bold flex items-center gap-1.5">
-                        Nano Banana 2 Edit
-                        {selectedModel === "nano-banana-2-edit" && (
-                          <span className="text-[#b5f500]">✓</span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-white/30 leading-snug mt-0.5">
-                        Google's Advanced Image Editing Model
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedModel("nano-banana-pro-edit");
-                        setIsModelDropdownOpen(false);
-                      }}
-                      className={`flex flex-col text-left p-2.5 rounded-xl transition-all ${
-                        selectedModel === "nano-banana-pro-edit"
-                          ? "bg-[#b5f500]/10 text-white"
-                          : "hover:bg-white/5 text-white/70"
-                      }`}
-                    >
-                      <div className="text-xs font-bold flex items-center gap-1.5">
-                        Nano Banana Pro Edit
-                        {selectedModel === "nano-banana-pro-edit" && (
-                          <span className="text-[#b5f500]">✓</span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-white/30 leading-snug mt-0.5">
-                        Best 4K Image Model Ever
-                      </div>
-                    </button>
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute bottom-[calc(100%+8px)] left-0 bg-[#0a0a0a] border border-white/[0.05] rounded-[1.5rem] p-3 w-[calc(100vw-3rem)] max-w-xs shadow-2xl z-30"
+                  >
+                    <DrawModelDropdown
+                      models={drawModels}
+                      selectedModel={selectedModel}
+                      onSelect={(model) => setSelectedModel(model.id)}
+                      onClose={() => setIsModelDropdownOpen(false)}
+                    />
                   </div>
                 )}
               </div>
@@ -1739,7 +1839,7 @@ export default function DrawModal({
                     <div className="text-[10px] font-black text-white/30 uppercase tracking-widest p-1.5 pb-1 select-none">
                       Aspect Ratio
                     </div>
-                    {["16:9", "9:16", "4:3", "3:4", "1:1", "Auto"].map((r) => (
+                    {modelAspectRatios.map((r) => (
                       <button
                         key={r}
                         onClick={() => {

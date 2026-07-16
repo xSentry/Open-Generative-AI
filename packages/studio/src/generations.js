@@ -19,6 +19,19 @@ async function readJson(response) {
     }
 }
 
+async function cleanupRejectedInputs(params) {
+    try {
+        await fetch(`${API_BASE}/studio/upload`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ params }),
+        });
+    } catch {
+        // Best effort only. Accepted generations are cleaned by the processor;
+        // this covers requests rejected before a generation row is created.
+    }
+}
+
 function notifyAuthRequired(status, detail) {
     if (typeof window === 'undefined') return;
     if (status !== 401 && status !== 403) return;
@@ -39,6 +52,7 @@ export async function startGeneration({ mode, model, params }) {
     });
     const data = await readJson(response);
     if (!response.ok) {
+        await cleanupRejectedInputs(resolvedParams);
         notifyAuthRequired(response.status, data?.message);
         throw new Error(data?.message || `Generation request failed: ${response.status}`);
     }

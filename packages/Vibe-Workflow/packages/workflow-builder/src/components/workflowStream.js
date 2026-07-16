@@ -23,6 +23,7 @@ let started = false;
 let connected = false; // the current EventSource has fired `onopen`
 let everConnected = false; // it connected at least once (transient drops auto-reconnect)
 const listeners = new Set();
+const architectListeners = new Set();
 const statusListeners = new Set();
 
 function streamSupported() {
@@ -76,6 +77,16 @@ function ensureStream() {
       } catch {
         return;
       }
+      if (payload?.type === "workflow.architect.job.updated" && payload.jobId) {
+        architectListeners.forEach((fn) => {
+          try {
+            fn(payload);
+          } catch {
+            // a faulty listener must not break the others
+          }
+        });
+        return;
+      }
       if (payload?.type !== "workflow.run.updated" || !payload.runId) return;
       listeners.forEach((fn) => {
         try {
@@ -119,7 +130,29 @@ export function subscribeWorkflowUpdates(onEvent) {
   ensureStream();
   return () => {
     listeners.delete(onEvent);
-    if (listeners.size === 0 && source) {
+    if (listeners.size === 0 && architectListeners.size === 0 && source) {
+      try {
+        source.close();
+      } catch {
+        // ignore
+      }
+      source = null;
+      started = false;
+      connected = false;
+      everConnected = false;
+    }
+  };
+}
+
+// Subscribe to Workflow Architect live job notifications:
+// `{ type, jobId, workflowId, conversationId, status, queueStatus, eventType, stage, proposalId, error }`.
+// Returns an unsubscribe fn. Callers hydrate current state from REST when events arrive.
+export function subscribeWorkflowArchitectJobs(onEvent) {
+  architectListeners.add(onEvent);
+  ensureStream();
+  return () => {
+    architectListeners.delete(onEvent);
+    if (listeners.size === 0 && architectListeners.size === 0 && source) {
       try {
         source.close();
       } catch {

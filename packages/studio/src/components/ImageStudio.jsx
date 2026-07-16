@@ -1895,6 +1895,9 @@ export default function ImageStudio({
         isOpen={isDrawModalOpen}
         onClose={() => setIsDrawModalOpen(false)}
         apiKey={apiKey}
+        provider={provider}
+        modelsByMode={modelsByMode}
+        generatePersisted={serverGen.active ? serverGen.generate : null}
         batchSize={1}
         onAddHistoryItem={addToHistory}
       />

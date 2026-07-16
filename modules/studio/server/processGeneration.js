@@ -111,6 +111,22 @@ export async function cleanupGenerationInputs({ generation, config, deps, env = 
   return updated;
 }
 
+// Mark a generation failed and clean its temporary inputs. This is shared by
+// worker jobs and the synchronous API path so failures never strand an input.
+export async function failGeneration({ generation, error, deps, config, env = process.env }) {
+  const resolvedConfig = config || deps.getS3Config();
+  const cleaned = await cleanupGenerationInputs({
+    generation,
+    config: resolvedConfig,
+    deps,
+    env,
+  }).catch(() => undefined);
+  return deps.markGenerationFailed(generation.id, {
+    error: error?.message || String(error || 'Generation failed.'),
+    inputAssets: cleaned,
+  });
+}
+
 // Store all provider outputs for a generation: the first goes onto the existing
 // row, extras fan out into sibling rows. Returns the updated primary row.
 export async function storeGenerationOutputs({ generation, providerResult, deps, config, env = process.env }) {
@@ -232,11 +248,7 @@ export async function runClaimedGeneration(generation, injectedDeps, env = proce
 
     return await storeGenerationOutputs({ generation, providerResult, deps, config, env });
   } catch (error) {
-    const cleaned = await cleanupGenerationInputs({ generation, config, deps, env }).catch(() => undefined);
-    return deps.markGenerationFailed(generation.id, {
-      error: error?.message || 'Generation failed.',
-      inputAssets: cleaned,
-    });
+    return failGeneration({ generation, error, deps, config, env });
   }
 }
 

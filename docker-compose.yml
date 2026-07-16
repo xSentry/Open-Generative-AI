@@ -12,6 +12,7 @@ services:
       - STUDIO_ASYNC_GENERATIONS=${STUDIO_ASYNC_GENERATIONS:-true}
       - STUDIO_QUEUE_NAME=${STUDIO_QUEUE_NAME:-studio-generations}
       - WORKFLOW_QUEUE_NAME=${WORKFLOW_QUEUE_NAME:-workflow-runs}
+      - WORKFLOW_ARCHITECT_QUEUE_NAME=${WORKFLOW_ARCHITECT_QUEUE_NAME:-workflow-architect}
       - DESIGN_AGENT_QUEUE_NAME=${DESIGN_AGENT_QUEUE_NAME:-design-agent-jobs}
       - STUDIO_DELETE_INPUTS_AFTER_GENERATION=${STUDIO_DELETE_INPUTS_AFTER_GENERATION:-true}
       - STUDIO_OUTPUT_URL_MODE=${STUDIO_OUTPUT_URL_MODE:-signed}
@@ -47,6 +48,21 @@ services:
       - WORKFLOW_WORKER_CONCURRENCY=${WORKFLOW_WORKER_CONCURRENCY:-2}
       - WORKFLOW_JOB_ATTEMPTS=${WORKFLOW_JOB_ATTEMPTS:-2}
       - WORKFLOW_JOB_BACKOFF_MS=${WORKFLOW_JOB_BACKOFF_MS:-5000}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  workflow-architect-worker:
+    build: .
+    command: npm run worker:workflow-architect
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - BULLMQ_PREFIX=${BULLMQ_PREFIX:-open-generative-ai}
+      - WORKFLOW_ARCHITECT_QUEUE_NAME=${WORKFLOW_ARCHITECT_QUEUE_NAME:-workflow-architect}
+      - WORKFLOW_ARCHITECT_WORKER_CONCURRENCY=${WORKFLOW_ARCHITECT_WORKER_CONCURRENCY:-1}
+      - WORKFLOW_ARCHITECT_JOB_ATTEMPTS=${WORKFLOW_ARCHITECT_JOB_ATTEMPTS:-1}
+      - WORKFLOW_ARCHITECT_JOB_BACKOFF_MS=${WORKFLOW_ARCHITECT_JOB_BACKOFF_MS:-5000}
     depends_on:
       - redis
     restart: unless-stopped

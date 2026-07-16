@@ -74,6 +74,7 @@ export default function StandaloneShell() {
   const [authChecked, setAuthChecked] = useState(false);
   const [studioModelsByMode, setStudioModelsByMode] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [hasMounted, setHasMounted] = useState(false);
 
@@ -103,6 +104,11 @@ export default function StandaloneShell() {
   const handleTabChange = (tabId) => {
     router.push(`/studio/${tabId}`);
     // setActiveTab(tabId);
+  };
+
+  const handleMobileTabChange = (tabId) => {
+    setShowMobileNav(false);
+    handleTabChange(tabId);
   };
 
   useEffect(() => {
@@ -285,6 +291,7 @@ export default function StandaloneShell() {
 
   // Hide MuAPI-only features (AI Clipping, Vibe Motion, Explore Apps) for other providers.
   const visibleTabs = TABS.filter((tab) => isMuapiProvider || !MUAPI_ONLY_TABS.has(tab.id));
+  const activeTabLabel = visibleTabs.find((tab) => tab.id === activeTab)?.label || 'Image Studio';
 
   return (
     <div 
@@ -313,7 +320,7 @@ export default function StandaloneShell() {
 
       {/* Header */}
       {isHeaderVisible && (
-        <header className="flex-shrink-0 h-14 border-b border-white/[0.03] flex items-center justify-between px-6 bg-black/20 backdrop-blur-md z-40 gap-4">
+        <header className="flex-shrink-0 h-14 border-b border-white/[0.03] flex items-center justify-between px-4 sm:px-6 bg-black/20 backdrop-blur-md z-40 gap-4">
           {/* Left: Logo */}
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
@@ -335,11 +342,14 @@ export default function StandaloneShell() {
             </span>
           </div>
 
+          <div className="lg:hidden flex-1 min-w-0 px-2 text-center">
+            <span className="block truncate text-[14px] font-bold text-white/90">
+              {activeTabLabel}
+            </span>
+          </div>
+
           {/* Center: Navigation Container with fade edges */}
-          <div className="flex-1 min-w-0 mx-4 sm:mx-6 relative overflow-hidden h-full flex items-center justify-start lg:justify-center">
-            {/* Fade Left Overlay */}
-            <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-[#030303] to-transparent pointer-events-none z-10 block lg:hidden" />
-            
+          <div className="hidden lg:flex flex-1 min-w-0 mx-4 sm:mx-6 relative overflow-hidden h-full items-center justify-center">
             <nav className="flex items-center gap-4 overflow-x-auto scrollbar-none w-full lg:w-auto h-full px-4 lg:px-0">
               {visibleTabs.map((tab) => (
                 <button
@@ -358,13 +368,10 @@ export default function StandaloneShell() {
                 </button>
               ))}
             </nav>
-            
-            {/* Fade Right Overlay */}
-            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#030303] to-transparent pointer-events-none z-10 block lg:hidden" />
           </div>
 
           {/* Right: Actions */}
-          <div className="flex-shrink-0 flex items-center gap-4">
+          <div className="hidden lg:flex flex-shrink-0 items-center gap-4">
             <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/5 transition-colors">
               <div className={`w-2 h-2 rounded-full ${selectedProviderHasKey ? 'bg-green-500' : 'bg-red-500'}`} />
               <span className="text-xs font-bold text-white/90">{providerLabel}</span>
@@ -382,7 +389,87 @@ export default function StandaloneShell() {
               <span>Settings</span>
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowMobileNav(true)}
+            aria-label="Open navigation"
+            aria-expanded={showMobileNav}
+            className="lg:hidden flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/85 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 7h16" />
+              <path d="M4 12h16" />
+              <path d="M4 17h16" />
+            </svg>
+          </button>
         </header>
+      )}
+
+      {isHeaderVisible && showMobileNav && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#030303] text-white lg:hidden">
+          <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-white/[0.06] px-4">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-white flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 801 1081.21" width="25" height="25">
+                  <path d="m1,810.34V270.87L400.5,1.21l399.5,269.66v539.47l-399.5,269.66L1,810.34Zm122-494.97v450.48l277.5,225.41,277.5-225.41v-450.48L400.5,89.96,123,315.37Z"/>
+                  <path d="m270.6,592.1l-128.75-51.5,128.75-51.5h259.81l128.75,51.5-128.75,51.5h-259.81Zm129.9-84c-17.92,0-32.5,14.58-32.5,32.5s14.58,32.5,32.5,32.5,32.5-14.58,32.5-32.5-14.58-32.5-32.5-32.5Z"/>
+                </svg>
+              </div>
+              <span className="text-[1.1rem] font-bold tracking-[-0.08rem]">AI HUB</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMobileNav(false)}
+              aria-label="Close navigation"
+              className="flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/85 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-5">
+            <div className="grid grid-cols-1 gap-2">
+              {visibleTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleMobileTabChange(tab.id)}
+                  className={`flex min-h-12 items-center justify-between rounded-md border px-4 text-left text-[15px] font-semibold transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-[var(--primary-color)]/50 bg-[var(--primary-color)]/10 text-[var(--primary-color)]'
+                      : 'border-white/[0.06] bg-white/[0.04] text-white/80 hover:border-white/15 hover:bg-white/[0.08] hover:text-white'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {activeTab === tab.id && (
+                    <span className="h-2 w-2 rounded-full bg-[var(--primary-color)] shadow-[var(--shadow-glow)]" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 border-t border-white/[0.06] pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMobileNav(false);
+                  setShowSettings(true);
+                }}
+                className="flex min-h-12 w-full items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.04] px-4 text-left text-[15px] font-semibold text-white/80 hover:border-white/15 hover:bg-white/[0.08] hover:text-white transition-colors"
+              >
+                <span>Settings</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Studio Content */}

@@ -44,6 +44,7 @@ import UtilityNode from "./UtilityNode";
 import { useGenerationCost } from "./useGenerationCost";
 import { watchNodeRun, watchWorkflowRun } from "./workflowStream";
 import { getGeneratedNodeTitle, getNodeTitle } from "./nodeTitles";
+import WorkflowArchitectButton from "./WorkflowArchitectButton";
 
 const WORKFLOW_HOME_PATH = "/studio/workflow";
 
@@ -313,12 +314,13 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
       runStatus: workflowData?.run_status || null,
       workflowName: workflowData.name,
       interactionMode: workflowData.is_owner,
-      publishWorkflow: workflowData.is_published,
+      publishWorkflow: workflowData.is_published ?? workflowData.published,
       template: {
         showTemplateBtn: workflowData.show_temp_button,
         isPublishedTemplate: workflowData.is_template,
       },
-      category: workflowData?.category || "General"
+      category: workflowData?.category || "General",
+      revision: workflowData?.revision || 1,
     }
   };
 };
@@ -342,6 +344,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
   const [dropDown, setDropDown] = useState(0);
   const [workflowName, setWorkflowName] = useState(initialState?.metadata?.workflowName || "Untitled");
   const [workflowId, setWorkflowId] = useState(id);
+  const [workflowRevision, setWorkflowRevision] = useState(initialState?.metadata?.revision || initialWorkflowData?.revision || 1);
   const [runId, setRunId] = useState(initialState?.metadata?.runId || null);
   const [runStatus, setRunStatus] = useState(initialState?.metadata?.runStatus || null);
   const [hasFit, setHasFit] = useState(false);
@@ -609,14 +612,15 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     setEdges(restoredEdges);
     setLoadingNodes(restoredLoading);
     setQueuedNodes(restoredQueued);
-    setWorkflowId(id);
+    setWorkflowId(workflowData.workflow_id || id);
+    setWorkflowRevision(workflowData?.revision || 1);
     setRunId(workflowData?.run_id);
     setRunStatus(workflowData?.run_status || null);
     setWorkflowName(workflowData.name);
     setWorkflowCategory(workflowData?.category || "General");
     setWorkflowIds(workflowData.workflow_id, workflowData?.run_id);
     setInteractionMode(workflowData.is_owner);
-    setPublishWorkflow(workflowData.is_published);
+    setPublishWorkflow(workflowData.is_published ?? workflowData.published);
     setTemplate(prev => ({
       ...prev,
       showTemplateBtn: workflowData.show_temp_button,
@@ -1475,6 +1479,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       },
       is_vadoo: false,
       category: workflowCategory,
+      revision: workflowRevision,
     };
   };
 
@@ -1496,6 +1501,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       }
       setWorkflowIds(response.data.workflow_id, runId);
       setWorkflowId(response.data.workflow_id);
+      if (response.data.revision) setWorkflowRevision(response.data.revision);
       onWorkflowSaved?.({
         ...response.data,
         workflow_id: response.data.workflow_id,
@@ -2596,6 +2602,16 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     strokeWidth: 2,
   };
 
+  const handleArchitectApplied = useCallback((workflowData) => {
+    if (!workflowData) return;
+    restoreWorkflow({
+      ...workflowData,
+      run_history: workflowData.run_history || {},
+      run_id: workflowData.run_id || null,
+      run_status: workflowData.run_status || null,
+    });
+  }, [restoreWorkflow]);
+
   return (
     <div
       tabIndex={0}
@@ -3389,6 +3405,14 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
             </div>
           </div>
         </div>
+      )}
+      {interactionMode && (
+        <WorkflowArchitectButton
+          workflowId={workflowId}
+          workflowRevision={workflowRevision}
+          disabled={!interactionMode || isRestoring}
+          onApplied={handleArchitectApplied}
+        />
       )}
       <Toaster />
     </div>
