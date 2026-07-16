@@ -211,6 +211,19 @@ export function watchWorkflowRun(runId, onEvent, onError) {
   let polling = false;
   let consecutivePollErrors = 0;
 
+  const hydrate = () => axios
+    .get(`/api/workflow/run/${runId}/status`)
+    .then((response) => {
+      if (disposed) return;
+      consecutivePollErrors = 0;
+      emitRunStatus(runId, response.data, onEvent);
+    })
+    .catch((error) => {
+      if (disposed) return;
+      consecutivePollErrors += 1;
+      if (consecutivePollErrors >= 3) onError?.(error);
+    });
+
   const dispose = () => {
     if (disposed) return;
     disposed = true;
@@ -228,21 +241,7 @@ export function watchWorkflowRun(runId, onEvent, onError) {
     if (statusUnsub) { statusUnsub(); statusUnsub = null; }
     if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
 
-    const tick = () => {
-      axios
-        .get(`/api/workflow/run/${runId}/status`)
-        .then((response) => {
-          if (disposed) return;
-          consecutivePollErrors = 0;
-          emitRunStatus(runId, response.data, onEvent);
-        })
-        .catch((error) => {
-          consecutivePollErrors += 1;
-          if (consecutivePollErrors >= 3) {
-            onError?.(error);
-          }
-        });
-    };
+    const tick = hydrate;
     tick();
     pollTimer = setInterval(tick, POLL_INTERVAL_MS);
   };
@@ -256,15 +255,13 @@ export function watchWorkflowRun(runId, onEvent, onError) {
   unsub = subscribeWorkflowUpdates((ev) => {
     if (disposed) return;
     if (ev.runId !== runId) return;
-    axios
-      .get(`/api/workflow/run/${runId}/status`)
-      .then((response) => {
-        if (!disposed) emitRunStatus(runId, response.data, onEvent);
-      })
-      .catch((error) => {
-        if (!disposed) onError?.(error);
-      });
+    hydrate();
   });
+
+  // Redis Pub/Sub is intentionally live-only. A fast single-node run can
+  // finish between the POST response and this subscription, so hydrate once
+  // immediately to close that race even when SSE is healthy.
+  hydrate();
 
   // Fall back to polling if the stream is blocked (never opens / errors before
   // connecting). A stream that's already connected needs no watchdog.
@@ -288,7 +285,7 @@ export function watchWorkflowRun(runId, onEvent, onError) {
 // inherits the SSE→polling fallback. The terminal `latest` object matches the
 // polled status shape (`{ node_run_id, status, result, error }`) so callers keep
 // their existing success/failure handling. Returns a disposer.
-export function watchNodeRun(runId, nodeId, { onSucceeded, onFailed, onError } = {}) {
+export function watchNodeRun(runId, nodeId, { onUpdate, onSucceeded, onFailed, onError } = {}) {
   let disposer = null;
 
   const handleEvent = (ev) => {
@@ -299,6 +296,7 @@ export function watchNodeRun(runId, nodeId, { onSucceeded, onFailed, onError } =
       result: ev.result,
       error: ev.error,
     };
+    onUpdate?.(latest);
     if (latest.status === "succeeded" || latest.status === "completed") {
       disposer?.();
       onSucceeded?.(latest);

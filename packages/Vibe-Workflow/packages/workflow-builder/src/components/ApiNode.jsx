@@ -479,14 +479,11 @@ const ApiNode = ({ id, data, selected }) => {
     if (currentHistoryIndex > 0) {
       const newIndex = currentHistoryIndex - 1;
       setCurrentHistoryIndex(newIndex);
+      setCurrentOutputIndex(0);
 
-      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
-      setNodes((nds) => nds.map((n) => {
-        if (n.id === id) {
-          return { ...n, data: { ...n.data, viewingOutput: viewing } };
-        }
-        return n;
-      }));
+      const selectedOutputs = outputHistory[newIndex]?.result?.outputs || [];
+      const viewing = selectedOutputs[0]?.value;
+      data.onDataChange(id, { outputs: selectedOutputs, resultUrl: viewing, viewingOutput: viewing });
     }
   };
 
@@ -495,14 +492,11 @@ const ApiNode = ({ id, data, selected }) => {
     if (currentHistoryIndex < outputHistory.length - 1) {
       const newIndex = currentHistoryIndex + 1;
       setCurrentHistoryIndex(newIndex);
+      setCurrentOutputIndex(0);
 
-      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
-      setNodes((nds) => nds.map((n) => {
-        if (n.id === id) {
-          return { ...n, data: { ...n.data, viewingOutput: viewing } };
-        }
-        return n;
-      }));
+      const selectedOutputs = outputHistory[newIndex]?.result?.outputs || [];
+      const viewing = selectedOutputs[0]?.value;
+      data.onDataChange(id, { outputs: selectedOutputs, resultUrl: viewing, viewingOutput: viewing });
     }
   };
 

@@ -66,6 +66,39 @@ const initialNodes = [
 
 const initialEdges = [];
 
+const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+
+// Resolve the value currently exposed by a source node. Input/passthrough nodes
+// expose their editable field immediately; generated nodes expose their latest
+// result. This gives connected inputs one consistent propagation contract.
+const getConnectedSourceValue = (node) => {
+  const data = node?.data || {};
+  const formValues = data.formValues || {};
+  const isPassthrough = data.selectedModel?.id?.includes("passthrough");
+
+  if (node?.type === "concatNode") return formValues.prompt ?? "";
+  if (isPassthrough) {
+    if (node.type === "textNode") return formValues.prompt ?? formValues.text ?? "";
+    if (node.type === "imageNode") return formValues.image_url ?? formValues.image ?? formValues.images_list?.[0] ?? "";
+    if (node.type === "videoNode") return formValues.video_url ?? formValues.video ?? "";
+    if (node.type === "audioNode") return formValues.audio_url ?? formValues.audio ?? "";
+  }
+
+  return firstDefined(
+    data.resultUrl,
+    data.outputs?.[0]?.value,
+    formValues.prompt,
+    formValues.text,
+    formValues.image_url,
+    formValues.video_url,
+    formValues.audio_url,
+    formValues.images_list?.[0],
+    ""
+  );
+};
+
+const hasConnectedValue = (value) => value !== undefined && value !== null && value !== "";
+
 const edgeStyles = {
   blue: {
     stroke: '#3b82f6', // blue-500
@@ -747,103 +780,58 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
 
       if (!connectedEdges.length) return updatedNodes;
 
-      const resultValue = newData.resultUrl || newData.outputs?.[0]?.value;
-      // if (!resultValue) return updatedNodes;
-
       updatedNodes = updatedNodes.map((node) => {
-        const edge = connectedEdges.find((e) => e.target === node.id);
-        if (!edge) return node;
-
-        const targetHandle = edge.targetHandle;
+        const targetEdges = connectedEdges.filter((e) => e.target === node.id);
+        if (!targetEdges.length) return node;
         let updatedFormValues = { ...node.data.formValues };
 
-        const sourceNode = updatedNodes.find((n) => n.id === edge.source);
-        const sourceValue = sourceNode?.type === "concatNode"
-          ? sourceNode?.data?.formValues?.prompt
-          : resultValue;
+        const valuesForHandle = (targetHandle) => edges
+          .filter((edge) => edge.target === node.id && edge.targetHandle === targetHandle)
+          .map((edge) => getConnectedSourceValue(updatedNodes.find((candidate) => candidate.id === edge.source)))
+          .filter(hasConnectedValue);
 
-        if (["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"].includes(targetHandle)) {
-          updatedFormValues.prompt = sourceValue;
-        }
+        targetEdges.forEach((edge) => {
+          const targetHandle = edge.targetHandle;
+          const sourceNode = updatedNodes.find((candidate) => candidate.id === edge.source);
+          const sourceValue = getConnectedSourceValue(sourceNode);
 
-        else if (targetHandle === "audioInput5") {
-          updatedFormValues.text = sourceValue;
-        }
-
-        else if (targetHandle === "textInput4") {
-          updatedFormValues.system_prompt = sourceValue;
-        }
-
-        else if (["textInput3", "imageInput2", "videoInput6"].includes(targetHandle)) {
-          const list = Array.isArray(updatedFormValues.images_list)
-            ? [...updatedFormValues.images_list]
-            : [];
-          if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
-          updatedFormValues.images_list = list;
-        }
-
-        else if (targetHandle === "apiInput2") {
-          const list = Array.isArray(updatedFormValues.images)
-            ? [...updatedFormValues.images]
-            : [];
-          if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
-          updatedFormValues.images = list;
-        }
-
-        else if (["textInput2", "videoInput2", "imageInput3", "audioInput3"].includes(targetHandle)) {
-          updatedFormValues.image_url = resultValue;
-        }
-
-        else if (targetHandle === "apiInput3") {
-          updatedFormValues.image = resultValue;
-        }
-
-        else if (targetHandle === "videoInput3") {
-          updatedFormValues.last_image = resultValue;
-        }
-
-        else if (["videoInput4", "audioInput4"].includes(targetHandle)) {
-          updatedFormValues.video_url = resultValue;
-        }
-
-        else if (targetHandle === "videoInput7") {
-          const key = updatedFormValues.video_files ? "video_files" : "videos_list";
-          const list = Array.isArray(updatedFormValues[key])
-            ? [...updatedFormValues[key]]
-            : [];
-          if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
-          updatedFormValues[key] = list;
-        }
-
-        else if (targetHandle === "videoInput8") {
-          const key = updatedFormValues.audio_files ? "audio_files" : "audios_list";
-          const list = Array.isArray(updatedFormValues[key])
-            ? [...updatedFormValues[key]]
-            : [];
-          if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
-          updatedFormValues[key] = list;
-        }
-
-        else if (["videoInput5", "audioInput"].includes(targetHandle)) {
-          updatedFormValues.audio_url = resultValue;
-        }
-
-        else if (node.type === "apiNode") {
-          const listFields = ["images", "image_urls", "images_list"];
-          const isList = listFields.includes(targetHandle) || node.data.taskData?.[targetHandle]?.type === "array";
-
-          if (isList) {
-            const list = Array.isArray(updatedFormValues[targetHandle])
-              ? [...updatedFormValues[targetHandle]]
-              : [];
-            if (sourceValue && sourceValue.trim() !== "" && !list.includes(sourceValue)) {
-              list.push(sourceValue);
-            }
-            updatedFormValues[targetHandle] = list;
-          } else {
-            updatedFormValues[targetHandle] = sourceValue;
+          if (["textInput", "imageInput", "videoInput", "audioInput2", "apiInput"].includes(targetHandle)) {
+            updatedFormValues.prompt = sourceValue;
+          } else if (targetHandle === "audioInput5") {
+            updatedFormValues.text = sourceValue;
+          } else if (targetHandle === "textInput4") {
+            updatedFormValues.system_prompt = sourceValue;
+          } else if (["textInput3", "imageInput2", "videoInput6"].includes(targetHandle)) {
+            updatedFormValues.images_list = valuesForHandle(targetHandle);
+          } else if (targetHandle === "apiInput2") {
+            updatedFormValues.images = valuesForHandle(targetHandle);
+          } else if (["textInput2", "videoInput2", "imageInput3", "audioInput3"].includes(targetHandle)) {
+            updatedFormValues.image_url = sourceValue;
+          } else if (targetHandle === "apiInput3") {
+            updatedFormValues.image = sourceValue;
+          } else if (targetHandle === "videoInput3") {
+            updatedFormValues.last_image = sourceValue;
+          } else if (["videoInput4", "audioInput4"].includes(targetHandle)) {
+            updatedFormValues.video_url = sourceValue;
+          } else if (targetHandle === "videoInput7") {
+            const key = Object.prototype.hasOwnProperty.call(updatedFormValues, "video_files") ? "video_files" : "videos_list";
+            updatedFormValues[key] = valuesForHandle(targetHandle);
+          } else if (targetHandle === "videoInput8") {
+            const key = Object.prototype.hasOwnProperty.call(updatedFormValues, "audio_files") ? "audio_files" : "audios_list";
+            updatedFormValues[key] = valuesForHandle(targetHandle);
+          } else if (["videoInput5", "audioInput"].includes(targetHandle)) {
+            updatedFormValues.audio_url = sourceValue;
+          } else if (node.type === "apiNode") {
+            const listFields = ["images", "image_urls", "images_list"];
+            const isList = listFields.includes(targetHandle) || node.data.taskData?.[targetHandle]?.type === "array";
+            updatedFormValues[targetHandle] = isList ? valuesForHandle(targetHandle) : sourceValue;
+          } else if (node.type === "utilityNode") {
+            const utilityMeta = getUtilityProperties(nodeSchemas, node.data?.selectedModel?.id)?.[targetHandle];
+            updatedFormValues[targetHandle] = utilityMeta?.type === "array"
+              ? valuesForHandle(targetHandle)
+              : sourceValue;
           }
-        }
+        });
 
         return {
           ...node,
@@ -1981,8 +1969,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       });
 
       watchNodeRun(response.data.run_id, node.id, {
-        onSucceeded: (latest) => applyRunNodeStatus(node.id, latest),
-        onFailed: (latest) => applyRunNodeStatus(node.id, latest),
+        onUpdate: (latest) => applyRunNodeStatus(node.id, latest),
         onError: (error) => {
           console.error(error);
           setNodes((nds) => nds.map((n) => n.id === node.id ? { ...n, data: { ...n.data, isLoading: false } } : n));

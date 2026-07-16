@@ -190,7 +190,7 @@ const AudioGeneration = ({ id, data, selected }) => {
   }, [data.formValues]);
 
   useEffect(() => {
-    if (data?.onDataChange && data?.selectedModel?.id !== "audio-passthrough") {
+    if (data?.onDataChange) {
       data.onDataChange(id, { selectedModel, formValues, loading });
     }
   }, [selectedModel, formValues, loading]);
@@ -325,13 +325,9 @@ const AudioGeneration = ({ id, data, selected }) => {
       const newIndex = currentHistoryIndex - 1;
       setCurrentHistoryIndex(newIndex);
       setCurrentAudioIndex(0);
-      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
-      setNodes((nds) => nds.map((n) => {
-        if (n.id === id) {
-          return { ...n, data: { ...n.data, viewingOutput: viewing } };
-        }
-        return n;
-      }));
+      const selectedOutputs = outputHistory[newIndex]?.result?.outputs || [];
+      const viewing = selectedOutputs[0]?.value;
+      data.onDataChange(id, { outputs: selectedOutputs, resultUrl: viewing, viewingOutput: viewing });
     }
   };
 
@@ -341,13 +337,9 @@ const AudioGeneration = ({ id, data, selected }) => {
       const newIndex = currentHistoryIndex + 1;
       setCurrentHistoryIndex(newIndex);
       setCurrentAudioIndex(0);
-      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
-      setNodes((nds) => nds.map((n) => {
-        if (n.id === id) {
-          return { ...n, data: { ...n.data, viewingOutput: viewing } };
-        }
-        return n;
-      }));
+      const selectedOutputs = outputHistory[newIndex]?.result?.outputs || [];
+      const viewing = selectedOutputs[0]?.value;
+      data.onDataChange(id, { outputs: selectedOutputs, resultUrl: viewing, viewingOutput: viewing });
     }
   };
 
