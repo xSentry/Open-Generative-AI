@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildArchitectCapabilityCatalog } from '../modules/workflow-architect/domain/capabilityCatalog.js';
 import { buildArchitectNodeOptionCatalog, createWorkflowPlanJsonSchema, materializeWorkflowPlanInputValues, validateWorkflowPlan } from '../modules/workflow-architect/domain/createWorkflowPlan.js';
 import { buildConfigurationOptions, buildModelSelectionOptions, createModelSelectionJsonSchema, hydrateCreateWorkflowIr, materializeNodeConfiguration, validateHydratedCreateWorkflowIr, validateModelSelection } from '../modules/workflow-architect/domain/nodeConfiguration.js';
-import { buildCreateWorkflowPlannerPayload, buildNodeConfigurationPayload, generateCreateWorkflowIr } from '../modules/workflow-architect/infrastructure/models/replicateStructuredModel.js';
+import { buildCreateWorkflowPlannerPayload, buildCreateWorkflowRepairPayload, buildNodeConfigurationPayload, generateCreateWorkflowIr } from '../modules/workflow-architect/infrastructure/models/replicateStructuredModel.js';
 import { compileCreateWorkflowIrToPatch } from '../modules/workflow-architect/domain/compiler.js';
 import { summarizeCreateWorkflowProposal } from '../modules/workflow-architect/domain/compiler.js';
 import { applyWorkflowPatch } from '../modules/workflow-domain/applyPatch.js';
@@ -121,9 +121,52 @@ test('AI payloads expose only stage-specific safe context', () => {
   const { selectionOptions } = configure(value); const planner = buildCreateWorkflowPlannerPayload({ userRequest: 'x', nodeOptions }); const config = buildNodeConfigurationPayload({ userRequest: 'x', plan: value, selectionOptions });
   assert.equal(JSON.stringify(planner).includes('model_id'), false);
   assert.equal(planner.node_options_trusted.version, 'workflow-node-options/v2');
+  assert.equal(planner.node_options_trusted.options.every((option) => Array.isArray(option.inputs) && Array.isArray(option.outputs)), true);
+  assert.equal(planner.node_options_trusted.options.find((option) => option.type === 'video-combine').inputs.some((input) => input.key === 'video_clips' && input.media === 'video'), true);
+  assert.equal(JSON.stringify(planner).includes('configurable_inputs'), false);
+  assert.equal(Buffer.byteLength(JSON.stringify(planner)) + Buffer.byteLength(JSON.stringify(createWorkflowPlanJsonSchema(nodeOptions))) < 20_000, true);
   assert.equal(JSON.stringify(config).includes('configurable_inputs'), false);
   const imageIds = new Set(selectionOptions.nodes.find((item) => item.node_id === 'image').models.map((item) => item.model_id));
   assert.equal(imageIds.size < catalog.node_types.length, true);
+});
+
+test('planner schema restricts connections to generic semantic input fields', () => {
+  const schema = createWorkflowPlanJsonSchema(nodeOptions);
+  const inputKeys = schema.properties.connections.items.properties.to_input.enum;
+  assert.equal(inputKeys.includes('video_clips'), true);
+  assert.equal(inputKeys.includes('system_instruction'), true);
+  assert.equal(inputKeys.includes('video_inputs'), false);
+  assert.equal(new Set(inputKeys).size, inputKeys.length);
+});
+
+test('text transformation contract consistently requires a system-instruction node', () => {
+  const option = nodeOptions.options.find((item) => item.type === 'text-transform');
+  assert.equal(option.usage_notes.some((note) => note.includes('separate system-instruction node')), true);
+  assert.equal(option.usage_notes.some((note) => note.includes('separate Text Input')), false);
+});
+
+test('repair context keeps generic target fields and removes cascading connection noise', () => {
+  const invalid = plan(
+    [node('prompt', 'text-input'), node('clip', 'video-generate'), node('speech', 'text-to-speech'), node('combine', 'video-combine')],
+    [
+      edge('prompt', 'clip', 'text'),
+      edge('prompt', 'speech', 'text'),
+      edge('clip', 'combine', 'video', 0, 'video_inputs'),
+      edge('speech', 'combine', 'audio', 1, 'video_inputs'),
+    ],
+    'video',
+  );
+  const validation = validateWorkflowPlan(invalid, { nodeOptions });
+  assert.equal(validation.valid, false);
+  const payload = buildCreateWorkflowRepairPayload({ userRequest: 'Create a narrated video', nodeOptions, invalidPlan: invalid, validationErrors: validation.errors });
+  const combine = payload.node_contracts_trusted.options.find((option) => option.type === 'video-combine');
+  assert.deepEqual(combine.inputs.map(({ key, media, min_connections }) => ({ key, media, min_connections })), [
+    { key: 'video_clips', media: 'video', min_connections: 2 },
+  ]);
+  assert.equal(payload.validation_errors_trusted.filter((error) => error.code === 'PLAN_CONNECTION_INPUT').length, 1);
+  assert.equal(payload.validation_errors_trusted.some((error) => error.code === 'PLAN_CONNECTION_MEDIA' && error.path === 'connections[2]'), false);
+  assert.equal(payload.validation_errors_trusted.some((error) => error.code === 'PLAN_CONNECTION_MEDIA' && error.path === 'connections[3]'), true);
+  assert.equal(payload.validation_errors_trusted.some((error) => error.code === 'PLAN_REQUIRED_INPUT' && error.message.includes('"video_clips"')), true);
 });
 
 test('curated call 2 context stays bounded without concrete configuration schemas', () => {
