@@ -332,6 +332,40 @@ test('runClaimedRun executes the full graph with seeded node-run ids and stored 
   assert.deepEqual(stored.keys, ['k-nrA']);
 });
 
+test('runClaimedRun publishes every persisted run and node transition', async () => {
+  const events = [];
+  const deps = baseRunDeps({
+    updateRun: async (id, patch) => ({ id, ...patch }),
+    updateNodeRun: async (id, patch) => ({ id, ...patch }),
+    publishWorkflowEvent: async (event) => events.push(event),
+    executeGraph: async ({ repo }) => {
+      await repo.updateRun('run-events', { status: 'running' });
+      await repo.updateNodeRun('nrA', { status: 'running' });
+      await repo.updateNodeRun('nrA', { status: 'succeeded' });
+      await repo.updateRun('run-events', { status: 'completed' });
+      return { status: 'completed' };
+    },
+  });
+
+  await runClaimedRun({
+    id: 'run-events',
+    userId: 'u1',
+    workflowId: 'wf',
+    provider: 'replicate',
+    targetNodeId: null,
+  }, deps);
+
+  assert.deepEqual(events.map(({ nodeRunId, status }) => ({ nodeRunId, status })), [
+    { nodeRunId: null, status: 'running' },
+    { nodeRunId: 'nrA', status: 'running' },
+    { nodeRunId: 'nrA', status: 'succeeded' },
+    { nodeRunId: null, status: 'completed' },
+  ]);
+  assert.ok(events.every((event) =>
+    event.userId === 'u1' && event.workflowId === 'wf' && event.runId === 'run-events'
+  ));
+});
+
 test('runClaimedRun runs a single targeted node using prior workflow results', async () => {
   let captured = null;
   const deps = baseRunDeps({
