@@ -757,10 +757,21 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
 
   const onDataChange = (id, newData, targetNodeId = null) => {
     setNodes((prevNodes) => {
+      const normalizedId = String(id || "").toLowerCase().replace(/\s+/g, "");
+      const sourceNode = prevNodes.find((node) =>
+        String(node.id || "").toLowerCase().replace(/\s+/g, "") === normalizedId
+      );
+      const sourceId = sourceNode?.id || id;
+      // A completed/generated result is also the newly active history output.
+      // Keeping this in graph state prevents an older viewingOutput selection
+      // from winning when the result is used by a downstream node.
+      const appliedData = newData?.outputs && Object.prototype.hasOwnProperty.call(newData, "resultUrl")
+        ? { ...newData, viewingOutput: newData.resultUrl }
+        : newData;
       let updatedNodes = prevNodes.map((node) => {
-        const match = node.id.toLowerCase().replace(/\s+/g, '') === id.toLowerCase().replace(/\s+/g, '');
+        const match = String(node.id || "").toLowerCase().replace(/\s+/g, "") === normalizedId;
         return match
-          ? { ...node, data: { ...node.data, ...newData } }
+          ? { ...node, data: { ...node.data, ...appliedData } }
           : node;
       });
 
@@ -773,9 +784,15 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
         return updatedNodes;
       }
 
-      let connectedEdges = edges.filter((e) => e.source === id);
+      // Streamed node ids may differ in case/spacing from their canvas ids.
+      // Resolve the canonical id before looking up edges so persisted outputs
+      // propagate just like direct edits made inside the node component.
+      let connectedEdges = edges.filter((e) => e.source === sourceId);
       if (targetNodeId) {
-        connectedEdges = connectedEdges.filter((e) => e.target === targetNodeId);
+        const normalizedTargetId = String(targetNodeId).toLowerCase().replace(/\s+/g, "");
+        connectedEdges = connectedEdges.filter((e) =>
+          String(e.target).toLowerCase().replace(/\s+/g, "") === normalizedTargetId
+        );
       }
 
       if (!connectedEdges.length) return updatedNodes;
