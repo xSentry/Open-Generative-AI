@@ -1263,3 +1263,162 @@ export const presets = [
     ]
   }
 ];
+
+const REPLICATE_PRESET_MODELS = {
+  "image-generator": {
+    image1: "nano-banana-2",
+    image2: "nano-banana-2",
+  },
+  "video-generator": {
+    image1: "nano-banana-2",
+    video1: "seedance-2-0-mini",
+  },
+  "audio-generator": {
+    audio1: "lyria-3-pro",
+  },
+  captioning: {
+    text1: "claude-4-5-sonnet",
+  },
+  "speech-generator": {
+    audio1: "gemini-3-1-flash-tts",
+  },
+};
+
+const REPLICATE_PRESET_DESCRIPTIONS = {
+  "image-generator": "Generate and edit images with Nano Banana 2",
+  "video-generator": "Generate an image with Nano Banana 2 and animate it with Seedance 2.0 Mini",
+  "audio-generator": "Generate music from text with Lyria 3 Pro",
+  captioning: "Generate a detailed image caption with Claude",
+};
+
+const REPLICATE_SPEECH_PRESET = {
+  id: "speech-generator",
+  title: "Speech Generator",
+  description: "Generate speech from text with Gemini 3.1 Flash TTS",
+  icon: "audio",
+  image: "https://images.unsplash.com/photo-1589903308904-1010c2294adc?q=80&w=500&auto=format&fit=crop",
+  nodes: [
+    {
+      id: "text1",
+      position: { x: -20, y: 30 },
+      type: "textNode",
+      data: {
+        selectedModel: { id: "text-passthrough", name: "Input Text" },
+        formValues: { prompt: "Welcome to the future of creative AI workflows." },
+        outputs: [{ type: "text", value: "Welcome to the future of creative AI workflows." }],
+        resultUrl: "Welcome to the future of creative AI workflows.",
+      },
+    },
+    {
+      id: "audio1",
+      position: { x: 410, y: 30 },
+      type: "audioNode",
+      data: {
+        selectedModel: { id: "gemini-3-1-flash-tts", name: "gemini-3.1-flash-tts" },
+        formValues: { text: "Welcome to the future of creative AI workflows." },
+        outputs: [],
+        resultUrl: null,
+      },
+    },
+  ],
+  edges: [
+    {
+      id: "e-speech-1",
+      source: "text1",
+      target: "audio1",
+      sourceHandle: "textOutput",
+      targetHandle: "audioInput5",
+      style: { stroke: "#3b82f6", strokeWidth: 2 },
+    },
+  ],
+};
+
+const categoryForNodeType = (type) => type?.replace(/Node$/, "");
+
+const schemaProperties = (nodeSchemas, node, modelId) => {
+  const category = categoryForNodeType(node.type);
+  const inputSchema = nodeSchemas?.categories?.[category]?.models?.[modelId]?.input_schema;
+  return inputSchema?.schemas?.input_data?.properties || inputSchema?.properties || inputSchema || {};
+};
+
+const formValuesForReplicatePreset = (nodeSchemas, node, modelId) => {
+  const properties = schemaProperties(nodeSchemas, node, modelId);
+  const values = Object.fromEntries(
+    Object.entries(properties).map(([key, meta]) => [
+      key,
+      meta?.default !== undefined ? meta.default : meta?.type === "array" ? [] : "",
+    ])
+  );
+  const current = node.data?.formValues || {};
+
+  if ("prompt" in properties && current.prompt !== undefined) values.prompt = current.prompt;
+  if ("text" in properties && current.text !== undefined) values.text = current.text;
+
+  // Provider schemas normalize Replicate's native media fields to the generic
+  // keys understood by the builder's connection handles.
+  if ("image_url" in properties) {
+    values.image_url = current.image_url || current.images_list?.[0] || "";
+  }
+  if ("images_list" in properties) {
+    values.images_list = current.images_list || (current.image_url ? [current.image_url] : []);
+  }
+
+  return values;
+};
+
+/**
+ * Return presets for the active generation provider. MuAPI deliberately gets
+ * the original objects unchanged; Replicate gets models and schema-shaped form
+ * values that exist in its provider-scoped node catalog.
+ */
+export const getPresets = (provider = "muapi", nodeSchemas = {}) => {
+  if (provider !== "replicate") return presets;
+
+  const replicatePresets = [...presets, REPLICATE_SPEECH_PRESET];
+  const requiredModels = Object.entries(REPLICATE_PRESET_MODELS).flatMap(([presetId, models]) => {
+    const preset = replicatePresets.find((item) => item.id === presetId);
+    return Object.entries(models).map(([nodeId, modelId]) => {
+      const node = preset?.nodes.find((item) => item.id === nodeId);
+      return [categoryForNodeType(node?.type), modelId];
+    });
+  });
+  const catalogReady = Boolean(nodeSchemas?.categories)
+    && requiredModels.every(([category, modelId]) => nodeSchemas.categories?.[category]?.models?.[modelId]);
+
+  // Never expose partially converted presets: node-level handle validation
+  // would otherwise remove edges based on stale MuAPI form fields.
+  if (!catalogReady) return [];
+
+  return replicatePresets.map((preset) => {
+    const modelMap = REPLICATE_PRESET_MODELS[preset.id];
+    if (!modelMap) return preset;
+
+    const nodes = preset.nodes.map((node) => {
+      const modelId = modelMap[node.id];
+      if (!modelId) return node;
+
+      const category = categoryForNodeType(node.type);
+      const schemaModel = nodeSchemas?.categories?.[category]?.models?.[modelId];
+      if (!schemaModel) return node;
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          selectedModel: {
+            ...schemaModel,
+            id: modelId,
+            name: schemaModel.name || modelId,
+          },
+          formValues: formValuesForReplicatePreset(nodeSchemas, node, modelId),
+        },
+      };
+    });
+
+    return {
+      ...preset,
+      description: REPLICATE_PRESET_DESCRIPTIONS[preset.id] || preset.description,
+      nodes,
+    };
+  });
+};

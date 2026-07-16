@@ -4,12 +4,13 @@ import React from "react";
 import { ReactFlowProvider } from "reactflow";
 import NodeFlow from "./components/NodeFlow";
 
-export default function Home({ workflowId, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) {
+export default function Home({ workflowId, provider = "muapi", initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) {
   return (
     <div className="flex flex-col items-center justify-center h-screen w-full">
       <ReactFlowProvider>
         <NodeFlow 
           workflowId={workflowId}
+          provider={provider}
           initialNodeSchemas={initialNodeSchemas} 
           initialWorkflowData={initialWorkflowData} 
           onWorkflowSaved={onWorkflowSaved}
