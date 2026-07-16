@@ -142,6 +142,9 @@ export function normalizeMediaProperties(model) {
   const out = {};
   const used = new Set();
   for (const [key, input] of Object.entries(inputs)) {
+    // Output-token limits are intentionally provider-managed. Do not render or
+    // persist this legacy optional field in new Workflow Builder nodes.
+    if (key === 'max_output_tokens') continue;
     if (GENERIC_MEDIA_KEYS.has(key)) {
       out[key] = input;
       used.add(key);

@@ -196,6 +196,18 @@ test('normalizeMediaProperties maps single image/video/audio fields and keeps ge
   assert.ok(!('src_video' in props));
 });
 
+test('workflow schemas omit provider-managed max_output_tokens', () => {
+  const props = normalizeMediaProperties({
+    inputs: {
+      prompt: { type: 'string' },
+      max_output_tokens: { type: 'int', default: 65535 },
+    },
+  });
+
+  assert.ok('prompt' in props);
+  assert.equal(props.max_output_tokens, undefined);
+});
+
 test('replicate node-schemas expose an image handle key for image models with refs', () => {
   const schemas = buildNodeSchemas('replicate');
   const model = schemas.categories.image.models['nano-banana-2'];

@@ -56,6 +56,23 @@ test('Replicate buildInput keeps declared params, coerces enums, and routes medi
   });
 });
 
+test('Replicate buildInput always omits max_output_tokens and uses the provider default', () => {
+  const model = {
+    id: 'text-model',
+    inputs: {
+      prompt: { type: 'string' },
+      max_output_tokens: { type: 'int', minValue: 1, default: 65535 },
+    },
+  };
+
+  assert.deepEqual(buildInput(model, { prompt: 'hello', max_output_tokens: 0 }), {
+    prompt: 'hello',
+  });
+  assert.deepEqual(buildInput(model, { prompt: 'hello', max_output_tokens: 512 }), {
+    prompt: 'hello',
+  });
+});
+
 test('Replicate buildInput routes multiple unique images to reference arrays', () => {
   const input = buildInput(seedanceLikeModel, {
     image_url: 'https://example.test/a.png',

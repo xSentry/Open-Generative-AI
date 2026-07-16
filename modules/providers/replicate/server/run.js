@@ -24,6 +24,13 @@ const RECAST_SYSTEM_PROMPT =
   "Replace that person's appearance and identity with the reference character while preserving the original motion, " +
   'body pose, timing, camera movement, lighting, and overall scene.';
 
+// Let Replicate/model providers choose their own output-token budget. Workflow
+// Builder historically initialized optional integer inputs to 0, so old saved
+// workflows may still contain max_output_tokens: 0. Omitting the field at this
+// final request boundary repairs those workflows and avoids provider-specific
+// minimums (which can be stricter than the imported schema metadata).
+const OMITTED_INPUT_FIELDS = new Set(['max_output_tokens']);
+
 // Generic keys the Studio components post for media, mapped onto the model's
 // actual Replicate input field via model.imageField/swapField/etc.
 function sleep(ms) {
@@ -92,6 +99,7 @@ export function buildInput(model, params = {}) {
   const input = {};
 
   for (const key of Object.keys(inputs)) {
+    if (OMITTED_INPUT_FIELDS.has(key)) continue;
     let value = params[key];
     if (value !== undefined && value !== null && value !== '') {
       // Coerce enum values to their canonical casing/spelling. Different
