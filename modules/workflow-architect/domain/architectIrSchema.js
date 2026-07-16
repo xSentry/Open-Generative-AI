@@ -137,11 +137,12 @@ export function createWorkflowIrJsonSchema(catalog) {
             model_preferences: {
               type: ['object', 'null'],
               additionalProperties: false,
-              required: ['speed_tier', 'quality_tier', 'stability'],
+              required: ['speed_tier', 'quality_tier', 'stability', 'cost'],
               properties: {
-                speed_tier: { type: ['string', 'null'], enum: ['fast', 'balanced', null] },
-                quality_tier: { type: ['string', 'null'], enum: ['standard', 'high', null] },
+                speed_tier: { type: ['string', 'null'], enum: ['fast', 'balanced', 'slow', null] },
+                quality_tier: { type: ['string', 'null'], enum: ['low', 'standard', 'high', null] },
                 stability: { type: ['string', 'null'], enum: ['stable', null] },
+                cost: { type: ['string', 'null'], enum: ['cheap', 'normal', 'expensive', null] },
               },
             },
           },

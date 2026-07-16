@@ -1891,16 +1891,18 @@ export default function ImageStudio({
       )}
 
       {/* ── DRAW CANVAS MODAL ── */}
-      <DrawModal
-        isOpen={isDrawModalOpen}
-        onClose={() => setIsDrawModalOpen(false)}
-        apiKey={apiKey}
-        provider={provider}
-        modelsByMode={modelsByMode}
-        generatePersisted={serverGen.active ? serverGen.generate : null}
-        batchSize={1}
-        onAddHistoryItem={addToHistory}
-      />
+      {isDrawModalOpen && (
+        <DrawModal
+          isOpen
+          onClose={() => setIsDrawModalOpen(false)}
+          apiKey={apiKey}
+          provider={provider}
+          modelsByMode={modelsByMode}
+          generatePersisted={serverGen.active ? serverGen.generate : null}
+          batchSize={1}
+          onAddHistoryItem={addToHistory}
+        />
+      )}
     </div>
   );
 }

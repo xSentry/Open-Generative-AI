@@ -81,6 +81,21 @@ async function cleanupKeys(impl, keys) {
   }
 }
 
+function withFreshThumbnailUrl(workflow, impl) {
+  if (!workflow?.thumbnailObjectKey || !impl.getS3Config || !impl.createPresignedGetUrl) return workflow;
+  try {
+    return {
+      ...workflow,
+      thumbnailKey: impl.createPresignedGetUrl({
+        config: impl.getS3Config(),
+        key: workflow.thumbnailObjectKey,
+      }),
+    };
+  } catch {
+    return workflow;
+  }
+}
+
 // `deps` lets tests inject a fake repo. In production it defaults to the real
 // Postgres-backed workflowsRepo module (matches the studio DI handler pattern).
 export async function handleLocalWorkflow(request, { params }, method, ctx, deps = {}) {
@@ -102,7 +117,9 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     deleteWorkflow,
     setPublished,
     setTemplate,
+    createTemplate,
     cloneWorkflow,
+    clearThumbnail,
   } = impl;
 
   const slug = await params;
@@ -115,15 +132,15 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     // ---- CRUD ----
     if (method === 'GET' && p === 'get-workflow-defs') {
       const rows = await listWorkflows(scope);
-      return json(rows.map((row) => serializeWorkflowSummary(row, callerId)));
+      return json(rows.map((row) => serializeWorkflowSummary(withFreshThumbnailUrl(row, impl), callerId)));
     }
     if (method === 'GET' && p === 'get-template-workflows') {
       const rows = await listTemplates(scope);
-      return json(rows.map((row) => serializeWorkflowSummary(row, callerId)));
+      return json(rows.map((row) => serializeWorkflowSummary(withFreshThumbnailUrl(row, impl), callerId)));
     }
     if (method === 'GET' && p === 'get-published-workflows') {
       const rows = await listPublished(scope);
-      return json(rows.map((row) => serializeWorkflowSummary(row, callerId)));
+      return json(rows.map((row) => serializeWorkflowSummary(withFreshThumbnailUrl(row, impl), callerId)));
     }
     if (method === 'GET' && path[0] === 'get-workflow-def' && path[1]) {
       const wf = await getWorkflow(path[1], scope);
@@ -220,6 +237,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
       }
       const wf = await deleteWorkflow(path[1], { userId: ctx.user.id });
       if (!wf) return json({ error: 'Not found' }, 404);
+      keys = [...new Set([...(keys || []), wf.thumbnailObjectKey].filter(Boolean))];
       await cleanupKeys(impl, keys);
       return json({ workflow_id: wf.id, deleted: true });
     }
@@ -229,13 +247,34 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
       if (!wf) return json({ error: 'Not found' }, 404);
       return json({ publish: wf.published });
     }
-    // POST workflow/{id}/template — mark/unmark as a provider-wide template so it
-    // shows up in every user's Templates list (owner only).
+    // POST workflow/{id}/template — publish a fresh provider-wide template clone
+    // while preserving the owner's editable source workflow and its run data.
     if (method === 'POST' && path[0] === 'workflow' && path[2] === 'template') {
       const body = await readBody(request);
-      const wf = await setTemplate(path[1], { userId: ctx.user.id, isTemplate: body.is_template });
-      if (!wf) return json({ error: 'Not found' }, 404);
-      return json({ is_template: wf.isTemplate });
+      if (!body.is_template) {
+        const wf = await setTemplate(path[1], { userId: ctx.user.id, isTemplate: false });
+        if (!wf) return json({ error: 'Not found' }, 404);
+        return json({ workflow_id: wf.id, is_template: false });
+      }
+
+      const source = await getWorkflow(path[1], scope);
+      if (!source || source.userId !== ctx.user.id) return json({ error: 'Not found' }, 404);
+      const template = await createTemplate(path[1], scope);
+      if (!template) return json({ error: 'Not found' }, 404);
+
+      if (source.thumbnailKey) {
+        try {
+          const sourceUrl = source.thumbnailObjectKey && impl.createPresignedGetUrl && impl.getS3Config
+            ? impl.createPresignedGetUrl({ config: impl.getS3Config(), key: source.thumbnailObjectKey })
+            : source.thumbnailKey;
+          await storeWorkflowThumbnail(impl, ctx, template.id, { thumbnail: sourceUrl });
+        } catch (error) {
+          const removed = await deleteWorkflow(template.id, { userId: ctx.user.id }).catch(() => null);
+          if (removed?.thumbnailObjectKey) await cleanupKeys(impl, [removed.thumbnailObjectKey]);
+          throw error;
+        }
+      }
+      return json({ workflow_id: template.id, is_template: true });
     }
     // POST {id}/clone — copy a readable (template/published/own) workflow into a
     // new private workflow owned by the caller. Returns the new workflow_id.
@@ -296,8 +335,13 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
     }
     // POST {id}/thumbnail — persist a cover image URL for the workflow.
     if (method === 'POST' && path[1] === 'thumbnail') {
-      const body = await readBody(request);
-      return saveThumbnail(impl, ctx, path[0], body);
+      return await saveThumbnail(impl, ctx, path[0], request);
+    }
+    if (method === 'DELETE' && path[1] === 'thumbnail' && path.length === 2) {
+      const workflow = await clearThumbnail(path[0], { userId: ctx.user.id });
+      if (!workflow) return json({ error: 'Not found' }, 404);
+      await cleanupKeys(impl, [workflow.removedThumbnailObjectKey]);
+      return json({ success: true, thumbnail: null });
     }
 
     return json({ error: `Unknown workflow endpoint: ${method} ${p}` }, 404);
@@ -312,6 +356,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
         },
       }, 409);
     }
+    if (error?.status) return json({ error: error.message }, error.status);
     console.error('[workflow] local handler error:', error);
     return json({ error: error.message || 'Internal error' }, 500);
   }
@@ -547,14 +592,102 @@ function streamRuns(impl, ctx, request) {
   });
 }
 
-async function saveThumbnail(impl, ctx, workflowId, body) {
-  const thumbnail = body?.thumbnail;
-  if (!thumbnail) return json({ error: 'Thumbnail URL is required' }, 400);
-  const wf = await impl.setThumbnail(workflowId, {
+const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
+
+function thumbnailError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function thumbnailExtension(name, contentType) {
+  const mimeExtensions = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/avif': 'avif',
+  };
+  if (mimeExtensions[contentType]) return mimeExtensions[contentType];
+  const match = String(name || '').split(/[?#]/)[0].match(/\.([a-zA-Z0-9]{1,8})$/);
+  return match?.[1]?.toLowerCase() || 'img';
+}
+
+async function thumbnailPayload(impl, source) {
+  if (source?.file && typeof source.file.arrayBuffer === 'function') {
+    const contentType = source.file.type || 'application/octet-stream';
+    if (!contentType.startsWith('image/')) throw thumbnailError('Thumbnail must be an image', 415);
+    if (source.file.size > MAX_THUMBNAIL_BYTES) throw thumbnailError('Thumbnail must be 10 MB or smaller', 413);
+    return {
+      body: Buffer.from(await source.file.arrayBuffer()),
+      contentType,
+      name: source.file.name,
+    };
+  }
+
+  if (!source?.thumbnail || !/^https?:\/\//i.test(source.thumbnail)) {
+    throw thumbnailError('Thumbnail image or URL is required', 400);
+  }
+  const response = await (impl.fetchFn || fetch)(source.thumbnail);
+  if (!response.ok) throw thumbnailError(`Could not download thumbnail (${response.status})`, 422);
+  const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType && !contentType.startsWith('image/')) throw thumbnailError('Thumbnail URL must point to an image', 415);
+  const body = Buffer.from(await response.arrayBuffer());
+  if (body.length > MAX_THUMBNAIL_BYTES) throw thumbnailError('Thumbnail must be 10 MB or smaller', 413);
+  return { body, contentType: contentType || 'application/octet-stream', name: source.thumbnail };
+}
+
+async function storeWorkflowThumbnail(impl, ctx, workflowId, source) {
+  if (!impl.getS3Config || !impl.createWorkflowThumbnailObjectKey || !impl.uploadObject) {
+    throw thumbnailError('Thumbnail storage is not configured', 503);
+  }
+
+  const workflow = await impl.getWorkflow(workflowId, { userId: ctx.user.id, provider: ctx.provider });
+  if (!workflow || workflow.userId !== ctx.user.id) throw thumbnailError('Not found', 404);
+
+  const payload = await thumbnailPayload(impl, source);
+  const config = impl.getS3Config();
+  const key = impl.createWorkflowThumbnailObjectKey({
     userId: ctx.user.id,
-    thumbnailKey: thumbnail,
+    workflowId,
+    ext: thumbnailExtension(payload.name, payload.contentType),
   });
-  if (!wf) return json({ error: 'Not found' }, 404);
-  return json({ success: true });
+
+  let uploaded = false;
+  try {
+    const thumbnailUrl = await impl.uploadObject({
+      config,
+      key,
+      body: payload.body,
+      contentType: payload.contentType,
+    });
+    uploaded = true;
+    const saved = await impl.setThumbnail(workflowId, {
+      userId: ctx.user.id,
+      thumbnailUrl,
+      thumbnailObjectKey: key,
+    });
+    if (!saved) throw thumbnailError('Not found', 404);
+    if (saved.replacedThumbnailObjectKey && saved.replacedThumbnailObjectKey !== key) {
+      await cleanupKeys(impl, [saved.replacedThumbnailObjectKey]);
+    }
+    return saved;
+  } catch (error) {
+    if (uploaded) await cleanupKeys(impl, [key]);
+    throw error;
+  }
+}
+
+async function saveThumbnail(impl, ctx, workflowId, request) {
+  const contentType = request.headers.get('content-type') || '';
+  let source;
+  if (contentType.toLowerCase().startsWith('multipart/form-data')) {
+    const form = await request.formData();
+    source = { file: form.get('thumbnail') || form.get('file') };
+  } else {
+    source = await readBody(request);
+  }
+  const workflow = await storeWorkflowThumbnail(impl, ctx, workflowId, source);
+  return json({ success: true, thumbnail: workflow.thumbnailKey });
 }
 

@@ -129,6 +129,19 @@ export function createWorkflowOutputObjectKey({ userId, workflowId, runId, nodeR
   return `workflow-outputs/${userId}/${workflowId}/${yyyy}/${mm}/${dd}/${runId}/${nodeRunId}-${index}.${safeExt}`;
 }
 
+// Workflow covers live independently from run outputs. A unique suffix lets a
+// replacement upload complete before the old cover is deleted.
+export function createWorkflowThumbnailObjectKey({ userId, workflowId, ext, date = new Date() }) {
+  const safeExt = String(ext || 'bin')
+    .replace(/^\.+/, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 12) || 'bin';
+  const yyyy = String(date.getUTCFullYear());
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `workflow-thumbnails/${userId}/${workflowId}/${yyyy}/${mm}/${dd}/${crypto.randomUUID()}.${safeExt}`;
+}
+
 export function signS3Request({ method, url, region, accessKeyId, secretAccessKey, headers = {}, payloadHash, date = new Date() }) {
   const parsedUrl = new URL(url);
   const now = amzDate(date);

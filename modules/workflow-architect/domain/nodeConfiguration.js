@@ -72,7 +72,7 @@ export function buildModelSelectionOptions(plan, { catalog } = {}) {
         : new Set(Object.values(CURATED_MODEL_PROFILES).flat().map((profile) => profile.modelId));
       const models = (catalog?.node_types || [])
         .filter((node) => curatedIds.has(node.model_id) && matchesType(node, planned.type))
-        .map((node) => ({ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier }));
+        .map((node) => ({ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier, cost: node.cost }));
       return { node_id: planned.id, type: planned.type, models };
     }),
   };
@@ -145,7 +145,7 @@ export function buildConfigurationOptions(plan, selection, { catalog, userReques
       }
       const inputs = {};
       if ((planned.type === 'text-input' || planned.type === 'system-instruction') && configurable_inputs.prompt) inputs.prompt = String(planned.input_value || '').slice(0, configurable_inputs.prompt.maxLength || 2000);
-      return { node_id: planned.id, type: planned.type, implementations: [{ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier, configurable_inputs }], connected_media: [...connected], inputs };
+      return { node_id: planned.id, type: planned.type, implementations: [{ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier, cost: node.cost, configurable_inputs }], connected_media: [...connected], inputs };
     }),
   };
 }

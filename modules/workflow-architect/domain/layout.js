@@ -2,7 +2,7 @@ const DEFAULT_LAYOUT = Object.freeze({
   originX: 80,
   originY: 120,
   columnGap: 500,
-  rowGap: 320,
+  rowGap: 380,
 });
 
 function issue(code, message, path = null) {

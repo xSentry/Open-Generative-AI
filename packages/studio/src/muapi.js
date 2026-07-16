@@ -536,8 +536,7 @@ export async function deleteWorkflow(apiKey, workflowId) {
     return await response.json();
 };
 
-// Mark/unmark one of your own workflows as a provider-wide template. Once a
-// template, it appears in every user's Templates list (provider-scoped).
+// Publish a fresh, run-free clone of an owned workflow as a provider template.
 export async function setWorkflowTemplate(apiKey, workflowId, isTemplate) {
     const response = await fetch(`${BASE_URL}/workflow/workflow/${workflowId}/template`, {
         method: 'POST',
@@ -603,6 +602,37 @@ export async function executeWorkflow(apiKey, workflowId, inputs, options = {}) 
     if (!runId) return submitData;
     
     return await streamWorkflowResult(runId, apiKey, options);
+};
+
+export async function uploadWorkflowThumbnail(apiKey, workflowId, file) {
+    const body = new FormData();
+    body.append('thumbnail', file);
+    const headers = {};
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/workflow/${workflowId}/thumbnail`, {
+        method: 'POST',
+        headers,
+        body,
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to update thumbnail: ${response.status} - ${errText.slice(0, 150)}`);
+    }
+    return await response.json();
+};
+
+export async function removeWorkflowThumbnail(apiKey, workflowId) {
+    const headers = {};
+    if (apiKey) headers['x-api-key'] = apiKey;
+    const response = await fetch(`${BASE_URL}/workflow/${workflowId}/thumbnail`, {
+        method: 'DELETE',
+        headers,
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to remove thumbnail: ${response.status} - ${errText.slice(0, 150)}`);
+    }
+    return await response.json();
 };
 
 function terminalWorkflowStatus(status) {

@@ -32,6 +32,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'prompt',
       qualityTier: 'high',
       speedTier: 'fast',
+      cost: 'normal',
       defaultParameters: {
         aspect_ratio: 'match_input_image',
         resolution: '1K',
@@ -45,7 +46,8 @@ export const CURATED_MODEL_PROFILES = {
       label: 'GPT Image generation',
       promptPort: 'prompt',
       qualityTier: 'high',
-      speedTier: 'balanced',
+      speedTier: 'slow',
+      cost: 'expensive',
       defaultParameters: {
         aspect_ratio: '1:1',
         number_of_images: 1,
@@ -64,6 +66,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'prompt',
       qualityTier: 'standard',
       speedTier: 'fast',
+      cost: 'expensive',
       defaultParameters: {
         duration: 5,
         resolution: '720p',
@@ -79,6 +82,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'text',
       qualityTier: 'high',
       speedTier: 'fast',
+      cost: 'expensive',
       defaultParameters: {
         voice_id: 'Ashley',
         language: 'auto',
@@ -95,6 +99,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'text',
       qualityTier: 'high',
       speedTier: 'fast',
+      cost: 'cheap',
       defaultParameters: {
         voice: 'Kore',
         prompt: 'Say the following.',
@@ -109,6 +114,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'prompt',
       qualityTier: 'high',
       speedTier: 'fast',
+      cost: 'cheap',
       defaultParameters: {
         reasoning_effort: 'minimal',
         verbosity: 'medium',
@@ -120,6 +126,7 @@ export const CURATED_MODEL_PROFILES = {
       promptPort: 'prompt',
       qualityTier: 'high',
       speedTier: 'fast',
+      cost: 'normal',
       defaultParameters: {
         reasoning_effort: 'none',
         verbosity: 'medium',
@@ -141,6 +148,7 @@ function cloneEntry(entry, profile) {
       promptPort: profile.promptPort,
       qualityTier: profile.qualityTier,
       speedTier: profile.speedTier,
+      cost: profile.cost,
     },
   };
 }
@@ -296,6 +304,7 @@ function compactNodeRecord(node) {
     prompt_port: node.model_preferences?.prompt_port || null,
     speed_tier: node.speed_tier,
     quality_tier: node.quality_tier,
+    cost: node.cost,
     default_parameters: node.default_parameters || {},
   };
 }
@@ -323,6 +332,7 @@ function catalogNode(category, profile, entry) {
     stability: profileStability(profile),
     speed_tier: profile.speedTier,
     quality_tier: profile.qualityTier,
+    cost: profile.cost || 'normal',
     operation_modes: operationModes(category, compactInputs, capability),
     input_ports: compactInputs,
     output_ports: compactOutputs,
@@ -358,6 +368,7 @@ function passthroughNode(category, entry) {
     stability: 'stable',
     speed_tier: 'fast',
     quality_tier: 'standard',
+    cost: 'cheap',
     operation_modes: ['input'],
     capability_aliases: [category, `${category}_input`],
     input_ports: inputPorts,
@@ -398,6 +409,7 @@ function catalogNodeFromEntry(category, modelId, entry) {
     stability: entry?.stability || 'catalog',
     speed_tier: entry?.speedTier || 'balanced',
     quality_tier: entry?.qualityTier || 'standard',
+    cost: entry?.cost || 'normal',
     operation_modes: operationModes(category, inputPorts, capability),
     input_ports: inputPorts,
     output_ports: outputPorts,
@@ -472,6 +484,7 @@ export function getArchitectNodeProfile(category, modelId, catalog = null) {
     promptPort: node.model_preferences.prompt_port,
     qualityTier: node.quality_tier,
     speedTier: node.speed_tier,
+    cost: node.cost,
     stability: node.stability,
     defaultParameters: node.default_parameters,
     capability: node.capability,

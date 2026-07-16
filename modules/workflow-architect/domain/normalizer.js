@@ -68,6 +68,7 @@ function selectModelProfile(category, preferences = {}, catalog = null, rawNode 
   const preferred = profiles.find((profile) =>
     (!preferences?.speed_tier || profile.speedTier === preferences.speed_tier) &&
     (!preferences?.quality_tier || profile.qualityTier === preferences.quality_tier) &&
+    (!preferences?.cost || profile.cost === preferences.cost) &&
     (!preferences?.stability || (profile.stability || 'stable') === preferences.stability)
   );
   const profile = preferred || defaultArchitectModelProfile(category, {

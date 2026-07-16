@@ -239,27 +239,100 @@ test('DELETE delete-workflow-def/{id} purges stored S3 outputs', async () => {
     ctxFor(),
     {
       getWorkflowOutputKeys: async () => ['workflow-outputs/u/wf-1/a.png', 'workflow-outputs/u/wf-1/b.mp4'],
-      deleteWorkflow: async (id) => ({ id }),
+      deleteWorkflow: async (id) => ({ id, thumbnailObjectKey: 'workflow-thumbnails/u/wf-1/cover.png' }),
       getS3Config: () => ({ bucket: 'b' }),
       deleteObject: async ({ key }) => { deletedObjects.push(key); },
     }
   );
   assert.equal(response.status, 200);
   assert.deepEqual(await readJson(response), { workflow_id: 'wf-1', deleted: true });
-  assert.deepEqual(deletedObjects, ['workflow-outputs/u/wf-1/a.png', 'workflow-outputs/u/wf-1/b.mp4']);
+  assert.deepEqual(deletedObjects, [
+    'workflow-outputs/u/wf-1/a.png',
+    'workflow-outputs/u/wf-1/b.mp4',
+    'workflow-thumbnails/u/wf-1/cover.png',
+  ]);
 });
 
-test('POST {id}/thumbnail persists the provided cover URL', async () => {
+test('POST {id}/thumbnail uploads the image, persists its URL and removes the replaced object', async () => {
   let saved = null;
+  const deleted = [];
   const response = await handleLocalWorkflow(
     request('http://test.local/api/workflow', { thumbnail: 'https://img/cover.png' }),
     routeCtx(['wf-1', 'thumbnail']),
     'POST',
     ctxFor(),
-    { setThumbnail: async (id, { thumbnailKey }) => { saved = { id, thumbnailKey }; return { id }; } }
+    {
+      getWorkflow: async () => ({ id: 'wf-1', userId: 'user-1' }),
+      fetchFn: async () => new Response(Buffer.from('image'), { headers: { 'content-type': 'image/png' } }),
+      getS3Config: () => ({ bucket: 'b' }),
+      createWorkflowThumbnailObjectKey: ({ workflowId }) => `workflow-thumbnails/u/${workflowId}/cover.png`,
+      uploadObject: async ({ key }) => `https://cdn/${key}`,
+      deleteObject: async ({ key }) => { deleted.push(key); },
+      setThumbnail: async (id, args) => {
+        saved = { id, ...args };
+        return { id, thumbnailKey: args.thumbnailUrl, replacedThumbnailObjectKey: 'workflow-thumbnails/u/wf-1/old.png' };
+      },
+    }
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(await readJson(response), { success: true });
-  assert.deepEqual(saved, { id: 'wf-1', thumbnailKey: 'https://img/cover.png' });
+  assert.deepEqual(await readJson(response), {
+    success: true,
+    thumbnail: 'https://cdn/workflow-thumbnails/u/wf-1/cover.png',
+  });
+  assert.deepEqual(saved, {
+    id: 'wf-1',
+    userId: 'user-1',
+    thumbnailUrl: 'https://cdn/workflow-thumbnails/u/wf-1/cover.png',
+    thumbnailObjectKey: 'workflow-thumbnails/u/wf-1/cover.png',
+  });
+  assert.deepEqual(deleted, ['workflow-thumbnails/u/wf-1/old.png']);
+});
+
+test('POST {id}/thumbnail accepts an uploaded image file', async () => {
+  const form = new FormData();
+  form.append('thumbnail', new Blob([Buffer.from('png')], { type: 'image/png' }), 'cover.png');
+  let uploadedBody = null;
+  const response = await handleLocalWorkflow(
+    new Request('http://test.local/api/workflow/wf-1/thumbnail', { method: 'POST', body: form }),
+    routeCtx(['wf-1', 'thumbnail']),
+    'POST',
+    ctxFor(),
+    {
+      getWorkflow: async () => ({ id: 'wf-1', userId: 'user-1' }),
+      getS3Config: () => ({ bucket: 'b' }),
+      createWorkflowThumbnailObjectKey: () => 'workflow-thumbnails/u/wf-1/upload.png',
+      uploadObject: async ({ body }) => {
+        uploadedBody = body;
+        return 'https://cdn/upload.png';
+      },
+      setThumbnail: async (id, args) => ({ id, thumbnailKey: args.thumbnailUrl }),
+      deleteObject: async () => {},
+    }
+  );
+  assert.equal(response.status, 200);
+  assert.equal(Buffer.compare(uploadedBody, Buffer.from('png')), 0);
+  assert.equal((await readJson(response)).thumbnail, 'https://cdn/upload.png');
+});
+
+test('DELETE {id}/thumbnail clears the workflow cover and deletes its S3 object', async () => {
+  const deleted = [];
+  const response = await handleLocalWorkflow(
+    request(),
+    routeCtx(['wf-1', 'thumbnail']),
+    'DELETE',
+    ctxFor(),
+    {
+      clearThumbnail: async (id, scope) => ({
+        id,
+        ...scope,
+        removedThumbnailObjectKey: 'workflow-thumbnails/u/wf-1/cover.png',
+      }),
+      getS3Config: () => ({ bucket: 'b' }),
+      deleteObject: async ({ key }) => { deleted.push(key); },
+    }
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await readJson(response), { success: true, thumbnail: null });
+  assert.deepEqual(deleted, ['workflow-thumbnails/u/wf-1/cover.png']);
 });
 
