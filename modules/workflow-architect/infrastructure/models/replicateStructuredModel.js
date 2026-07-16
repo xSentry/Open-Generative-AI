@@ -40,6 +40,7 @@ const MODEL_PROMPT_NODE_FIELDS = [
   'prompt_port',
   'speed_tier',
   'quality_tier',
+  'cost',
   'default_parameters',
 ];
 

@@ -32,6 +32,7 @@ test('separates independent starts and centers their join', () => {
   const byRef = positions(result);
   assert.equal(byRef.left.x, byRef.right.x);
   assert.notEqual(byRef.left.y, byRef.right.y);
+  assert.equal(Math.abs(byRef.left.y - byRef.right.y), 380);
   assert.equal(byRef.join.x, byRef.left.x + 500);
   assert.equal(byRef.join.y, (byRef.left.y + byRef.right.y) / 2);
 });
