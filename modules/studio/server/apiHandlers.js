@@ -178,9 +178,14 @@ export async function handleStudioGenerateRequest(request, deps) {
       }
 
       // Synchronous flow (Phase 1): run provider, store output, return the row.
-      const providerResult = await runProvider();
-      const stored = await deps.storeGenerationOutputs({ generation, providerResult });
-      return json({ generation: serializeGeneration(stored, deps) });
+      try {
+        const providerResult = await runProvider();
+        const stored = await deps.storeGenerationOutputs({ generation, providerResult });
+        return json({ generation: serializeGeneration(stored, deps) });
+      } catch (error) {
+        await deps.failGeneration?.({ generation, error });
+        throw error;
+      }
     }
 
     // Legacy (no persistence): behave exactly as before.
@@ -246,6 +251,26 @@ export async function handleStudioUploadRequest(request, deps) {
       return json(body, { status });
     }
     return uploadError('upload_failed', error.message || 'File upload failed.', error.status || 500);
+  }
+}
+
+export async function handleStudioUploadDeleteRequest(request, deps) {
+  try {
+    const user = await deps.requireUser(request);
+    const body = await request.json();
+    const assets = extractInputAssets(body?.params || {});
+    const allowedPrefix = `studio-uploads/${user.id}/`;
+    const config = deps.getS3Config();
+
+    const keys = assets
+      .map((asset) => asset.key)
+      .filter((key) => key.startsWith(allowedPrefix));
+
+    await Promise.all(keys.map((key) => deps.deleteObject({ config, key })));
+    return json({ deleted: keys.length });
+  } catch (error) {
+    const { body, status } = deps.errorResponse(error);
+    return json(body, { status });
   }
 }
 

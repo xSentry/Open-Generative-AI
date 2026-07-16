@@ -1,9 +1,13 @@
 import { requireUser } from '@/modules/auth/server/auth';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
-import { handleStudioUploadRequest } from '@/modules/studio/server/apiHandlers';
+import {
+  handleStudioUploadDeleteRequest,
+  handleStudioUploadRequest,
+} from '@/modules/studio/server/apiHandlers';
 import {
   createObjectKey,
+  deleteObject,
   getS3Config,
   uploadObject,
 } from '@/modules/storage/server/s3';
@@ -21,5 +25,14 @@ export async function POST(request) {
     maxUploadBytes: MAX_UPLOAD_BYTES,
     requireUser,
     uploadObject,
+  });
+}
+
+export async function DELETE(request) {
+  return handleStudioUploadDeleteRequest(request, {
+    deleteObject,
+    errorResponse,
+    getS3Config,
+    requireUser,
   });
 }

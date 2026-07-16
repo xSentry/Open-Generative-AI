@@ -4,6 +4,7 @@ import {
   handleMuapiV1PostRequest,
   handleStudioGenerateRequest,
   handleStudioModelsRequest,
+  handleStudioUploadDeleteRequest,
   handleStudioUploadRequest,
 } from '../modules/studio/server/apiHandlers.js';
 
@@ -165,6 +166,51 @@ test('/api/studio/generate routes supported Replicate generation server-side', a
   });
 });
 
+test('/api/studio/generate marks a persisted generation failed when the provider rejects it', async () => {
+  let failed;
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: 'i2i',
+        model: 'edit-model',
+        params: {
+          prompt: 'edit',
+          images_list: ['https://bucket/studio-uploads/u/canvas.jpg'],
+        },
+      }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({
+        provider: 'replicate',
+        apiKey: 'r8_test',
+        user: { id: 'u' },
+      }),
+      getReplicateStudioModel: () => ({ id: 'edit-model' }),
+      getProviderMissingKeyMessage: () => 'missing',
+      createGeneration: async (generation) => ({
+        ...generation,
+        id: 'gen-draw',
+        status: 'generating',
+      }),
+      mediaTypeForMode: () => 'image',
+      runReplicatePrediction: async () => {
+        throw new Error('provider failed');
+      },
+      failGeneration: async (input) => {
+        failed = input;
+      },
+      env: { STUDIO_ASYNC_GENERATIONS: 'false' },
+    },
+  );
+
+  assert.equal(response.status, 500);
+  assert.equal(failed.generation.id, 'gen-draw');
+  assert.equal(failed.generation.inputAssets[0].key, 'studio-uploads/u/canvas.jpg');
+  assert.equal(failed.error.message, 'provider failed');
+});
+
 test('/api/studio/generate returns typed Replicate parameter errors', async () => {
   const response = await handleStudioGenerateRequest(
     new Request('http://test.local/api/studio/generate', {
@@ -311,6 +357,33 @@ test('/api/api/v1 compatibility bridge routes Replicate-supported Studio endpoin
     model: 'flux-schnell',
     url: 'https://example.test/out.png',
   });
+});
+
+test('/api/studio/upload cleanup only deletes temporary inputs owned by the caller', async () => {
+  const deleted = [];
+  const response = await handleStudioUploadDeleteRequest(
+    new Request('http://test.local/api/studio/upload', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        params: {
+          images_list: [
+            'https://cdn.example.test/studio-uploads/user-1/canvas.jpg',
+            'https://cdn.example.test/studio-uploads/other-user/secret.jpg',
+          ],
+        },
+      }),
+    }),
+    {
+      deleteObject: async ({ key }) => deleted.push(key),
+      errorResponse,
+      getS3Config: () => ({ bucket: 'studio' }),
+      requireUser: async () => ({ id: 'user-1' }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(deleted, ['studio-uploads/user-1/canvas.jpg']);
+  assert.deepEqual(await readJson(response), { deleted: 1 });
 });
 
 test('/api/api/v1 compatibility bridge returns missing-key errors before MuAPI proxying', async () => {
