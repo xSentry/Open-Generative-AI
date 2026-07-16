@@ -150,6 +150,15 @@ const SPECIAL_MODEL_NAMES = {
 
 const formatName = (id) => id.replace(/-/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+const getSchemaCategoryForNodeType = (nodeType) => {
+  if (nodeType === "textNode") return "text";
+  if (nodeType === "imageNode") return "image";
+  if (nodeType === "videoNode") return "video";
+  if (nodeType === "audioNode") return "audio";
+  if (nodeType === "apiNode") return "api";
+  return "utility";
+};
+
 const getModelObjStatic = (category, modelId, nodeSchemas) => {
   if (category === "api") {
     // We can't easily access filteredApiNodeModels statically without passing it, 
@@ -3037,8 +3046,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
                 )}
                 {selectedNode?.data?.selectedModel ? (
                   (() => {
-                    const nodeType = selectedNode.id.startsWith("text") ? "text" : selectedNode.id.startsWith("image") ? "image" : selectedNode.id.startsWith("video") ? "video" : selectedNode.id.startsWith("audio") ? "audio": "utility";
-                    const fullSchema = nodeSchemas?.categories?.[nodeType]?.models[selectedNode?.data?.selectedModel?.id]?.input_schema;
+                    const schemaCategory = getSchemaCategoryForNodeType(selectedNode.type);
+                    const fullSchema = nodeSchemas?.categories?.[schemaCategory]?.models[selectedNode?.data?.selectedModel?.id]?.input_schema;
                     const inputSchema = fullSchema?.schemas?.input_data || fullSchema || {};
 
                     return selectedNode?.data?.loading === 1 ? (
