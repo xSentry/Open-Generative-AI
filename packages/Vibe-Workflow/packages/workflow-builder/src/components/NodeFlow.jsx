@@ -323,10 +323,8 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
       runStatus: workflowData?.run_status || null,
       workflowName: workflowData.name,
       interactionMode: workflowData.is_owner,
-      publishWorkflow: workflowData.is_published ?? workflowData.published,
       template: {
         showTemplateBtn: workflowData.show_temp_button,
-        isPublishedTemplate: workflowData.is_template,
       },
       category: workflowData?.category || "General",
       revision: workflowData?.revision || 1,
@@ -374,10 +372,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
   const latestAutosaveStateRef = useRef({ interactionMode: false, isRestoring: true, hasNodeSchemas: false });
   const saveWorkflowRef = useRef(null);
   const [interactionMode, setInteractionMode] = useState(initialState?.metadata?.interactionMode || false);
-  const [publishWorkflow, setPublishWorkflow] = useState(initialState?.metadata?.publishWorkflow || false);
   const [template, setTemplate] = useState(initialState?.metadata?.template || {
     showTemplateBtn: false,
-    isPublishedTemplate: false
   });
   const [isDragging, setIsDragging] = useState(true);
   const [modelSearch, setModelSearch] = useState("");
@@ -629,11 +625,9 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
     setWorkflowCategory(workflowData?.category || "General");
     setWorkflowIds(workflowData.workflow_id, workflowData?.run_id);
     setInteractionMode(workflowData.is_owner);
-    setPublishWorkflow(workflowData.is_published ?? workflowData.published);
     setTemplate(prev => ({
       ...prev,
       showTemplateBtn: workflowData.show_temp_button,
-      isPublishedTemplate: workflowData.is_template,
     }));
     setIsRestoring(false);
   }, [id, nodeSchemas, getModelObj, setNodes, setEdges]);
@@ -1865,12 +1859,11 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       setIsRunning(2);
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/workflow/${savedWorkflowId}/publish`, {
-        publish: !publishWorkflow
+      await axios.post(`/api/workflow/workflow/${savedWorkflowId}/template`, {
+        is_template: true
       });
       setIsRunning(0);
-      toast.success(response.data.publish ? "Published successfully" : "Unpublished successfully");
-      setPublishWorkflow(response.data.publish);
+      toast.success("Template published successfully");
     } catch (error) {
       console.log(error);
       if (error.response) {
@@ -1889,13 +1882,11 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
       setIsRunning(4);
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/workflow/${savedWorkflowId}/template`, {
-        is_template: !template.isPublishedTemplate
+      await axios.post(`/api/workflow/workflow/${savedWorkflowId}/template`, {
+        is_template: true
       });
-      const is_template = response.data.is_template;
       setIsRunning(0);
-      toast.success(is_template ? "Published successfully" : "Unpublished successfully");
-      setTemplate(prev => ({ ...prev, isPublishedTemplate: is_template }));
+      toast.success("Template published successfully");
     } catch (error) {
       console.log(error);
       if (error.response) {
@@ -2697,7 +2688,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
                       ) : (
                         <LuLayoutTemplate size={16} />
                       )}
-                      <span>{template.isPublishedTemplate ? "Undo Template" : "Make Template"}</span>
+                      <span>Publish as Template</span>
                     </button>
                     <button
                       type="button"
@@ -2730,7 +2721,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, initialNodeSchemas, initialW
                     </>
                   ) : (
                     <>
-                      <FaTelegramPlane size={16} /> {publishWorkflow ? "Unpublish" : "Publish"}
+                      <FaTelegramPlane size={16} /> Publish
                     </>
                   )}
                 </button>
