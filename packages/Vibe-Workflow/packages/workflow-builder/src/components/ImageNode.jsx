@@ -16,6 +16,7 @@ import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
 import QueuedState from "./QueuedState";
+import { outputSelectionPatch } from "./workflowOutputSelection";
 
 const inputHandles = [
   "imageInput",
@@ -586,7 +587,10 @@ const ImageGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                      const next = currentImageIndex > 0 ? currentImageIndex - 1 : currentOutputList.length - 1;
+                      setCurrentImageIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/image:opacity-100 transition-opacity hover:bg-black/70"
                   >
@@ -597,7 +601,10 @@ const ImageGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentImageIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                      const next = currentImageIndex < currentOutputList.length - 1 ? currentImageIndex + 1 : 0;
+                      setCurrentImageIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/image:opacity-100 transition-opacity hover:bg-black/70"
                   >

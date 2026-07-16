@@ -13,6 +13,7 @@ import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
 import QueuedState from "./QueuedState";
+import { outputSelectionPatch } from "./workflowOutputSelection";
 
 const inputHandles = [
   "textInput",
@@ -552,7 +553,10 @@ const TextGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentOutputIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                      const next = currentOutputIndex > 0 ? currentOutputIndex - 1 : currentOutputList.length - 1;
+                      setCurrentOutputIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="text-white hover:text-blue-400 p-0.5"
                   >
@@ -566,7 +570,10 @@ const TextGeneration = ({ id, data, selected }) => {
                     suppressHydrationWarning={true}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCurrentOutputIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                      const next = currentOutputIndex < currentOutputList.length - 1 ? currentOutputIndex + 1 : 0;
+                      setCurrentOutputIndex(next);
+                      const patch = outputSelectionPatch(currentOutputList, next);
+                      if (patch) data.onDataChange?.(id, patch);
                     }}
                     className="text-white hover:text-blue-400 p-0.5"
                   >

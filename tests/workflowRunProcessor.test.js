@@ -383,6 +383,23 @@ test('runClaimedRun runs a single targeted node using prior workflow results', a
   assert.deepEqual(captured.resultsByNodeId, { a: [{ type: 'text', value: 'from-a' }] });
 });
 
+test('runClaimedRun prefers the canvas-selected upstream output over the latest database run', async () => {
+  let captured = null;
+  const deps = baseRunDeps({
+    listNodeRuns: async () => [{ id: 'nrB', nodeId: 'b', params: { prompt: '{{ a.outputs[0].value }}' } }],
+    latestResultsForWorkflow: async () => ({ a: [{ type: 'text', value: 'newest database value' }] }),
+    executeSingleNode: async (args) => { captured = args; return { status: 'succeeded' }; },
+  });
+  const run = {
+    id: 'run-selected', userId: 'u1', workflowId: 'wf', provider: 'replicate', targetNodeId: 'b',
+    inputs: { upstreamResults: { a: [{ type: 'text', value: 'selected canvas value' }] } },
+  };
+
+  await runClaimedRun(run, deps);
+
+  assert.equal(captured.resultsByNodeId.a[0].value, 'selected canvas value');
+});
+
 test('runClaimedRun re-signs prior stored media before targeted node execution', async () => {
   let captured = null;
   const deps = baseRunDeps({

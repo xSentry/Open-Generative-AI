@@ -146,8 +146,15 @@ export async function runClaimedRun(run, injectedDeps) {
     // Upstream values come from whatever this workflow generated before, plus the
     // params the client stored on the seeded node-run.
     const previousResults = await deps.latestResultsForWorkflow(workflow.id);
+    const selectedResults = run.inputs?.upstreamResults && typeof run.inputs.upstreamResults === 'object'
+      ? run.inputs.upstreamResults
+      : {};
+    const validSelectedResults = Object.fromEntries(
+      Object.entries(selectedResults).filter(([, outputs]) => Array.isArray(outputs))
+    );
+    const effectiveResults = { ...previousResults, ...validSelectedResults };
     const resultsByNodeId = Object.fromEntries(
-      Object.entries(previousResults).map(([nodeId, outputs]) => [nodeId, signStoredOutputs(outputs)])
+      Object.entries(effectiveResults).map(([nodeId, outputs]) => [nodeId, signStoredOutputs(outputs)])
     );
     return deps.executeSingleNode({
       node: { ...node, model: nodeRun.model || node.model, params: nodeRun.params || node.params || {} },
