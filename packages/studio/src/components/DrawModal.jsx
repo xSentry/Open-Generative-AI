@@ -958,6 +958,38 @@ export default function DrawModal({
     reader.readAsDataURL(file);
   };
 
+  const resetCanvas = () => {
+    [canvasRef.current, bgCanvasRef.current].forEach((canvas) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+    drawingState.current = {
+      isDrawing: false,
+      startX: 0,
+      startY: 0,
+      currX: 0,
+      currY: 0,
+      activePoints: [],
+    };
+    setCanvasObjects([]);
+    setSelectedObjectId(null);
+    setHistory([[]]);
+    setHistoryIdx(0);
+    setCanUndo(false);
+    setCanRedo(false);
+    setBgImageUrl(null);
+    setViewState("setup");
+    setIsModelDropdownOpen(false);
+    setIsArDropdownOpen(false);
+    setShowSettingsPopover(false);
+  };
+
+  const handleClose = () => {
+    resetCanvas();
+    onClose();
+  };
+
   // Clear Canvas (Remove image, drawings, text overlays and reset to setup screen)
   const handleClearCanvas = () => {
     if (
@@ -965,16 +997,7 @@ export default function DrawModal({
         "Clear all drawings, text overlays, and remove the background image?",
       )
     ) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      setCanvasObjects([]);
-      setSelectedObjectId(null);
-      saveStateToHistory([]);
-      setBgImageUrl(null);
-      setViewState("setup");
+      resetCanvas();
     }
   };
 
@@ -1078,8 +1101,7 @@ export default function DrawModal({
           params: genParams,
           count: batchSize,
         });
-        alert("Generation started!");
-        onClose();
+        handleClose();
         return;
       }
 
@@ -1101,8 +1123,7 @@ export default function DrawModal({
         }
       });
 
-      alert("Generations complete!");
-      onClose();
+      handleClose();
     } catch (e) {
       console.error("[DrawModal] Generation failed:", e);
       alert(`Generation failed: ${e.message}`);
@@ -1171,7 +1192,7 @@ export default function DrawModal({
 
           {/* Close button */}
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 transition-all"
           >
             ×
