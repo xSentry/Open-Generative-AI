@@ -112,7 +112,7 @@ export function compileCreateWorkflowIrToPatch(ir, {
         makeInput: irNode.role === 'input' && irNode.expose_as_input !== false,
         makeOutput: irNode.role !== 'input' && irNode.category === ir.target_category,
       },
-      layout: { x: 80 + (index * 360), y: 120 },
+      layout: irNode.layout || { x: 80 + (index * 360), y: 120 },
     };
     node.inputs = constantInputsForNode(node, catalog);
     refToNode.set(irNode.ref, node);

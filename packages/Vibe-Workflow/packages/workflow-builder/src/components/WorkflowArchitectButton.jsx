@@ -76,6 +76,7 @@ const stageLabelOptions = {
   repair_validation: ["Checking the refined plan", "Reviewing the updates", "Making sure the refinements work"],
   model_selection: ["Selecting the best models", "Matching models to each step", "Choosing the right building blocks"],
   hydration: ["Filling in node settings", "Preparing the node details", "Wiring up the configuration"],
+  layout: ["Arranging the workflow", "Positioning the nodes", "Laying out parallel steps"],
   planning_workflow: ["Whipping up a plan", "Sketching the workflow", "Refining the idea"],
   selecting_nodes: ["Selecting the best models", "Choosing the right nodes", "Finding the right building blocks"],
   configuring_nodes: ["Preparing node settings", "Dialing in the nodes", "Filling in the details"],

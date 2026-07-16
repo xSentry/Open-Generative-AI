@@ -182,7 +182,7 @@ function resolveConnection(planEdge, source, target, catalog, used, incomingCoun
     const count = used.get(`${target.ref}|${toPort}`) || 0;
     if ((toDef.maxConnections ?? 1) !== Infinity && count > 0) continue;
     used.set(`${target.ref}|${toPort}`, count + 1);
-    return { from_ref: source.ref, from_port: fromPort, to_ref: target.ref, to_port: toPort };
+    return { from_ref: source.ref, from_port: fromPort, to_ref: target.ref, to_port: toPort, order: planEdge.order };
   }
   return null;
 }

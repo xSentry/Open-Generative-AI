@@ -836,6 +836,7 @@ test('phase 2 worker creates a proposal for an empty workflow create job', async
 test('structured Replicate model uses saved user key and configured GPT input', async () => {
   assert.equal(ARCHITECT_GPT_MODEL, 'gpt-5');
   const calls = [];
+  const stages = [];
   const catalog = buildArchitectCapabilityCatalog('replicate');
   const ir = await generateCreateWorkflowIr({
     userRequest: 'Create an image workflow.',
@@ -847,6 +848,7 @@ test('structured Replicate model uses saved user key and configured GPT input', 
       WORKFLOW_ARCHITECT_MODEL_POLL_MS: '0',
     },
     catalog,
+    onStage: async (stage, payload) => stages.push({ stage, payload }),
     runPrediction: async (input) => {
       calls.push(input);
       if (calls.length === 1) return {
@@ -881,6 +883,9 @@ test('structured Replicate model uses saved user key and configured GPT input', 
   assert.equal(JSON.stringify(plannerPayload).includes('gpt-image-2'), false);
   assert.equal(configurationPayload.curated_model_options_trusted.nodes.some((node) => node.node_id === 'output' && node.models.some((model) => model.model_id === 'gpt-image-2')), true);
   assert.equal(ir.nodes[1].model_id, 'gpt-image-2');
+  assert.deepEqual(stages.map((item) => item.stage), ['plan_generation', 'plan_validation', 'model_selection', 'hydration', 'layout']);
+  assert.deepEqual(stages.at(-1).payload, { node_count: 2, connection_count: 1, strategy: 'deterministic-dag-v1' });
+  assert.deepEqual(ir.nodes.map((node) => node.layout), [{ x: 80, y: 120 }, { x: 580, y: 120 }]);
 });
 
 test('phase 4A rejects legacy top-level model_id create IR', async () => {

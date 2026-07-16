@@ -1,6 +1,7 @@
 import { CURATED_MODEL_PROFILES } from '../../domain/capabilityCatalog.js';
 import { buildArchitectNodeOptionCatalog, createWorkflowPlanJsonSchema, materializeWorkflowPlanInputValues, validateWorkflowPlan } from '../../domain/createWorkflowPlan.js';
 import { buildConfigurationOptions, buildModelSelectionOptions, createModelSelectionJsonSchema, hydrateCreateWorkflowIr, materializeNodeConfiguration, normalizeModelSelection, validateHydratedCreateWorkflowIr, validateModelSelection } from '../../domain/nodeConfiguration.js';
+import { layoutCreateWorkflowIr } from '../../domain/layout.js';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
@@ -274,7 +275,8 @@ export async function generateCreateWorkflowIr({
   const ir = hydrateCreateWorkflowIr(plan, configuration, { catalog });
   const hydratedValidation = validateHydratedCreateWorkflowIr(ir, { catalog });
   if (!hydratedValidation.valid) throw validationError('ARCHITECT_HYDRATED_IR_INVALID', hydratedValidation);
-  return ir;
+  await onStage('layout', { node_count: ir.nodes.length, connection_count: ir.connections.length, strategy: 'deterministic-dag-v1' });
+  return layoutCreateWorkflowIr(ir);
 }
 
 function validationError(code, validation) {
