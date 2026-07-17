@@ -295,7 +295,14 @@ const summarizeNodeHistory = (entries = []) => {
       isQueued = true;
     }
   }
-  return { outputHistory, errorMsg, isLoading, isQueued };
+  return {
+    outputHistory,
+    errorMsg,
+    isLoading,
+    isQueued,
+    runtimeEstimate: latest?.result?.runtimeEstimate || null,
+    generationCreatedAt: latest?.result?.createdAt || null,
+  };
 };
 
 const processWorkflowData = (workflowData, nodeSchemas, id) => {
@@ -309,7 +316,14 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
   const initialQueuedNodes = {};
 
   const restoredNodes = workflow.nodes.map(n => {
-    const { outputHistory, errorMsg, isLoading, isQueued } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
+    const {
+      outputHistory,
+      errorMsg,
+      isLoading,
+      isQueued,
+      runtimeEstimate,
+      generationCreatedAt,
+    } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
     if (runActive && isLoading) initialLoadingNodes[n.id] = true;
     if (runActive && isQueued) initialQueuedNodes[n.id] = true;
     return {
@@ -331,6 +345,8 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
         formValues: n.input_params || {},
         outputHistory,
         errorMsg,
+        runtimeEstimate,
+        generationCreatedAt,
       }
     };
   });
@@ -641,7 +657,14 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
     const restoredQueued = {};
 
     const restoredNodes = workflow.nodes.map(n => {
-      const { outputHistory, errorMsg, isLoading, isQueued } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
+      const {
+        outputHistory,
+        errorMsg,
+        isLoading,
+        isQueued,
+        runtimeEstimate,
+        generationCreatedAt,
+      } = summarizeNodeHistory(workflowData.run_history?.[n.id] || []);
       // Only keep a node in the loading state if the run is genuinely still in
       // progress (otherwise a crashed/old "processing" row would spin forever).
       if (runActive && isLoading) restoredLoading[n.id] = true;
@@ -665,6 +688,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
           formValues: n.input_params || {},
           outputHistory,
           errorMsg,
+          runtimeEstimate,
+          generationCreatedAt,
         }
       };
     });
@@ -1718,7 +1743,17 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       setNodes((prevNodes) => prevNodes.map((node) => {
         const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
         if (!nodeIdMatch) return node;
-        return { ...node, data: { ...node.data, isQueued: true, isLoading: false, errorMsg: null } };
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isQueued: true,
+            isLoading: false,
+            errorMsg: null,
+            runtimeEstimate: null,
+            generationCreatedAt: null,
+          },
+        };
       }));
       return;
     }
@@ -1733,7 +1768,17 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       setNodes((prevNodes) => prevNodes.map((node) => {
         const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
         if (!nodeIdMatch) return node;
-        return { ...node, data: { ...node.data, isQueued: false, isLoading: true, errorMsg: null } };
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isQueued: false,
+            isLoading: true,
+            errorMsg: null,
+            runtimeEstimate: result?.runtimeEstimate || null,
+            generationCreatedAt: result?.createdAt || null,
+          },
+        };
       }));
       return;
     }
@@ -1789,6 +1834,8 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
                 isLoading: false,
                 isQueued: false,
                 errorMsg: null,
+                runtimeEstimate: null,
+                generationCreatedAt: null,
                 outputHistory: newHistory,
               },
             };
@@ -1806,7 +1853,17 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
       setNodes((prevNodes) => prevNodes.map((node) => {
         const nodeIdMatch = id.toLowerCase().replace(/\s+/g, '') === node.id.toLowerCase().replace(/\s+/g, '');
         if (!nodeIdMatch) return node;
-        return { ...node, data: { ...node.data, isLoading: false, isQueued: false, errorMsg: failMsg } };
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isLoading: false,
+            isQueued: false,
+            errorMsg: failMsg,
+            runtimeEstimate: null,
+            generationCreatedAt: null,
+          },
+        };
       }));
     }
   };
@@ -1816,7 +1873,16 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
     runWatcherRef.current = null;
     setLoadingNodes({});
     setQueuedNodes({});
-    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, isLoading: false, isQueued: false } })));
+    setNodes((nds) => nds.map((n) => ({
+      ...n,
+      data: {
+        ...n.data,
+        isLoading: false,
+        isQueued: false,
+        runtimeEstimate: null,
+        generationCreatedAt: null,
+      },
+    })));
     setIsRunning(0);
     setRunStatus(failed ? "failed" : "completed");
     if (failed) toast.error("Workflow failed on some nodes");

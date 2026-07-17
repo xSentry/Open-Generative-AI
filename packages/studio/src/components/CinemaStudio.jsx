@@ -5,6 +5,7 @@ import { generateImage, uploadFile } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
+import RuntimeEstimate from "./RuntimeEstimate.jsx";
 
 // ─── Constants (inlined from promptUtils) ───────────────────────────────────
 
@@ -966,11 +967,15 @@ export default function CinemaStudio({
                 onClick={() => !isLoading && loadHistoryItem(entry, idx)}
               >
                 {isLoading ? (
-                  <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-black/40 gap-3">
+                  <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-black/40 gap-2">
                     <span className="animate-spin text-[var(--primary-color)] text-2xl">◌</span>
                     <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
                       Rendering…
                     </span>
+                    <RuntimeEstimate
+                      estimate={entry.runtimeEstimate}
+                      createdAt={entry.providerCreatedAt}
+                    />
                   </div>
                 ) : isFailed ? (
                   <div className="w-full aspect-[4/3] flex flex-col items-center justify-center bg-red-500/5 gap-2 px-4 text-center">

@@ -4,7 +4,7 @@ import { query } from '../../db/server/db.js';
 
 const SELECT_COLUMNS = `
   id, user_id, mode, media_type, provider, model, prompt, params, input_assets,
-  status, provider_ref, error, output_key, output_type, output_meta,
+  status, provider_ref, provider_created_at, error, output_key, output_type, output_meta, runtime_estimate,
   created_at, updated_at, completed_at
 `;
 
@@ -22,10 +22,12 @@ function mapRow(row) {
     inputAssets: row.input_assets || [],
     status: row.status,
     providerRef: row.provider_ref,
+    providerCreatedAt: row.provider_created_at,
     error: row.error,
     outputKey: row.output_key,
     outputType: row.output_type,
     outputMeta: row.output_meta,
+    runtimeEstimate: row.runtime_estimate,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
@@ -41,12 +43,13 @@ export async function createGeneration({
   prompt = null,
   params = {},
   inputAssets = [],
+  runtimeEstimate = null,
   status = 'generating',
 }) {
   const result = await query(
     `insert into studio_generations
-       (user_id, mode, media_type, provider, model, prompt, params, input_assets, status)
-     values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+       (user_id, mode, media_type, provider, model, prompt, params, input_assets, runtime_estimate, status)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10)
      returning ${SELECT_COLUMNS}`,
     [
       userId,
@@ -57,6 +60,7 @@ export async function createGeneration({
       prompt,
       JSON.stringify(params || {}),
       JSON.stringify(inputAssets || []),
+      runtimeEstimate ? JSON.stringify(runtimeEstimate) : null,
       status,
     ]
   );
@@ -146,6 +150,7 @@ export async function updateGenerationResult(id, {
   outputType = null,
   outputMeta = null,
   providerRef = null,
+  providerCreatedAt = null,
   inputAssets,
 }) {
   const sets = [
@@ -154,6 +159,7 @@ export async function updateGenerationResult(id, {
     'output_type = $4',
     'output_meta = $5::jsonb',
     'provider_ref = coalesce($6, provider_ref)',
+    'provider_created_at = coalesce($7, provider_created_at)',
     'updated_at = now()',
     'completed_at = now()',
   ];
@@ -164,6 +170,7 @@ export async function updateGenerationResult(id, {
     outputType,
     outputMeta ? JSON.stringify(outputMeta) : null,
     providerRef,
+    providerCreatedAt,
   ];
 
   if (inputAssets !== undefined) {
@@ -208,6 +215,19 @@ export async function setProviderRef(id, providerRef) {
     `update studio_generations set provider_ref = $2, updated_at = now() where id = $1`,
     [id, providerRef]
   );
+}
+
+export async function setProviderStarted(id, { providerRef, providerCreatedAt } = {}) {
+  const result = await query(
+    `update studio_generations
+       set provider_ref = coalesce($2, provider_ref),
+           provider_created_at = coalesce($3, provider_created_at),
+           updated_at = now()
+     where id = $1
+     returning ${SELECT_COLUMNS}`,
+    [id, providerRef || null, providerCreatedAt || null]
+  );
+  return mapRow(result.rows[0]);
 }
 
 export async function deleteGeneration(id, userId) {

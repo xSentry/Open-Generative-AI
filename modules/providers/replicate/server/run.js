@@ -9,6 +9,9 @@
 // helper (submitAndPoll) treats it as an already-completed response and does
 // not attempt to poll the muapi predictions endpoint.
 
+import { createRuntimeSignature } from '../../runtime/server/signature.js';
+import { saveRuntimeSample } from '../../runtime/server/samples.js';
+
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
 // System instruction injected for Replicate "recast" (Body Swap) generations.
@@ -240,7 +243,16 @@ async function replicateJson(url, apiKey, options = {}) {
   return data;
 }
 
-export async function runReplicatePrediction({ apiKey, model, params, mode, maxAttempts = 900, interval = 2000 }) {
+export async function runReplicatePrediction({
+  apiKey,
+  model,
+  params,
+  mode,
+  maxAttempts = 900,
+  interval = 2000,
+  saveRuntimeSampleFn = saveRuntimeSample,
+  onStarted,
+}) {
   const version = model?.replicate?.version;
   if (!version) {
     throw new Error(`Replicate model "${model?.id || 'unknown'}" is missing a version id. Re-run the importer.`);
@@ -248,18 +260,56 @@ export async function runReplicatePrediction({ apiKey, model, params, mode, maxA
 
   const input = buildInput(model, params);
   applyRecastSystemPrompt(model, input, mode);
+  // This is deliberately computed from the submitted, resolved input rather
+  // than raw request data; signature policy excludes prompts, URLs and assets.
+  const runtimeSignature = createRuntimeSignature({ model, params: input, mediaMetadata: params?.runtimeMediaMetadata });
 
   let prediction = await replicateJson(`${REPLICATE_API}/predictions`, apiKey, {
     method: 'POST',
     body: JSON.stringify({ version, input }),
   });
 
+  // Replicate documents created_at on the initial prediction object and on
+  // subsequent reads. Preserve the initial value in case a provider-specific
+  // polling response ever omits it.
+  const createdAt = prediction?.created_at ?? null;
   const pollUrl = prediction?.urls?.get || `${REPLICATE_API}/predictions/${prediction.id}`;
+  if (typeof onStarted === 'function') {
+    try {
+      await onStarted({
+        predictionId: prediction.id,
+        createdAt,
+        status: prediction.status || null,
+      });
+    } catch (error) {
+      // Observability/UI hydration must never make a valid prediction fail.
+      console.warn('[replicate-runtime] could not publish prediction start:', error?.message || error);
+    }
+  }
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const status = prediction?.status;
 
     if (status === 'succeeded') {
+      // Runtime telemetry must never make a successful generation fail. The
+      // unique prediction id also makes retries safe.
+      try {
+        if (process.env.DATABASE_URL || saveRuntimeSampleFn !== saveRuntimeSample) {
+          const predictTimeSeconds = prediction.metrics?.predict_time ?? prediction.metrics?.total_time ?? null;
+          const totalTimeSeconds = prediction.metrics?.total_time ?? prediction.metrics?.predict_time ?? null;
+          await saveRuntimeSampleFn({
+            provider: 'replicate', modelId: model.id, signature: runtimeSignature,
+            predictionId: prediction.id, predictTimeSeconds, totalTimeSeconds,
+            createdAt: prediction.created_at || createdAt
+              ? new Date(prediction.created_at || createdAt)
+              : new Date(),
+            startedAt: prediction.started_at ? new Date(prediction.started_at) : null,
+            completedAt: prediction.completed_at ? new Date(prediction.completed_at) : new Date(),
+          });
+        }
+      } catch (error) {
+        console.warn('[replicate-runtime] could not save successful runtime sample:', error?.message || error);
+      }
       const { url, outputs, text } = normalizeOutput(prediction.output);
       return {
         url,
@@ -269,6 +319,7 @@ export async function runReplicatePrediction({ apiKey, model, params, mode, maxA
         provider: 'replicate',
         model: model.id,
         replicateId: prediction.id,
+        createdAt: prediction.created_at ?? createdAt,
       };
     }
 

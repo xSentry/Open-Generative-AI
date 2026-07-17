@@ -12,6 +12,7 @@ import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
 import { getNodeTitle } from "./nodeTitles";
+import GenerationTimeEstimate from "./GenerationTimeEstimate";
 import QueuedState from "./QueuedState";
 import { outputSelectionPatch } from "./workflowOutputSelection";
 
@@ -524,14 +525,21 @@ const TextGeneration = ({ id, data, selected }) => {
           {data.isQueued ? (
             <QueuedState tone="blue" className="rounded-xl" />
           ) : data.isLoading ? (
-            <div className="flex flex-col gap-2.5 w-full h-full overflow-hidden animate-pulse">
-              <div className="h-2.5 bg-white/5 rounded-full w-full"></div>
-              <div className="h-2.5 bg-white/5 rounded-full w-[90%]"></div>
-              <div className="h-2.5 bg-white/5 rounded-full w-[75%]"></div>
-              <div className="my-1"/>
-              <div className="h-2.5 bg-white/5 rounded-full w-full"></div>
-              <div className="h-2.5 bg-white/5 rounded-full w-[85%]"></div>
-              <div className="h-2.5 bg-white/5 rounded-full w-[60%]"></div>
+            <div className="relative flex flex-col gap-2.5 w-full h-full overflow-hidden">
+              <div className="flex flex-col gap-2.5 w-full animate-pulse">
+                <div className="h-2.5 bg-white/5 rounded-full w-full"></div>
+                <div className="h-2.5 bg-white/5 rounded-full w-[90%]"></div>
+                <div className="h-2.5 bg-white/5 rounded-full w-[75%]"></div>
+                <div className="my-1"/>
+                <div className="h-2.5 bg-white/5 rounded-full w-full"></div>
+                <div className="h-2.5 bg-white/5 rounded-full w-[85%]"></div>
+                <div className="h-2.5 bg-white/5 rounded-full w-[60%]"></div>
+              </div>
+              <GenerationTimeEstimate
+                estimate={data.runtimeEstimate}
+                createdAt={data.generationCreatedAt}
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2 py-1"
+              />
             </div>
           ) : data.errorMsg ? (
             <div className="text-red-400 text-xs font-medium p-3 bg-red-500/10 rounded-xl border border-red-500/20 w-full">

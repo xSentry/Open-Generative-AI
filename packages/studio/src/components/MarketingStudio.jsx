@@ -5,6 +5,7 @@ import { uploadFile, generateMarketingStudioAd } from "../muapi.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import ModelProviderMark from "./ModelProviderMark.jsx";
+import RuntimeEstimate from "./RuntimeEstimate.jsx";
 
 const SCROLLBAR_STYLE = `
   .custom-scrollbar-thin::-webkit-scrollbar {
@@ -658,9 +659,13 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
               return (
               <div key={entry.id} className="relative group rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-xl hover:border-primary/50 transition-all duration-300 flex flex-col">
                 {isLoading ? (
-                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-black/40 gap-3">
+                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-black/40 gap-2">
                     <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
                     <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Rendering…</span>
+                    <RuntimeEstimate
+                      estimate={entry.runtimeEstimate}
+                      createdAt={entry.providerCreatedAt}
+                    />
                   </div>
                 ) : isFailed ? (
                   <div className="w-full aspect-video flex flex-col items-center justify-center bg-red-500/5 gap-2 px-4 text-center">

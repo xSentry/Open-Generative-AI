@@ -22,6 +22,7 @@ test('watchNodeRun immediately hydrates a run that finished before SSE attached'
         prompt: [{
           node_run_id: 'node-run-1',
           status: 'succeeded',
+          created_at: '2026-07-17T12:00:00.000Z',
           result: { outputs: [{ type: 'text', value: 'done' }] },
           error: null,
         }],
@@ -47,6 +48,7 @@ test('watchNodeRun immediately hydrates a run that finished before SSE attached'
     });
 
     assert.equal(terminal.node_run_id, 'node-run-1');
+    assert.equal(terminal.created_at, '2026-07-17T12:00:00.000Z');
     assert.equal(terminal.result.outputs[0].value, 'done');
     assert.deepEqual(updates, ['succeeded']);
   } finally {

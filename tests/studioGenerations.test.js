@@ -110,6 +110,7 @@ function makeStoreDeps() {
           outputKey: patch.outputKey,
           outputType: patch.outputType,
           outputMeta: patch.outputMeta,
+          providerCreatedAt: patch.providerCreatedAt,
           inputAssets: patch.inputAssets,
         };
         updated.push(row);
@@ -135,11 +136,16 @@ test('storeGenerationOutputs stores primary, fans out extras, and deletes inputs
     model: 'flux',
     prompt: 'hi',
     params: {},
+    runtimeEstimate: { seconds: 20, sampleCount: 3 },
     inputAssets: [{ key: 'studio-uploads/user-1/a.png', deleted: false }],
   };
   const result = await storeGenerationOutputs({
     generation,
-    providerResult: { outputs: ['https://cdn/a.png', 'https://cdn/b.png'], replicateId: 'rep-1' },
+    providerResult: {
+      outputs: ['https://cdn/a.png', 'https://cdn/b.png'],
+      replicateId: 'rep-1',
+      createdAt: '2026-07-17T12:00:00.000Z',
+    },
     deps,
     env: { STUDIO_DELETE_INPUTS_AFTER_GENERATION: 'true' },
   });
@@ -149,6 +155,11 @@ test('storeGenerationOutputs stores primary, fans out extras, and deletes inputs
   // Two uploads: primary + one sibling.
   assert.equal(state.uploaded.length, 2);
   assert.equal(state.created.length, 1);
+  assert.deepEqual(state.created[0].runtimeEstimate, generation.runtimeEstimate);
+  assert.equal(
+    state.updated.every((row) => row.providerCreatedAt === '2026-07-17T12:00:00.000Z'),
+    true,
+  );
   // Input deleted.
   assert.deepEqual(state.deleted, ['studio-uploads/user-1/a.png']);
   // Primary row input assets flagged deleted.
@@ -247,6 +258,32 @@ test('serializeGeneration includes a signed url when output key present', () => 
   assert.equal(item.url, 'https://s/k');
 });
 
+test('serializeGeneration keeps a persisted runtime estimate in polling and SSE payloads', () => {
+  const runtimeEstimate = {
+    seconds: 45,
+    rangeSeconds: [40, 55],
+    sampleCount: 4,
+    confidence: 'medium',
+    basis: 'model_exact_signature',
+  };
+  const item = serializeGeneration(
+    { id: 'g', status: 'generating', runtimeEstimate },
+    {},
+  );
+  assert.deepEqual(item.runtimeEstimate, runtimeEstimate);
+});
+
+test('serializeGeneration exposes Replicate creation time separately from the app row time', () => {
+  const item = serializeGeneration({
+    id: 'g',
+    status: 'succeeded',
+    createdAt: '2026-07-17T11:59:59.000Z',
+    providerCreatedAt: '2026-07-17T12:00:00.000Z',
+  }, {});
+  assert.equal(item.createdAt, '2026-07-17T11:59:59.000Z');
+  assert.equal(item.providerCreatedAt, '2026-07-17T12:00:00.000Z');
+});
+
 test('handleGenerationsStreamRequest streams updated generations as SSE', async () => {
   let calls = 0;
   const response = await handleGenerationsStreamRequest(
@@ -298,6 +335,8 @@ test('handleGenerationsStreamRequest streams updated generations as SSE', async 
 
 test('runWorkerOnce processes each claimed row without re-claiming', async () => {
   const processed = [];
+  const providerStarts = [];
+  const published = [];
   const rows = [
     { id: 'g1', userId: 'u', provider: 'replicate', mode: 't2i', mediaType: 'image', model: 'm', params: {}, inputAssets: [] },
   ];
@@ -309,10 +348,18 @@ test('runWorkerOnce processes each claimed row without re-claiming', async () =>
       resolveProviderKey: async () => 'key',
       getReplicateStudioModel: () => ({ id: 'm' }),
       getStudioModel: () => null,
-      runReplicatePrediction: async () => {
+      runReplicatePrediction: async ({ onStarted }) => {
         processed.push('g1');
+        await onStarted({
+          predictionId: 'pred-1',
+          createdAt: '2026-07-17T12:00:00.000Z',
+        });
         return { outputs: [] };
       },
+      setProviderStarted: async (id, start) => {
+        providerStarts.push({ id, ...start });
+      },
+      publishGenerationEvent: async (event) => published.push(event),
       createOutputObjectKey: () => 'k',
       uploadObject: async () => {},
       deleteObject: async () => {},
@@ -324,5 +371,12 @@ test('runWorkerOnce processes each claimed row without re-claiming', async () =>
   });
   assert.equal(count, 1);
   assert.deepEqual(processed, ['g1']);
+  assert.deepEqual(providerStarts, [{
+    id: 'g1',
+    providerRef: 'pred-1',
+    providerCreatedAt: '2026-07-17T12:00:00.000Z',
+  }]);
+  assert.equal(published[0].id, 'g1');
+  assert.equal(published[0].queueStatus, 'active');
 });
 

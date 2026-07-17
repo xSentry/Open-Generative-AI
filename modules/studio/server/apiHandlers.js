@@ -70,6 +70,7 @@ export function serializeGeneration(generation, deps) {
     mode: generation.mode,
     mediaType: generation.mediaType,
     provider: generation.provider,
+    providerCreatedAt: generation.providerCreatedAt || null,
     model: generation.model,
     prompt: generation.prompt,
     params: generation.params || {},
@@ -77,6 +78,7 @@ export function serializeGeneration(generation, deps) {
     url,
     outputType: generation.outputType || null,
     outputMeta: generation.outputMeta || null,
+    runtimeEstimate: generation.runtimeEstimate || null,
     error: generation.error || null,
     createdAt: generation.createdAt,
     completedAt: generation.completedAt || null,
@@ -124,6 +126,7 @@ export async function handleStudioGenerateRequest(request, deps) {
 
     // Validate the model up-front and capture a runner closure per provider.
     let runProvider;
+    let runtimeEstimate = null;
     if (provider === 'muapi') {
       const studioModel = deps.getStudioModel(mode, modelId);
       if (!studioModel) {
@@ -140,6 +143,19 @@ export async function handleStudioGenerateRequest(request, deps) {
         );
       }
       runProvider = () => deps.runReplicatePrediction({ apiKey, model: replicateModel, params, mode });
+      // Runtime history is best-effort: missing or incompatible samples simply
+      // produce no estimate and must never prevent a generation from starting.
+      if (typeof deps.estimatePredictionRuntime === 'function'
+        && typeof deps.createRuntimeSignature === 'function') {
+        try {
+          runtimeEstimate = await deps.estimatePredictionRuntime({
+            provider: 'replicate', model: replicateModel,
+            signature: deps.createRuntimeSignature({ model: replicateModel, params }),
+          });
+        } catch (error) {
+          console.warn('[replicate-runtime] could not calculate estimate:', error?.message || error);
+        }
+      }
     }
 
     // Persistence is enabled when the route wires DB deps and a user is present.
@@ -160,6 +176,7 @@ export async function handleStudioGenerateRequest(request, deps) {
         prompt,
         params,
         inputAssets,
+        runtimeEstimate,
       });
 
       // Async flow: return immediately, worker/detached task finishes the job.
@@ -190,7 +207,7 @@ export async function handleStudioGenerateRequest(request, deps) {
 
     // Legacy (no persistence): behave exactly as before.
     const result = await runProvider();
-    return json({ ...result, model: modelId, provider: provider === 'muapi' ? 'muapi' : 'replicate' });
+    return json({ ...result, model: modelId, provider: provider === 'muapi' ? 'muapi' : 'replicate', ...(runtimeEstimate ? { runtimeEstimate } : {}) });
   } catch (error) {
     const typedResponse = typedError(error);
     if (typedResponse) return typedResponse;

@@ -211,6 +211,55 @@ test('/api/studio/generate marks a persisted generation failed when the provider
   assert.equal(failed.error.message, 'provider failed');
 });
 
+test('/api/studio/generate persists and returns the runtime estimate for async polling', async () => {
+  const estimate = {
+    seconds: 45,
+    rangeSeconds: [40, 55],
+    sampleCount: 4,
+    confidence: 'medium',
+    basis: 'model_exact_signature',
+  };
+  let created;
+  const response = await handleStudioGenerateRequest(
+    new Request('http://test.local/api/studio/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: 't2i',
+        model: 'runtime-model',
+        params: { width: 1024 },
+      }),
+    }),
+    {
+      errorResponse,
+      getActiveProviderKey: async () => ({
+        provider: 'replicate',
+        apiKey: 'r8_test',
+        user: { id: 'user-1' },
+      }),
+      getProviderMissingKeyMessage: () => 'missing',
+      getReplicateStudioModel: () => ({
+        id: 'runtime-model',
+        inputs: { width: { type: 'integer' } },
+      }),
+      createRuntimeSignature: () => ({ version: 1, signature: {}, signatureHash: 'hash' }),
+      estimatePredictionRuntime: async () => estimate,
+      createGeneration: async (generation) => {
+        created = generation;
+        return { ...generation, id: 'generation-1', status: 'generating' };
+      },
+      mediaTypeForMode: () => 'image',
+      enqueueGeneration: async () => {},
+      env: {
+        STUDIO_ASYNC_GENERATIONS: 'true',
+      },
+    },
+  );
+
+  assert.equal(response.status, 202);
+  assert.deepEqual(created.runtimeEstimate, estimate);
+  assert.deepEqual((await readJson(response)).generations[0].runtimeEstimate, estimate);
+});
+
 test('/api/studio/generate returns typed Replicate parameter errors', async () => {
   const response = await handleStudioGenerateRequest(
     new Request('http://test.local/api/studio/generate', {

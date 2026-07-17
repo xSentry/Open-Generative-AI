@@ -56,6 +56,7 @@ export function serializeRunStatus(nodeRuns = [], run = null) {
       status: run.status,
       result: run.result || null,
       error: run.error || null,
+      created_at: run.createdAt || null,
     });
   }
   return {

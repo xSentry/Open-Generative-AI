@@ -161,6 +161,7 @@ test('Replicate runner posts predictions, polls, and normalizes URL outputs', as
       return Response.json({
         id: 'pred-1',
         status: 'starting',
+        created_at: '2026-07-17T12:00:00.000Z',
         urls: { get: 'https://api.replicate.com/v1/predictions/pred-1' },
       });
     }
@@ -172,6 +173,7 @@ test('Replicate runner posts predictions, polls, and normalizes URL outputs', as
   };
 
   try {
+    const starts = [];
     const result = await runReplicatePrediction({
       apiKey: 'r8_test',
       model: {
@@ -182,6 +184,7 @@ test('Replicate runner posts predictions, polls, and normalizes URL outputs', as
       params: { prompt: 'hello', ignored: 'drop me' },
       maxAttempts: 2,
       interval: 0,
+      onStarted: async (start) => starts.push(start),
     });
 
     assert.equal(calls.length, 2);
@@ -199,7 +202,13 @@ test('Replicate runner posts predictions, polls, and normalizes URL outputs', as
       provider: 'replicate',
       model: 'test-model',
       replicateId: 'pred-1',
+      createdAt: '2026-07-17T12:00:00.000Z',
     });
+    assert.deepEqual(starts, [{
+      predictionId: 'pred-1',
+      createdAt: '2026-07-17T12:00:00.000Z',
+      status: 'starting',
+    }]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -232,6 +241,46 @@ test('Replicate runner normalizes text outputs', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('Replicate runner mirrors either available final metric into the missing timing column', async () => {
+  const originalFetch = globalThis.fetch;
+  const samples = [];
+  const cases = [
+    { metrics: { predict_time: 12.5 }, expected: 12.5 },
+    { metrics: { total_time: 18.25 }, expected: 18.25 },
+  ];
+
+  try {
+    for (const [index, item] of cases.entries()) {
+      globalThis.fetch = async () => Response.json({
+        id: `pred-metrics-${index}`,
+        status: 'succeeded',
+        output: 'https://example.test/out.png',
+        metrics: item.metrics,
+      });
+      await runReplicatePrediction({
+        apiKey: 'r8_test',
+        model: {
+          id: 'metric-model',
+          replicate: { version: 'version-1' },
+          inputs: {},
+        },
+        params: {},
+        maxAttempts: 1,
+        interval: 0,
+        saveRuntimeSampleFn: async (sample) => samples.push(sample),
+      });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(samples.length, 2);
+  assert.equal(samples[0].predictTimeSeconds, cases[0].expected);
+  assert.equal(samples[0].totalTimeSeconds, cases[0].expected);
+  assert.equal(samples[1].predictTimeSeconds, cases[1].expected);
+  assert.equal(samples[1].totalTimeSeconds, cases[1].expected);
 });
 
 test('Replicate runner injects recast task instructions only for recast mode', async () => {
@@ -281,6 +330,7 @@ test('Replicate runner rejects models without a version id', async () => {
 
 test('Replicate runner reports failed predictions and timeouts', async () => {
   const originalFetch = globalThis.fetch;
+  const samples = [];
   globalThis.fetch = async () => Response.json({
     id: 'pred-failed',
     status: 'failed',
@@ -295,6 +345,7 @@ test('Replicate runner reports failed predictions and timeouts', async () => {
         params: {},
         maxAttempts: 1,
         interval: 0,
+        saveRuntimeSampleFn: async (sample) => samples.push(sample),
       }),
       /bad input/,
     );
@@ -311,9 +362,11 @@ test('Replicate runner reports failed predictions and timeouts', async () => {
         params: {},
         maxAttempts: 1,
         interval: 0,
+        saveRuntimeSampleFn: async (sample) => samples.push(sample),
       }),
       /timed out/,
     );
+    assert.deepEqual(samples, []);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -7,7 +7,7 @@
 // so importing the pure functions in tests doesn't require Next's alias
 // resolution (mirrors modules/studio/server/processGeneration.js).
 import { executeGraph, executeSingleNode, latestResultsFromRuns } from './engine.js';
-import { executeNode as defaultExecuteNode } from './nodeExecutors.js';
+import { executeNode as defaultExecuteNode, estimateReplicateNodeRuntime } from './nodeExecutors.js';
 import { storeNodeOutputs, signResultOutputs } from './outputStorage.js';
 
 export async function createDefaultRunDeps() {
@@ -44,6 +44,7 @@ export async function createDefaultRunDeps() {
     executeGraph,
     executeSingleNode,
     executeNode: defaultExecuteNode,
+    estimateNodeRuntime: estimateReplicateNodeRuntime,
     fetchFn: (...args) => fetch(...args),
     publishWorkflowEvent: (event) =>
       publishUserEvent(event.userId, workflowRunEvent(event)),
@@ -165,6 +166,7 @@ export async function runClaimedRun(run, injectedDeps) {
       resultsByNodeId,
       repo: eventedRepo,
       executeNode: deps.executeNode,
+      estimateNodeRuntime: deps.estimateNodeRuntime,
       storeOutputs,
     });
   }
@@ -184,6 +186,7 @@ export async function runClaimedRun(run, injectedDeps) {
     initialResults: latestResultsFromRuns(nodeRuns),
     repo: eventedRepo,
     executeNode: deps.executeNode,
+    estimateNodeRuntime: deps.estimateNodeRuntime,
     storeOutputs,
   });
 }

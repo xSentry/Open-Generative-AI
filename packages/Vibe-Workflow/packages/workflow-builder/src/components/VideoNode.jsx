@@ -11,6 +11,7 @@ import UploadNode from "./UploadNode";
 import { SlOptions } from "react-icons/sl";
 import { MdOutlineFileDownload } from "react-icons/md";
 import NodeSendButton from "./NodeSendButton";
+import GenerationTimeEstimate from "./GenerationTimeEstimate";
 import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { useGenerationCost } from "./useGenerationCost";
@@ -525,9 +526,13 @@ const VideoGeneration = ({ id, data, selected }) => {
             <QueuedState tone="orange" className="rounded-b-2xl" />
           ) : data.isLoading ? (
             <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1] bg-white/5 animate-pulse rounded-b-2xl">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
                 <span className="text-[10px] font-bold text-orange-500 tracking-wider uppercase">Generating...</span>
+                <GenerationTimeEstimate
+                  estimate={data.runtimeEstimate}
+                  createdAt={data.generationCreatedAt}
+                />
               </div>
             </div>
           ) : data.errorMsg ? (
