@@ -61,14 +61,14 @@ function normalizeOutputs(providerResult, category) {
 
 // Dispatch real model inference to the active provider. Injectable via
 // executeNode's `runners` for tests.
-async function defaultRunModel({ provider, apiKey, model, params }) {
+async function defaultRunModel({ provider, apiKey, model, params, onStarted }) {
   if (provider === 'muapi') {
     return runMuapiPrediction({ apiKey, endpoint: model, params });
   }
   if (provider === 'replicate') {
     const resolved = getReplicateModelById(model);
     if (!resolved) throw new Error(`Unknown Replicate model "${model}".`);
-    return runReplicatePrediction({ apiKey, model: resolved, params });
+    return runReplicatePrediction({ apiKey, model: resolved, params, onStarted });
   }
   throw new Error(`No node runner for provider "${provider}".`);
 }
@@ -81,7 +81,7 @@ function isPassthrough(model) {
 // Kept next to model resolution so workflow nodes use the exact same signature
 // policy as Studio and the shared Replicate runner.
 export async function estimateReplicateNodeRuntime({ provider, model, params }) {
-  if (provider !== 'replicate' || String(process.env.REPLICATE_RUNTIME_ESTIMATES_ENABLED).toLowerCase() !== 'true') return null;
+  if (provider !== 'replicate') return null;
   const resolved = getReplicateModelById(model);
   if (!resolved) return null;
   try {
@@ -96,7 +96,13 @@ export async function estimateReplicateNodeRuntime({ provider, model, params }) 
 }
 
 // Execute a single node with already-resolved params.
-export async function executeNode({ provider, apiKey, node, runModel = defaultRunModel }) {
+export async function executeNode({
+  provider,
+  apiKey,
+  node,
+  runModel = defaultRunModel,
+  onProviderStarted,
+}) {
   const category = node.category || null;
   const model = node.model || null;
   const params = node.params || {};
@@ -124,7 +130,13 @@ export async function executeNode({ provider, apiKey, node, runModel = defaultRu
 
   // ---- Inference nodes (text / image / video / audio) ----
   if (category === 'text' || category === 'image' || category === 'video' || category === 'audio') {
-    const providerResult = await runModel({ provider, apiKey, model, params });
+    const providerResult = await runModel({
+      provider,
+      apiKey,
+      model,
+      params,
+      onStarted: onProviderStarted,
+    });
     return { id: newId(), outputs: normalizeOutputs(providerResult, category) };
   }
 

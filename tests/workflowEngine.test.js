@@ -117,6 +117,45 @@ test('executeGraph runs nodes in order and propagates outputs via templates', as
   assert.equal(repo.nodeRuns.get('nr2').result.outputs[0].value, 'img:hello');
 });
 
+test('executeGraph starts the estimate clock only after the provider starts', async () => {
+  const repo = makeRepo();
+  const providerCreatedAt = '2026-07-17T12:00:00.000Z';
+  const estimate = { seconds: 75 };
+  let stateBeforeProviderStart;
+  let stateAfterProviderStart;
+
+  const result = await executeGraph({
+    nodes: [{ id: 'img-1', category: 'image', model: 'flux', params: {} }],
+    edges: [],
+    runId: 'run-provider-start',
+    provider: 'replicate',
+    apiKey: 'k',
+    nodeRunIds: { 'img-1': 'nr-provider-start' },
+    repo,
+    estimateNodeRuntime: async () => estimate,
+    executeNode: async ({ onProviderStarted }) => {
+      stateBeforeProviderStart = structuredClone(repo.nodeRuns.get('nr-provider-start'));
+      await onProviderStarted({
+        predictionId: 'pred-1',
+        createdAt: providerCreatedAt,
+      });
+      stateAfterProviderStart = structuredClone(repo.nodeRuns.get('nr-provider-start'));
+      return { id: 'result-1', outputs: [] };
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(stateBeforeProviderStart.result, { runtimeEstimate: estimate });
+  assert.equal(stateBeforeProviderStart.result.createdAt, undefined);
+  assert.deepEqual(stateAfterProviderStart.result, {
+    runtimeEstimate: estimate,
+    createdAt: providerCreatedAt,
+  });
+  const providerStartUpdate = repo.nodeRuns.get('nr-provider-start');
+  assert.equal(providerStartUpdate.status, 'succeeded');
+  assert.equal(providerStartUpdate.providerRef, 'pred-1');
+});
+
 test('executeGraph runs independent ready nodes concurrently and waits at joins', async () => {
   const repo = makeRepo();
   const nodes = [

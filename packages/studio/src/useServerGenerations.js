@@ -37,11 +37,17 @@ function mapCard(generation) {
         mode: generation.mode,
         params: generation.params || {},
         mediaType: generation.mediaType,
+        providerCreatedAt: generation.providerCreatedAt || null,
+        createdAt: generation.createdAt || null,
         aspect_ratio: generation.outputMeta?.aspect_ratio,
         outputType: generation.outputType || null,
         status: generation.status || 'succeeded',
         error: generation.error || null,
-        runtimeEstimate: generation.runtimeEstimate || null,
+        // Preserve an already received estimate when an older server response
+        // does not include the field. New persisted rows always include it.
+        ...(Object.prototype.hasOwnProperty.call(generation, 'runtimeEstimate')
+            ? { runtimeEstimate: generation.runtimeEstimate }
+            : {}),
         timestamp: generation.createdAt || new Date().toISOString(),
     };
 }
@@ -52,6 +58,7 @@ export function useServerGenerations({ mediaType, mode, enabled = true, onSuccee
     const [loading, setLoading] = useState(false);
     const cancelers = useRef([]);
     const sseConnected = useRef(false);
+    const refreshRequest = useRef(0);
     const onSucceededRef = useRef(onSucceeded);
     onSucceededRef.current = onSucceeded;
 
@@ -68,14 +75,17 @@ export function useServerGenerations({ mediaType, mode, enabled = true, onSuccee
 
     const refresh = useCallback(async () => {
         if (!active) return;
+        const requestId = ++refreshRequest.current;
         setLoading(true);
         try {
             const data = await listGenerations({ mediaType, mode: modeKey || undefined });
+            // A later reconnect refresh or live update has newer state.
+            if (requestId !== refreshRequest.current) return;
             setItems((data.items || []).map(mapCard));
         } catch (error) {
             console.warn('[useServerGenerations] failed to load history:', error?.message || error);
         } finally {
-            setLoading(false);
+            if (requestId === refreshRequest.current) setLoading(false);
         }
     }, [active, mediaType, modeKey]);
 
@@ -114,6 +124,11 @@ export function useServerGenerations({ mediaType, mode, enabled = true, onSuccee
         const dispose = subscribeGenerations({
             onOpen: () => {
                 sseConnected.current = true;
+                // Redis events are live-only. Rehydrate after every initial
+                // connection and reconnect so an update that happened between
+                // the first history request and subscription (or during a
+                // dropped connection) cannot leave cards stale.
+                refresh();
             },
             onError: () => {
                 sseConnected.current = false;
@@ -123,6 +138,10 @@ export function useServerGenerations({ mediaType, mode, enabled = true, onSuccee
                 // Ignore updates for other tools' generations (the SSE stream is
                 // per-user, not per-mode) so pages don't cross-populate.
                 if (!matchesMode(card)) return;
+                // Prevent an older in-flight history response from replacing
+                // this event-hydrated record.
+                refreshRequest.current += 1;
+                setLoading(false);
                 upsert(card);
                 if (card.status === 'succeeded' && card.url) {
                     onSucceededRef.current?.(card);
@@ -133,7 +152,7 @@ export function useServerGenerations({ mediaType, mode, enabled = true, onSuccee
             sseConnected.current = false;
             dispose?.();
         };
-    }, [active, upsert]);
+    }, [active, matchesMode, refresh, upsert]);
 
     // Start `count` independent generations. Returns immediately after the
     // requests are accepted; in-flight items resolve via SSE (or polling

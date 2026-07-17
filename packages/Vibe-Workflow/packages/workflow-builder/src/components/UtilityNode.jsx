@@ -10,6 +10,7 @@ import AudioPlayer from "./AudioPlayer";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { getNodeTitle } from "./nodeTitles";
 import QueuedState from "./QueuedState";
+import GenerationTimeEstimate from "./GenerationTimeEstimate";
 
 const COLOR_CLASS = {
   blue: {
@@ -286,9 +287,13 @@ const UtilityNode = ({ id, data, selected }) => {
         {data.isQueued ? (
           <QueuedState tone={outputColor} className="rounded-b-2xl" />
         ) : data.isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-2 text-zinc-400">
+          <div className="flex flex-col items-center justify-center gap-1.5 text-zinc-400">
             <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
             <span className="text-xs">Generating...</span>
+            <GenerationTimeEstimate
+              estimate={data.runtimeEstimate}
+              createdAt={data.generationCreatedAt}
+            />
           </div>
         ) : data.errorMsg ? (
           <div className="w-full text-xs text-red-300 bg-red-950/30 border border-red-500/20 rounded-lg p-3 line-clamp-5">

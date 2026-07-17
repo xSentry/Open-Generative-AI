@@ -180,16 +180,31 @@ export async function executeGraph({
     const nodeRunId = nodeRunIds[node.id];
     const baseParams = applyInputOverride(node, inputOverrides[node.id]);
     const params = resolveParams(baseParams, resultsByNodeId);
+    let runtimeEstimate = null;
 
     try {
       if (nodeRunId) {
-        const runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
+        runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
         await repo.updateNodeRun(nodeRunId, {
           status: 'running',
           ...(runtimeEstimate ? { result: { runtimeEstimate } } : {}),
         });
       }
-      const raw = await executeNode({ provider, apiKey, node: { ...node, params } });
+      const raw = await executeNode({
+        provider,
+        apiKey,
+        node: { ...node, params },
+        onProviderStarted: nodeRunId
+          ? async ({ predictionId, createdAt }) => repo.updateNodeRun(nodeRunId, {
+              status: 'running',
+              providerRef: predictionId || undefined,
+              result: {
+                ...(runtimeEstimate ? { runtimeEstimate } : {}),
+                createdAt: createdAt || new Date().toISOString(),
+              },
+            })
+          : undefined,
+      });
       const { result, keys } = await storeOutputs({ result: raw, nodeId: node.id, nodeRunId });
       resultsByNodeId[node.id] = result.outputs || [];
       if (nodeRunId) {
@@ -295,8 +310,25 @@ export async function executeSingleNode({
   const params = resolveParams(node.params || {}, resultsByNodeId);
   try {
     const runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
-    if (runtimeEstimate) await repo.updateNodeRun(nodeRunId, { status: 'running', result: { runtimeEstimate } });
-    const raw = await executeNode({ provider, apiKey, node: { ...node, params } });
+    if (runtimeEstimate) {
+      await repo.updateNodeRun(nodeRunId, {
+        status: 'running',
+        result: { runtimeEstimate },
+      });
+    }
+    const raw = await executeNode({
+      provider,
+      apiKey,
+      node: { ...node, params },
+      onProviderStarted: async ({ predictionId, createdAt }) => repo.updateNodeRun(nodeRunId, {
+        status: 'running',
+        providerRef: predictionId || undefined,
+        result: {
+          ...(runtimeEstimate ? { runtimeEstimate } : {}),
+          createdAt: createdAt || new Date().toISOString(),
+        },
+      }),
+    });
     const { result, keys } = await storeOutputs({ result: raw, nodeId: node.id, nodeRunId });
     if (runId) await repo.updateRun(runId, { status: 'completed' });
     await repo.updateNodeRun(nodeRunId, { status: 'succeeded', result, outputKeys: keys });

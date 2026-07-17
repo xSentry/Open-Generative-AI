@@ -12,6 +12,7 @@ import { TbArrowMerge } from "react-icons/tb";
 import { useGenerationCost } from "./useGenerationCost";
 import VideoPlayer from "./VideoPlayer";
 import { getNodeTitle } from "./nodeTitles";
+import GenerationTimeEstimate from "./GenerationTimeEstimate";
 import QueuedState from "./QueuedState";
 
 const inputHandles = [
@@ -503,9 +504,13 @@ const VideoCombiner = ({ id, data, selected }) => {
         {data.isQueued ? (
           <QueuedState tone="orange" className="rounded-b-2xl" />
         ) : data.isLoading ? (
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
             <span className="text-[10px] font-bold text-orange-500 tracking-wider uppercase">Combining...</span>
+            <GenerationTimeEstimate
+              estimate={data.runtimeEstimate}
+              createdAt={data.generationCreatedAt}
+            />
           </div>
         ) : data.errorMsg ? (
           <div className="text-red-400 text-xs font-medium p-3 bg-red-500/10 rounded-xl border border-red-500/20 m-3 w-full capitalize">

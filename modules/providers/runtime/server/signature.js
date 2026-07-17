@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 export const DEFAULT_RUNTIME_SIGNATURE_VERSION = 1;
 
 const CONCEPT = /(?:^|[_\s-])(width|height|resolution|target_resolution|image_size|output_size|size|aspect_ratio|duration|seconds|length|num_frames|max_frames|frames|fps|frame_rate|steps|inference_steps|num_inference_steps|denoising_steps|quality|speed|mode|tier|preset|performance|num_outputs|output_count|batch_size|num_images|samples)(?:$|[_\s-])/i;
-const EXCLUDED = /^(?:prompt|instruction|caption|description|negative_prompt|seed|url|uri|file|image|video|audio|asset)(?:_|$)/i;
-const HIGH_IMPACT = /width|height|resolution|size|aspect_ratio|duration|seconds|length|frames|fps|steps|quality|speed|mode|tier|preset|performance/i;
+const USER_CONTENT = /^(?:prompt|instruction|caption|description|negative_prompt|text|query|content|message|script)(?:_|$)/i;
+const FILE_IDENTIFIER = /^(?:url|uri|file|asset)(?:_|$)|(?:_url|_uri|_file|_id)$/i;
+export const HIGH_IMPACT_FIELD_PATTERN = 'width|height|resolution|size|aspect_ratio|duration|seconds|length|frames|fps|steps|quality|speed|mode|tier|preset|performance';
+const HIGH_IMPACT = new RegExp(HIGH_IMPACT_FIELD_PATTERN, 'i');
 
 function bucket(value, step) {
   const number = Number(value);
@@ -42,8 +44,14 @@ export function canonicalize(value) {
 }
 
 function isRuntimeField(key, schema, overrides) {
-  if (EXCLUDED.test(key)) return false;
-  if (overrides?.includes(key)) return true;
+  // Overrides replace generic discovery, but can never opt user content or raw
+  // media identifiers into telemetry. Seed is intentionally allowed only via
+  // an explicit override.
+  if (USER_CONTENT.test(key) || FILE_IDENTIFIER.test(key) || schema?.format === 'uri' || schema?.mediaKind) {
+    return false;
+  }
+  if (Array.isArray(overrides)) return overrides.includes(key);
+  if (key === 'seed') return false;
   const words = `${key} ${schema?.title || ''} ${schema?.description || ''}`;
   return CONCEPT.test(words);
 }

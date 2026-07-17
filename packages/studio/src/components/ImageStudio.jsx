@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import DrawModal from "./DrawModal.jsx";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
+import RuntimeEstimate from "./RuntimeEstimate.jsx";
 import {
   t2iModels,
   i2iModels,
@@ -1437,9 +1438,13 @@ export default function ImageStudio({
 
                 {/* Loading / error placeholders for async generations */}
                 {!entry.url && entry.status !== "failed" && (
-                  <div className="w-full aspect-square bg-black/40 flex flex-col items-center justify-center gap-3">
+                  <div className="w-full aspect-square bg-black/40 flex flex-col items-center justify-center gap-2">
                     <div className="animate-spin text-primary text-2xl">◌</div>
                     <span className="text-[11px] text-white/40">Generating…</span>
+                    <RuntimeEstimate
+                      estimate={entry.runtimeEstimate}
+                      createdAt={entry.providerCreatedAt}
+                    />
                   </div>
                 )}
                 {!entry.url && entry.status === "failed" && (

@@ -41,6 +41,7 @@ export async function createDefaultProcessDeps() {
     { runReplicatePrediction },
     { runMuapiPrediction },
     { getUserMuapiApiKey, getUserReplicateApiKey },
+    { publishUserEvent, studioGenerationEvent },
   ] = await Promise.all([
     import('../../storage/server/s3.js'),
     import('./generationsRepo.js'),
@@ -49,6 +50,7 @@ export async function createDefaultProcessDeps() {
     import('../../providers/replicate/server/run.js'),
     import('../../providers/muapi/server/run.js'),
     import('../../auth/server/users.js'),
+    import('../../events/server/publisher.js'),
   ]);
 
   return {
@@ -57,6 +59,7 @@ export async function createDefaultProcessDeps() {
     updateGenerationResult: repo.updateGenerationResult,
     markGenerationFailed: repo.markGenerationFailed,
     setProviderRef: repo.setProviderRef,
+    setProviderStarted: repo.setProviderStarted,
     claimGeneration: repo.claimGeneration,
     createOutputObjectKey,
     uploadObject,
@@ -67,6 +70,8 @@ export async function createDefaultProcessDeps() {
     runMuapiPrediction,
     getReplicateStudioModel,
     getStudioModel,
+    publishGenerationEvent: (event) =>
+      publishUserEvent(event.userId, studioGenerationEvent(event)),
     resolveProviderKey: async ({ userId, provider }) =>
       provider === 'muapi'
         ? (await getUserMuapiApiKey(userId)) || process.env.MUAPI_API_KEY || null
@@ -147,6 +152,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
       outputType: 'text/plain',
       outputMeta: { text: textOutput },
       providerRef: providerResult.replicateId || providerResult.request_id || null,
+      providerCreatedAt: providerResult.createdAt || null,
       inputAssets: cleaned,
     });
   }
@@ -180,6 +186,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
       prompt: generation.prompt,
       params: generation.params,
       inputAssets: [],
+      runtimeEstimate: generation.runtimeEstimate || null,
       status: 'generating',
     });
     const stored = await storeSingleOutput({
@@ -195,6 +202,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
       outputKey: stored.key,
       outputType: stored.contentType,
       providerRef: providerResult.replicateId || providerResult.request_id || null,
+      providerCreatedAt: providerResult.createdAt || null,
     });
   }
 
@@ -205,6 +213,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
     outputKey: primary.key,
     outputType: primary.contentType,
     providerRef: providerResult.replicateId || providerResult.request_id || null,
+    providerCreatedAt: providerResult.createdAt || null,
     inputAssets: cleaned,
   });
 }
@@ -223,7 +232,27 @@ async function runProviderForGeneration({ generation, apiKey, deps }) {
 
   const model = deps.getReplicateStudioModel(generation.mode, generation.model);
   if (!model) throw new Error(`Replicate model "${generation.model}" is unavailable.`);
-  return deps.runReplicatePrediction({ apiKey, model, params: generation.params, mode: generation.mode });
+  return deps.runReplicatePrediction({
+    apiKey,
+    model,
+    params: generation.params,
+    mode: generation.mode,
+    onStarted: async ({ predictionId, createdAt }) => {
+      const providerCreatedAt = createdAt || new Date().toISOString();
+      if (deps.setProviderStarted) {
+        await deps.setProviderStarted(generation.id, {
+          providerRef: predictionId,
+          providerCreatedAt,
+        });
+      }
+      await deps.publishGenerationEvent?.({
+        userId: generation.userId,
+        id: generation.id,
+        status: 'generating',
+        queueStatus: 'active',
+      });
+    },
+  });
 }
 
 // Process an already-claimed generation row (no claiming here). Runs the

@@ -70,6 +70,7 @@ export function serializeGeneration(generation, deps) {
     mode: generation.mode,
     mediaType: generation.mediaType,
     provider: generation.provider,
+    providerCreatedAt: generation.providerCreatedAt || null,
     model: generation.model,
     prompt: generation.prompt,
     params: generation.params || {},
@@ -77,6 +78,7 @@ export function serializeGeneration(generation, deps) {
     url,
     outputType: generation.outputType || null,
     outputMeta: generation.outputMeta || null,
+    runtimeEstimate: generation.runtimeEstimate || null,
     error: generation.error || null,
     createdAt: generation.createdAt,
     completedAt: generation.completedAt || null,
@@ -141,10 +143,9 @@ export async function handleStudioGenerateRequest(request, deps) {
         );
       }
       runProvider = () => deps.runReplicatePrediction({ apiKey, model: replicateModel, params, mode });
-      // Collection is always on in the runner. Presentation is intentionally
-      // gated while real-world estimate accuracy is being validated.
-      if (String(deps.env?.REPLICATE_RUNTIME_ESTIMATES_ENABLED).toLowerCase() === 'true'
-        && typeof deps.estimatePredictionRuntime === 'function'
+      // Runtime history is best-effort: missing or incompatible samples simply
+      // produce no estimate and must never prevent a generation from starting.
+      if (typeof deps.estimatePredictionRuntime === 'function'
         && typeof deps.createRuntimeSignature === 'function') {
         try {
           runtimeEstimate = await deps.estimatePredictionRuntime({
@@ -175,6 +176,7 @@ export async function handleStudioGenerateRequest(request, deps) {
         prompt,
         params,
         inputAssets,
+        runtimeEstimate,
       });
 
       // Async flow: return immediately, worker/detached task finishes the job.
@@ -189,14 +191,14 @@ export async function handleStudioGenerateRequest(request, deps) {
             }))
             .catch(() => {});
         }
-        return json({ generations: [{ ...serializeGeneration(generation, deps), ...(runtimeEstimate ? { runtimeEstimate } : {}) }] }, { status: 202 });
+        return json({ generations: [serializeGeneration(generation, deps)] }, { status: 202 });
       }
 
       // Synchronous flow (Phase 1): run provider, store output, return the row.
       try {
         const providerResult = await runProvider();
         const stored = await deps.storeGenerationOutputs({ generation, providerResult });
-        return json({ generation: { ...serializeGeneration(stored, deps), ...(runtimeEstimate ? { runtimeEstimate } : {}) } });
+        return json({ generation: serializeGeneration(stored, deps) });
       } catch (error) {
         await deps.failGeneration?.({ generation, error });
         throw error;

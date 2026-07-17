@@ -5,6 +5,7 @@ import { generateAudio, uploadFile } from "../muapi.js";
 import { audioModels, getAudioModelById } from "../models.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
+import RuntimeEstimate from "./RuntimeEstimate.jsx";
 
 // ---------------------------------------------------------------------------
 // Upload button states
@@ -1460,6 +1461,13 @@ export default function AudioStudio({
                           ? (entry.error || "Generation failed")
                           : (entry.title || entry.prompt || "Untitled Audio")}
                     </p>
+                    {entry.status === "generating" && (
+                      <RuntimeEstimate
+                        estimate={entry.runtimeEstimate}
+                        createdAt={entry.providerCreatedAt}
+                        className="-mt-1"
+                      />
+                    )}
                   </div>
                 ))}
               </div>

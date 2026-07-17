@@ -21,3 +21,41 @@ test('runtime signature buckets media metadata without retaining source URLs', (
   assert.equal(JSON.stringify(signature.signature).includes('secret'), false);
   assert.ok(createRelaxedRuntimeSignature(signature.signature).signatureHash);
 });
+
+test('runtime field overrides replace generic discovery and may explicitly include seed', () => {
+  const signature = createRuntimeSignature({
+    model: {
+      ...model,
+      runtimeFields: ['seed', 'quality'],
+    },
+    params: { width: 1024, steps: 20, quality: 'high', seed: 42 },
+  });
+  assert.deepEqual(signature.signature.fields, { quality: 'high', seed: 42 });
+});
+
+test('runtime signature keeps prefixed dimensions but always excludes raw media and user content', () => {
+  const signature = createRuntimeSignature({
+    model: {
+      id: 'media-dimensions',
+      inputs: {
+        image_size: { type: 'string' },
+        image_width: { type: 'integer' },
+        video_fps: { type: 'number' },
+        image: { type: 'string', format: 'uri', mediaKind: 'image' },
+        text: { type: 'string', description: 'Text whose length and quality vary.' },
+      },
+    },
+    params: {
+      image_size: '1K',
+      image_width: 1024,
+      video_fps: 30,
+      image: 'https://example.test/private.png',
+      text: 'private content',
+    },
+  });
+  assert.deepEqual(signature.signature.fields, {
+    image_size: '1k',
+    image_width: 1024,
+    video_fps: 30,
+  });
+});

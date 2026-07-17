@@ -58,6 +58,7 @@ function emitRunStatus(runId, data, onEvent) {
       run_status: data?.status,
       result: latest.result,
       error: latest.error,
+      created_at: latest.created_at,
     });
   }
 }
@@ -295,6 +296,7 @@ export function watchNodeRun(runId, nodeId, { onUpdate, onSucceeded, onFailed, o
       status: ev.status,
       result: ev.result,
       error: ev.error,
+      created_at: ev.created_at,
     };
     onUpdate?.(latest);
     if (latest.status === "succeeded" || latest.status === "completed") {
