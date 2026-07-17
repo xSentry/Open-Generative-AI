@@ -9,6 +9,8 @@ import { handleStudioGenerateRequest } from '@/modules/studio/server/apiHandlers
 import { getReplicateStudioModel } from '@/modules/providers/replicate/server/catalog';
 import { runReplicatePrediction } from '@/modules/providers/replicate/server/run';
 import { runMuapiPrediction } from '@/modules/providers/muapi/server/run';
+import { createRuntimeSignature } from '@/modules/providers/runtime/server/signature';
+import { estimatePredictionRuntime } from '@/modules/providers/runtime/server/samples';
 import { createGeneration } from '@/modules/studio/server/generationsRepo';
 import { mediaTypeForMode } from '@/modules/studio/server/generationMedia';
 import {
@@ -35,6 +37,8 @@ export async function POST(request) {
     getReplicateStudioModel,
     getStudioModel,
     runMuapiPrediction,
+    createRuntimeSignature,
+    estimatePredictionRuntime,
     runReplicatePrediction,
     // Persistence + async wiring
     requireUser,

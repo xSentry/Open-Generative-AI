@@ -124,6 +124,7 @@ export async function handleStudioGenerateRequest(request, deps) {
 
     // Validate the model up-front and capture a runner closure per provider.
     let runProvider;
+    let runtimeEstimate = null;
     if (provider === 'muapi') {
       const studioModel = deps.getStudioModel(mode, modelId);
       if (!studioModel) {
@@ -140,6 +141,20 @@ export async function handleStudioGenerateRequest(request, deps) {
         );
       }
       runProvider = () => deps.runReplicatePrediction({ apiKey, model: replicateModel, params, mode });
+      // Collection is always on in the runner. Presentation is intentionally
+      // gated while real-world estimate accuracy is being validated.
+      if (String(deps.env?.REPLICATE_RUNTIME_ESTIMATES_ENABLED).toLowerCase() === 'true'
+        && typeof deps.estimatePredictionRuntime === 'function'
+        && typeof deps.createRuntimeSignature === 'function') {
+        try {
+          runtimeEstimate = await deps.estimatePredictionRuntime({
+            provider: 'replicate', model: replicateModel,
+            signature: deps.createRuntimeSignature({ model: replicateModel, params }),
+          });
+        } catch (error) {
+          console.warn('[replicate-runtime] could not calculate estimate:', error?.message || error);
+        }
+      }
     }
 
     // Persistence is enabled when the route wires DB deps and a user is present.
@@ -174,14 +189,14 @@ export async function handleStudioGenerateRequest(request, deps) {
             }))
             .catch(() => {});
         }
-        return json({ generations: [serializeGeneration(generation, deps)] }, { status: 202 });
+        return json({ generations: [{ ...serializeGeneration(generation, deps), ...(runtimeEstimate ? { runtimeEstimate } : {}) }] }, { status: 202 });
       }
 
       // Synchronous flow (Phase 1): run provider, store output, return the row.
       try {
         const providerResult = await runProvider();
         const stored = await deps.storeGenerationOutputs({ generation, providerResult });
-        return json({ generation: serializeGeneration(stored, deps) });
+        return json({ generation: { ...serializeGeneration(stored, deps), ...(runtimeEstimate ? { runtimeEstimate } : {}) } });
       } catch (error) {
         await deps.failGeneration?.({ generation, error });
         throw error;
@@ -190,7 +205,7 @@ export async function handleStudioGenerateRequest(request, deps) {
 
     // Legacy (no persistence): behave exactly as before.
     const result = await runProvider();
-    return json({ ...result, model: modelId, provider: provider === 'muapi' ? 'muapi' : 'replicate' });
+    return json({ ...result, model: modelId, provider: provider === 'muapi' ? 'muapi' : 'replicate', ...(runtimeEstimate ? { runtimeEstimate } : {}) });
   } catch (error) {
     const typedResponse = typedError(error);
     if (typedResponse) return typedResponse;

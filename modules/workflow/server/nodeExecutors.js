@@ -13,6 +13,8 @@
 import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
 import { runMuapiPrediction } from '../../providers/muapi/server/run.js';
 import { getReplicateModelById } from '../../providers/replicate/server/catalog.js';
+import { createRuntimeSignature } from '../../providers/runtime/server/signature.js';
+import { estimatePredictionRuntime } from '../../providers/runtime/server/samples.js';
 import { executeUtilityNode } from './utilityNodes.js';
 
 function newId() {
@@ -73,6 +75,24 @@ async function defaultRunModel({ provider, apiKey, model, params }) {
 
 function isPassthrough(model) {
   return typeof model === 'string' && model.endsWith('-passthrough');
+}
+
+// Best-effort only: an unavailable runtime-history DB must never stop a node.
+// Kept next to model resolution so workflow nodes use the exact same signature
+// policy as Studio and the shared Replicate runner.
+export async function estimateReplicateNodeRuntime({ provider, model, params }) {
+  if (provider !== 'replicate' || String(process.env.REPLICATE_RUNTIME_ESTIMATES_ENABLED).toLowerCase() !== 'true') return null;
+  const resolved = getReplicateModelById(model);
+  if (!resolved) return null;
+  try {
+    return await estimatePredictionRuntime({
+      provider: 'replicate', model: resolved,
+      signature: createRuntimeSignature({ model: resolved, params }),
+    });
+  } catch (error) {
+    console.warn('[replicate-runtime] could not calculate workflow node estimate:', error?.message || error);
+    return null;
+  }
 }
 
 // Execute a single node with already-resolved params.

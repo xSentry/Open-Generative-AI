@@ -718,6 +718,9 @@ function buildRecord({ owner, name, model, version, schema }, opts) {
     promptRequired,
     outputKind: effectiveOutputKind,
     output: outputInfo.schema,
+    // Kept on every imported record so a future signature-policy change can
+    // explicitly prevent unlike historical samples from being mixed.
+    runtimeSignatureVersion: 1,
   };
 
   if (imageField) record.imageField = imageField;
@@ -816,6 +819,12 @@ function upsertRecord(records, record) {
   // the rest of the record with the latest fetched data. `--fresh` never reaches
   // here because it starts from an empty store.
   const existing = records[idx];
+  // Runtime overrides are curated locally, not supplied by Replicate's schema.
+  // Preserve them when refreshing a model from the importer.
+  if (Array.isArray(existing.runtimeFields)) record.runtimeFields = existing.runtimeFields;
+  if (Number.isInteger(existing.runtimeSignatureVersion)) {
+    record.runtimeSignatureVersion = existing.runtimeSignatureVersion;
+  }
   const existingModes = Array.isArray(existing.modes)
     ? existing.modes
     : (existing.mode ? [existing.mode] : []);

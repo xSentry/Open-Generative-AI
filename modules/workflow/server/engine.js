@@ -145,6 +145,7 @@ export async function executeGraph({
   nodeConcurrency = Infinity,
   repo,
   executeNode = defaultExecuteNode,
+  estimateNodeRuntime = async () => null,
   storeOutputs = async ({ result }) => ({ result, keys: [] }),
 }) {
   let ordered;
@@ -182,7 +183,11 @@ export async function executeGraph({
 
     try {
       if (nodeRunId) {
-        await repo.updateNodeRun(nodeRunId, { status: 'running' });
+        const runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
+        await repo.updateNodeRun(nodeRunId, {
+          status: 'running',
+          ...(runtimeEstimate ? { result: { runtimeEstimate } } : {}),
+        });
       }
       const raw = await executeNode({ provider, apiKey, node: { ...node, params } });
       const { result, keys } = await storeOutputs({ result: raw, nodeId: node.id, nodeRunId });
@@ -284,10 +289,13 @@ export async function executeSingleNode({
   resultsByNodeId = {},
   repo,
   executeNode = defaultExecuteNode,
+  estimateNodeRuntime = async () => null,
   storeOutputs = async ({ result }) => ({ result, keys: [] }),
 }) {
   const params = resolveParams(node.params || {}, resultsByNodeId);
   try {
+    const runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
+    if (runtimeEstimate) await repo.updateNodeRun(nodeRunId, { status: 'running', result: { runtimeEstimate } });
     const raw = await executeNode({ provider, apiKey, node: { ...node, params } });
     const { result, keys } = await storeOutputs({ result: raw, nodeId: node.id, nodeRunId });
     if (runId) await repo.updateRun(runId, { status: 'completed' });

@@ -41,6 +41,7 @@ function mapCard(generation) {
         outputType: generation.outputType || null,
         status: generation.status || 'succeeded',
         error: generation.error || null,
+        runtimeEstimate: generation.runtimeEstimate || null,
         timestamp: generation.createdAt || new Date().toISOString(),
     };
 }

@@ -9,6 +9,9 @@
 // helper (submitAndPoll) treats it as an already-completed response and does
 // not attempt to poll the muapi predictions endpoint.
 
+import { createRuntimeSignature } from '../../runtime/server/signature.js';
+import { saveRuntimeSample } from '../../runtime/server/samples.js';
+
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
 // System instruction injected for Replicate "recast" (Body Swap) generations.
@@ -248,6 +251,9 @@ export async function runReplicatePrediction({ apiKey, model, params, mode, maxA
 
   const input = buildInput(model, params);
   applyRecastSystemPrompt(model, input, mode);
+  // This is deliberately computed from the submitted, resolved input rather
+  // than raw request data; signature policy excludes prompts, URLs and assets.
+  const runtimeSignature = createRuntimeSignature({ model, params: input, mediaMetadata: params?.runtimeMediaMetadata });
 
   let prediction = await replicateJson(`${REPLICATE_API}/predictions`, apiKey, {
     method: 'POST',
@@ -260,6 +266,20 @@ export async function runReplicatePrediction({ apiKey, model, params, mode, maxA
     const status = prediction?.status;
 
     if (status === 'succeeded') {
+      // Runtime telemetry must never make a successful generation fail. The
+      // unique prediction id also makes retries safe.
+      try {
+        if (process.env.DATABASE_URL) await saveRuntimeSample({
+          provider: 'replicate', modelId: model.id, signature: runtimeSignature,
+          predictionId: prediction.id, predictTimeSeconds: prediction.metrics?.predict_time ?? null,
+          totalTimeSeconds: prediction.metrics?.total_time ?? null,
+          createdAt: prediction.created_at ? new Date(prediction.created_at) : new Date(),
+          startedAt: prediction.started_at ? new Date(prediction.started_at) : null,
+          completedAt: prediction.completed_at ? new Date(prediction.completed_at) : new Date(),
+        });
+      } catch (error) {
+        console.warn('[replicate-runtime] could not save successful runtime sample:', error?.message || error);
+      }
       const { url, outputs, text } = normalizeOutput(prediction.output);
       return {
         url,
