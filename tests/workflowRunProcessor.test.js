@@ -438,6 +438,22 @@ test('runClaimedRun fails the run when no provider key is available', async () =
   assert.equal(updates[0].status, 'failed');
 });
 
+test('runClaimedRun allows a pure utility graph without a provider credential', async () => {
+  let resolvedCredential = false;
+  const deps = baseRunDeps({
+    getWorkflowById: async () => ({
+      id: 'wf', provider: 'replicate',
+      nodes: [{ id: 'merge', category: 'utility', model: 'prompt-concatenator' }],
+      edges: [],
+    }),
+    listNodeRuns: async () => [{ id: 'nrMerge', nodeId: 'merge' }],
+    resolveProviderKey: async () => { resolvedCredential = true; return null; },
+  });
+  const result = await runClaimedRun({ id: 'run-utility', userId: 'u1', workflowId: 'wf', provider: 'replicate' }, deps);
+  assert.equal(result.status, 'completed');
+  assert.equal(resolvedCredential, false);
+});
+
 test('processRun returns null when the run cannot be claimed', async () => {
   const deps = baseRunDeps({ claimRun: async () => null });
   const result = await processRun('run-x', deps);

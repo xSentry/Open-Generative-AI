@@ -3,7 +3,7 @@ import {
   getActiveProviderKey,
   getProviderMissingKeyMessage,
 } from '@/modules/providers/server/providerKeys';
-import { getUserReplicateApiKey } from '@/modules/auth/server/users';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { handleWorkflowArchitect } from '@/modules/workflow-architect/api/router';
 import {
@@ -23,23 +23,14 @@ async function dispatch(request, ctx, method) {
     return NextResponse.json(body, { status });
   }
 
-  const { user, provider } = active;
-
-  if (provider !== 'replicate') {
-    return NextResponse.json(
-      {
-        error: {
-          code: 'UNSUPPORTED_PROVIDER',
-          message: 'Workflow Architect is only available for Replicate workflows.',
-        },
-      },
-      { status: 400 }
-    );
+  const { user, provider, apiKey } = active;
+  try {
+    requireProviderOperation(provider, 'workflowArchitect');
+  } catch (error) {
+    return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: error.status || 400 });
   }
 
-  const userReplicateApiKey = await getUserReplicateApiKey(user.id);
-
-  if (!userReplicateApiKey) {
+  if (!apiKey) {
     return NextResponse.json(
       {
         error: {
@@ -51,7 +42,7 @@ async function dispatch(request, ctx, method) {
     );
   }
 
-  return handleWorkflowArchitect(request, ctx, method, { user, provider, apiKey: userReplicateApiKey }, {
+  return handleWorkflowArchitect(request, ctx, method, { user, provider, apiKey }, {
     publishArchitectEvent: (event) =>
       publishUserEvent(event.userId, workflowArchitectJobEvent(event)),
   });

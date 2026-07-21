@@ -10,11 +10,7 @@
 // abstraction (modules/providers/*), which is what keeps the engine
 // provider-independent: adding a custom provider only means adding a runner in
 // `runModel`.
-import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
-import { runMuapiPrediction } from '../../providers/muapi/server/run.js';
-import { getReplicateModelById } from '../../providers/replicate/server/catalog.js';
-import { createRuntimeSignature } from '../../providers/runtime/server/signature.js';
-import { estimatePredictionRuntime } from '../../providers/runtime/server/samples.js';
+import { requireProviderOperation } from '../../providers/server/registry.js';
 import { executeUtilityNode } from './utilityNodes.js';
 
 function newId() {
@@ -61,16 +57,15 @@ function normalizeOutputs(providerResult, category) {
 
 // Dispatch real model inference to the active provider. Injectable via
 // executeNode's `runners` for tests.
-async function defaultRunModel({ provider, apiKey, model, params, onStarted }) {
-  if (provider === 'muapi') {
-    return runMuapiPrediction({ apiKey, endpoint: model, params });
-  }
-  if (provider === 'replicate') {
-    const resolved = getReplicateModelById(model);
-    if (!resolved) throw new Error(`Unknown Replicate model "${model}".`);
-    return runReplicatePrediction({ apiKey, model: resolved, params, onStarted });
-  }
-  throw new Error(`No node runner for provider "${provider}".`);
+async function defaultRunModel({ provider, apiKey, model, mode, category, params, onStarted }) {
+  const adapter = requireProviderOperation(provider, 'workflow');
+  const resolved = await adapter.catalog.getModelById(model, {
+    mode: mode || null,
+    category: category || null,
+    params,
+  });
+  if (!resolved) throw new Error(`Unknown model "${model}" for provider "${provider}".`);
+  return adapter.predictions.run({ apiKey, model: resolved, params, onStarted });
 }
 
 function isPassthrough(model) {
@@ -80,17 +75,15 @@ function isPassthrough(model) {
 // Best-effort only: an unavailable runtime-history DB must never stop a node.
 // Kept next to model resolution so workflow nodes use the exact same signature
 // policy as Studio and the shared Replicate runner.
-export async function estimateReplicateNodeRuntime({ provider, model, params }) {
-  if (provider !== 'replicate') return null;
-  const resolved = getReplicateModelById(model);
+export async function estimateReplicateNodeRuntime({ provider, model, mode, category, params }) {
+  const adapter = requireProviderOperation(provider, 'workflow');
+  if (!adapter.runtime?.estimate) return null;
+  const resolved = await adapter.catalog.getModelById(model, { mode, category, params });
   if (!resolved) return null;
   try {
-    return await estimatePredictionRuntime({
-      provider: 'replicate', model: resolved,
-      signature: createRuntimeSignature({ model: resolved, params }),
-    });
+    return await adapter.runtime.estimate({ model: resolved, params });
   } catch (error) {
-    console.warn('[replicate-runtime] could not calculate workflow node estimate:', error?.message || error);
+    console.warn('[provider-runtime] could not calculate workflow node estimate:', error?.message || error);
     return null;
   }
 }
@@ -134,6 +127,8 @@ export async function executeNode({
       provider,
       apiKey,
       model,
+      mode: node.providerMode || node.provider_mode || node.mode || null,
+      category,
       params,
       onStarted: onProviderStarted,
     });

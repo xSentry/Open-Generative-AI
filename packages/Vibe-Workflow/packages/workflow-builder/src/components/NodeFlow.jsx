@@ -386,7 +386,7 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
   };
 };
 
-const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
+const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", providerFeatures, initialNodeSchemas, initialWorkflowData, onWorkflowSaved }) => {
   const params = useParams();
   const { id: routeWorkflowId } = params || {};
   const id = explicitWorkflowId || routeWorkflowId;
@@ -3571,7 +3571,7 @@ const NodeFlow = ({ workflowId: explicitWorkflowId, provider = "muapi", initialN
           </div>
         </div>
       )}
-      {interactionMode && (
+      {interactionMode && providerFeatures?.workflowArchitect !== false && (
         <WorkflowArchitectButton
           workflowId={workflowId}
           workflowRevision={workflowRevision}

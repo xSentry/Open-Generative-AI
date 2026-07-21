@@ -1,7 +1,7 @@
 /**
  * Layout for /agents/* pages.
  * These pages host the AiAgent component full-screen — no studio chrome needed.
- * The api key is available via the muapi_key cookie which StandaloneShell sets.
+ * Provider credentials remain server-side and are resolved from the session user.
  */
 export const metadata = {
   title: "Agent Chat — Open Generative AI",

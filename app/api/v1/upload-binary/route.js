@@ -3,6 +3,7 @@ import { errorResponse } from '@/modules/auth/server/errors';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
 import { createPresignedGetUrl, getS3Config, uploadObject } from '@/modules/storage/server/s3';
 import { validateUploadProxyTarget } from '../../../../src/lib/uploadProxyTarget';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 
 export async function POST(request) {
     try {
@@ -20,7 +21,8 @@ export async function POST(request) {
         const key = formData.get('key');
         const file = formData.get('file');
 
-        if (active?.provider && active.provider !== 'muapi' && key && file?.arrayBuffer) {
+        const adapter = active?.provider ? requireProviderOperation(active.provider, 'studio') : null;
+        if (adapter && !adapter.uploads?.usesProviderUploadProxy && key && file?.arrayBuffer) {
             const config = getS3Config();
             await uploadObject({
                 config,

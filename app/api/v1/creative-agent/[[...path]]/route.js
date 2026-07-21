@@ -1,46 +1,11 @@
 import { NextResponse } from 'next/server';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 import * as repo from '@/modules/design-agent/server/repo';
 import { enqueueJob, listSkills } from '@/modules/design-agent/server/runtime';
 
 export const runtime = 'nodejs';
-
-const MUAPI_BASE = 'https://api.muapi.ai';
-
-function getApiKey(request) {
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader && authHeader.startsWith('Bearer ')) return authHeader.substring(7);
-  return request.headers.get('x-api-key') || null;
-}
-
-function cleanHeaders(request) {
-  const headers = new Headers(request.headers);
-  headers.delete('host');
-  headers.delete('connection');
-  headers.delete('cookie');
-  headers.delete('Authorization');
-  headers.delete('x-api-key');
-  return headers;
-}
-
-async function proxyMuapi(request, params) {
-  const slug = await params;
-  const path = (slug.path || []).join('/');
-  const { search } = new URL(request.url);
-  const targetUrl = `${MUAPI_BASE}/api/v1/creative-agent/${path}${search}`;
-  const headers = cleanHeaders(request);
-  const apiKey = getApiKey(request);
-  if (apiKey) headers.set('x-api-key', apiKey);
-
-  const body = request.method !== 'GET' && request.method !== 'HEAD'
-    ? await request.arrayBuffer()
-    : undefined;
-  const response = await fetch(targetUrl, { method: request.method, headers, body });
-  const contentType = response.headers.get('content-type') || 'application/json';
-  const data = await response.arrayBuffer();
-  return new Response(data, { status: response.status, headers: { 'content-type': contentType } });
-}
 
 function json(body, status = 200) {
   return NextResponse.json(body, { status });
@@ -141,8 +106,9 @@ async function withProvider(request, params, method) {
     return json(body, status);
   }
 
-  if (active.provider === 'muapi') {
-    return proxyMuapi(request, params);
+  const adapter = requireProviderOperation(active.provider, 'designAgent');
+  if (adapter.transports?.designAgentProxy) {
+    return adapter.transports.designAgentProxy(request, { params, apiKey: active.apiKey });
   }
 
   const slug = await params;

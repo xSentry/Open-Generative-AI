@@ -36,20 +36,14 @@ export async function createDefaultProcessDeps() {
   const [
     { createOutputObjectKey, deleteObject, getS3Config, uploadObject },
     repo,
-    { getReplicateStudioModel },
-    { getStudioModel },
-    { runReplicatePrediction },
-    { runMuapiPrediction },
-    { getUserMuapiApiKey, getUserReplicateApiKey },
+    { requireProviderOperation },
+    { getUserProviderCredential },
     { publishUserEvent, studioGenerationEvent },
   ] = await Promise.all([
     import('../../storage/server/s3.js'),
     import('./generationsRepo.js'),
-    import('../../providers/replicate/server/catalog.js'),
-    import('./studioCatalog.js'),
-    import('../../providers/replicate/server/run.js'),
-    import('../../providers/muapi/server/run.js'),
-    import('../../auth/server/users.js'),
+    import('../../providers/server/registry.js'),
+    import('../../providers/server/credentials.js'),
     import('../../events/server/publisher.js'),
   ]);
 
@@ -66,16 +60,10 @@ export async function createDefaultProcessDeps() {
     deleteObject,
     getS3Config,
     fetchFn: (...args) => fetch(...args),
-    runReplicatePrediction,
-    runMuapiPrediction,
-    getReplicateStudioModel,
-    getStudioModel,
+    requireProviderOperation,
     publishGenerationEvent: (event) =>
       publishUserEvent(event.userId, studioGenerationEvent(event)),
-    resolveProviderKey: async ({ userId, provider }) =>
-      provider === 'muapi'
-        ? (await getUserMuapiApiKey(userId)) || process.env.MUAPI_API_KEY || null
-        : (await getUserReplicateApiKey(userId)) || process.env.REPLICATE_API_TOKEN || null,
+    resolveProviderKey: ({ userId, provider }) => getUserProviderCredential(userId, provider),
   };
 }
 
@@ -151,7 +139,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
       status: 'succeeded',
       outputType: 'text/plain',
       outputMeta: { text: textOutput },
-      providerRef: providerResult.replicateId || providerResult.request_id || null,
+      providerRef: providerResult.providerRef || providerResult.replicateId || providerResult.request_id || null,
       providerCreatedAt: providerResult.createdAt || null,
       inputAssets: cleaned,
     });
@@ -201,7 +189,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
       status: 'succeeded',
       outputKey: stored.key,
       outputType: stored.contentType,
-      providerRef: providerResult.replicateId || providerResult.request_id || null,
+      providerRef: providerResult.providerRef || providerResult.replicateId || providerResult.request_id || null,
       providerCreatedAt: providerResult.createdAt || null,
     });
   }
@@ -212,7 +200,7 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
     status: 'succeeded',
     outputKey: primary.key,
     outputType: primary.contentType,
-    providerRef: providerResult.replicateId || providerResult.request_id || null,
+    providerRef: providerResult.providerRef || providerResult.replicateId || providerResult.request_id || null,
     providerCreatedAt: providerResult.createdAt || null,
     inputAssets: cleaned,
   });
@@ -220,16 +208,28 @@ export async function storeGenerationOutputs({ generation, providerResult, deps,
 
 // Run the provider for a generation given a resolved API key.
 async function runProviderForGeneration({ generation, apiKey, deps }) {
-  if (generation.provider === 'muapi') {
-    const model = deps.getStudioModel(generation.mode, generation.model);
-    if (!model) throw new Error(`Unknown Studio model "${generation.model}".`);
-    return deps.runMuapiPrediction({
-      apiKey,
-      endpoint: model.endpoint || model.id,
-      params: generation.params,
+  if (deps.requireProviderOperation) {
+    const adapter = deps.requireProviderOperation(generation.provider, 'studio');
+    const model = await adapter.catalog.getModel(generation.mode, generation.model);
+    return adapter.predictions.run({
+      apiKey, model, mode: generation.mode, params: generation.params,
+      onStarted: async ({ predictionId, providerRef, createdAt }) => {
+        const ref = providerRef || predictionId;
+        const providerCreatedAt = createdAt || new Date().toISOString();
+        if (deps.setProviderStarted && ref) {
+          await deps.setProviderStarted(generation.id, { providerRef: ref, providerCreatedAt });
+        }
+        await deps.publishGenerationEvent?.({ userId: generation.userId, id: generation.id, status: 'generating', queueStatus: 'active' });
+      },
     });
   }
 
+  // Compatibility for existing injected worker tests.
+  if (generation.provider === 'muapi') {
+    const model = deps.getStudioModel(generation.mode, generation.model);
+    if (!model) throw new Error(`Unknown Studio model "${generation.model}".`);
+    return deps.runMuapiPrediction({ apiKey, endpoint: model.endpoint || model.id, params: generation.params });
+  }
   const model = deps.getReplicateStudioModel(generation.mode, generation.model);
   if (!model) throw new Error(`Replicate model "${generation.model}" is unavailable.`);
   return deps.runReplicatePrediction({
@@ -271,8 +271,9 @@ export async function runClaimedGeneration(generation, injectedDeps, env = proce
 
     const providerResult = await runProviderForGeneration({ generation, apiKey, deps });
 
-    if (deps.setProviderRef && (providerResult.replicateId || providerResult.request_id)) {
-      await deps.setProviderRef(generation.id, providerResult.replicateId || providerResult.request_id);
+    const providerRef = providerResult.providerRef || providerResult.replicateId || providerResult.request_id;
+    if (deps.setProviderRef && providerRef) {
+      await deps.setProviderRef(generation.id, providerRef);
     }
 
     return await storeGenerationOutputs({ generation, providerResult, deps, config, env });

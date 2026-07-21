@@ -1,6 +1,7 @@
 import { requireUser } from '@/modules/auth/server/auth';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 import {
   handleStudioUploadDeleteRequest,
   handleStudioUploadRequest,
@@ -24,6 +25,7 @@ export async function POST(request) {
     getS3Config,
     maxUploadBytes: MAX_UPLOAD_BYTES,
     requireUser,
+    requireProviderOperation,
     uploadObject,
   });
 }

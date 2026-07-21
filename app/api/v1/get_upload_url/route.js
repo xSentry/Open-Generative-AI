@@ -7,30 +7,28 @@ import {
     createPresignedGetUrl,
     getS3Config,
 } from '@/modules/storage/server/s3';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
-
-function getApiKey(request) {
-    const headerKey = request.headers.get('x-api-key');
-    if (headerKey) return headerKey;
-    // Cookie-based auth removed for security (CWE-522)
-    return null;
-}
 
 function cleanHeaders(request) {
     const headers = new Headers(request.headers);
     headers.delete('host');
     headers.delete('connection');
     headers.delete('cookie');
+    headers.delete('x-api-key');
+    headers.delete('authorization');
     return headers;
 }
 
 export async function GET(request) {
     const { search } = new URL(request.url);
+    let active;
 
     try {
-        const active = await getActiveProviderKey(request);
-        if (active.provider !== 'muapi') {
+        active = await getActiveProviderKey(request);
+        const adapter = requireProviderOperation(active.provider, 'studio');
+        if (!adapter.uploads?.usesProviderUploadProxy) {
             const url = new URL(request.url);
             const filename = url.searchParams.get('filename') || 'upload';
             const config = getS3Config();
@@ -57,7 +55,7 @@ export async function GET(request) {
     const targetUrl = `${MUAPI_BASE}/app/get_file_upload_url${search}`;
 
     const headers = cleanHeaders(request);
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {

@@ -95,6 +95,9 @@ function buildNodeFromSaved(savedNode, provider, catalog) {
     title: savedNode.title || savedNode.label || savedNode.name || String(savedNode.id),
     provider,
     ...(modelId ? { modelId } : {}),
+    ...((savedNode.provider_mode || savedNode.providerMode)
+      ? { providerMode: savedNode.provider_mode || savedNode.providerMode }
+      : {}),
     parameters,
     inputs,
     outputs: outputDefs,
@@ -221,6 +224,7 @@ export function workflowGraphToSavedPayload(graph) {
       title: node.title,
       category: node.category,
       model: node.modelId || null,
+      ...(node.providerMode ? { provider_mode: node.providerMode } : {}),
       input_params,
       output_params: { resultUrl: null, outputs: [] },
       params: paramsWithConnections(node, graph.edges),
@@ -264,6 +268,9 @@ export function reactFlowStateToWorkflowGraph({ nodes = [], edges = [] } = {}, {
       title: node.data?.title || node.title || node.id,
       category: inferredCategory,
       model,
+      ...((node.data?.selectedModel?.mode || node.data?.providerMode)
+        ? { provider_mode: node.data?.selectedModel?.mode || node.data?.providerMode }
+        : {}),
       input_params: cloneJson(node.data?.formValues || {}),
       output_params: {
         resultUrl: node.data?.resultUrl || null,
@@ -304,7 +311,10 @@ export function workflowGraphToReactFlowState(graph) {
       data: {
         title: node.title,
         modelId: node.model,
-        selectedModel: node.model ? { id: node.model } : null,
+        providerMode: node.provider_mode || null,
+        selectedModel: node.model
+          ? { id: node.model, ...(node.provider_mode ? { mode: node.provider_mode } : {}) }
+          : null,
         outputs: cloneJson(node.output_params?.outputs || []),
         resultUrl: node.output_params?.resultUrl || null,
         formValues: cloneJson(node.input_params || {}),

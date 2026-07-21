@@ -1,6 +1,6 @@
 import { getInputPortDefinitions, getOutputPortDefinitions, nodeTypeForCategory, portTypesCompatible } from '../../workflow-domain/portRegistry.js';
 import { CREATE_WORKFLOW_TYPE_META, semanticInputs } from './createWorkflowPlan.js';
-import { CURATED_MODEL_PROFILES } from './capabilityCatalog.js';
+import { getProviderArchitectProfiles } from './capabilityCatalog.js';
 
 const VERSION = 'workflow-model-selection/v1';
 const SECRET = /api[_-]?key|token|secret|credential|password|endpoint|model_url|url_endpoint/i;
@@ -63,15 +63,18 @@ function fixedModelId(type) {
 }
 
 export function buildModelSelectionOptions(plan, { catalog } = {}) {
+  const providerProfiles = Object.values(getProviderArchitectProfiles(catalog?.provider || 'replicate')).flat();
   return {
     version: 'workflow-model-selection-options/v1',
     nodes: (plan.nodes || []).map((planned) => {
       const fixed = fixedModelId(planned.type);
       const curatedIds = fixed
         ? new Set([fixed])
-        : new Set(Object.values(CURATED_MODEL_PROFILES).flat().map((profile) => profile.modelId));
+        : providerProfiles.length
+          ? new Set(providerProfiles.map((profile) => profile.modelId))
+          : null;
       const models = (catalog?.node_types || [])
-        .filter((node) => curatedIds.has(node.model_id) && matchesType(node, planned.type))
+        .filter((node) => (!curatedIds || curatedIds.has(node.model_id)) && matchesType(node, planned.type))
         .map((node) => ({ model_id: node.model_id, label: node.model_label, quality_tier: node.quality_tier, speed_tier: node.speed_tier, cost: node.cost }));
       return { node_id: planned.id, type: planned.type, models };
     }),

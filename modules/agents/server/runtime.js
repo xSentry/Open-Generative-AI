@@ -1,25 +1,29 @@
-import { getReplicateModelById, getReplicateModelsForMode } from '../../providers/replicate/server/catalog.js';
-import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
+import { requireProviderOperation } from '../../providers/server/registry.js';
 import * as repo from './repo.js';
 
-function pickTextModel() {
-  const models = getReplicateModelsForMode('t2t');
-  return models.find((model) => model.hasPrompt) || models[0] || null;
-}
-function resolveTextModel(modelId) {
-  const requested = modelId ? getReplicateModelById(modelId) : null;
-  if (requested && getReplicateModelsForMode('t2t').some((model) => model.id === requested.id)) {
-    return requested;
-  }
-  return pickTextModel();
+function modelsForMode(adapter, mode) {
+  return adapter.catalog.getModelListsSync?.()[mode] || [];
 }
 
-function resolveModeModel({ mode, requestedId, defaultId }) {
-  const models = getReplicateModelsForMode(mode);
-  const requested = requestedId ? getReplicateModelById(requestedId) : null;
-  if (requested && models.some((model) => model.id === requested.id)) return requested;
-  const fallback = defaultId ? getReplicateModelById(defaultId) : null;
-  if (fallback && models.some((model) => model.id === fallback.id)) return fallback;
+function pickTextModel(adapter) {
+  const models = modelsForMode(adapter, 't2t');
+  return models.find((model) => model.hasPrompt) || models[0] || null;
+}
+function resolveTextModel(adapter, modelId) {
+  const models = modelsForMode(adapter, 't2t');
+  const requested = modelId ? models.find((model) => model.id === modelId) : null;
+  if (requested) {
+    return requested;
+  }
+  return pickTextModel(adapter);
+}
+
+function resolveModeModel(adapter, { mode, requestedId, defaultId }) {
+  const models = modelsForMode(adapter, mode);
+  const requested = requestedId ? models.find((model) => model.id === requestedId) : null;
+  if (requested) return requested;
+  const fallback = defaultId ? models.find((model) => model.id === defaultId) : null;
+  if (fallback) return fallback;
   return models.find((model) => model.hasPrompt) || models[0] || null;
 }
 
@@ -177,7 +181,7 @@ function extractJsonObject(text) {
 function toolSkills(skills = []) {
   return skills.filter((skill) => {
     const config = skill.config || {};
-    return config.toolcall && config.type === 'replicate_model';
+    return config.toolcall && (config.type === 'provider_model' || config.type === 'replicate_model');
   });
 }
 
@@ -286,8 +290,8 @@ function buildToolResultPrompt({ agent, messages, userMessage, toolRun, outputTe
   ].filter(Boolean).join('\n\n');
 }
 
-async function classifyUserIntent({ agent, messages, userMessage, apiKey, model }) {
-  const providerResult = await runReplicatePrediction({
+async function classifyUserIntent({ adapter, agent, messages, userMessage, apiKey, model }) {
+  const providerResult = await adapter.predictions.run({
     apiKey,
     model,
     params: { prompt: buildIntentClassificationPrompt({ agent, messages, userMessage }) },
@@ -305,7 +309,7 @@ async function classifyUserIntent({ agent, messages, userMessage, apiKey, model 
   };
 }
 
-async function decideToolCall({ agent, messages, userMessage, apiKey, model, classifiedIntent }) {
+async function decideToolCall({ adapter, agent, messages, userMessage, apiKey, model, classifiedIntent }) {
   const tools = toolSkills(agent.skills);
   if (tools.length === 0) return { action: 'answer' };
   if (!toolEligibleIntent(classifiedIntent?.intent)) {
@@ -317,7 +321,7 @@ async function decideToolCall({ agent, messages, userMessage, apiKey, model, cla
     };
   }
 
-  const providerResult = await runReplicatePrediction({
+  const providerResult = await adapter.predictions.run({
     apiKey,
     model,
     params: { prompt: buildToolDecisionPrompt({ agent, messages, userMessage, tools }) },
@@ -381,10 +385,10 @@ function toolDecisionMetadata(toolDecision) {
   };
 }
 
-function toolCallMetadata(toolRun, toolDecision) {
+function toolCallMetadata(toolRun, toolDecision, provider) {
   const status = [`Calling ${toolRun.skill.name}`];
   return {
-    provider: 'replicate',
+    provider,
     skill_id: toolRun.skill.id,
     skill_name: toolRun.skill.name,
     model: toolRun.model.id,
@@ -401,22 +405,22 @@ function toolCallMetadata(toolRun, toolDecision) {
   };
 }
 
-async function runToolSkill({ skill, userMessage, apiKey, selectedToolModelId, args = {} }) {
+async function runToolSkill({ adapter, provider, skill, userMessage, apiKey, selectedToolModelId, args = {} }) {
   const config = skill.config || {};
   const mode = config.mode || 't2i';
-  const model = resolveModeModel({
+  const model = resolveModeModel(adapter, {
     mode,
     requestedId: selectedToolModelId,
     defaultId: config.default_model,
   });
-  if (!model) throw new Error(`No Replicate model is available for skill "${skill.name}".`);
+  if (!model) throw new Error(`No ${provider} model is available for skill "${skill.name}".`);
 
   const prompt = args.prompt || [
     skill.instructions || skill.description || `Run ${skill.name}.`,
     `User request: ${userMessage}`,
   ].filter(Boolean).join('\n\n');
 
-  const result = await runReplicatePrediction({
+  const result = await adapter.predictions.run({
     apiKey,
     model,
     params: { prompt },
@@ -481,17 +485,18 @@ export function realignPrompt({ currentPrompt, skills }) {
   ].filter(Boolean).join('\n\n');
 }
 
-export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, toolModelId }) {
+export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, toolModelId, provider = job.provider }) {
   try {
+    const adapter = requireProviderOperation(provider, 'agents');
     if (!apiKey) {
-      throw new Error('A Replicate API key is required for the selected provider.');
+      throw new Error(`A provider credential is required for ${provider}.`);
     }
 
     const messages = await repo.listMessages(job.conversation_id, { userId: job.user_id });
-    const model = resolveTextModel(modelId);
-    if (!model) throw new Error('No Replicate text model is available in the local catalog.');
+    const model = resolveTextModel(adapter, modelId);
+    if (!model) throw new Error(`No ${provider} text model is available in the local catalog.`);
 
-    const classifiedIntent = await classifyUserIntent({ agent, messages, userMessage, apiKey, model });
+    const classifiedIntent = await classifyUserIntent({ adapter, agent, messages, userMessage, apiKey, model });
     const toolDecision = await decideToolCall({
       agent,
       messages,
@@ -499,10 +504,13 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
       apiKey,
       model,
       classifiedIntent,
+      adapter,
     });
     if (toolDecision.action === 'tool_call') {
       const toolRun = await runToolSkill({
         skill: toolDecision.skill,
+        adapter,
+        provider,
         userMessage,
         apiKey,
         selectedToolModelId: toolModelId,
@@ -512,7 +520,7 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
         ? toolRun.result.outputs
         : (toolRun.result.url ? [toolRun.result.url] : []);
       const outputText = outputs.join('\n');
-      const finalProviderResult = await runReplicatePrediction({
+      const finalProviderResult = await adapter.predictions.run({
         apiKey,
         model,
         params: { prompt: buildToolResultPrompt({ agent, messages, userMessage, toolRun, outputText }) },
@@ -528,7 +536,7 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
         role: 'assistant',
         content,
         metadata: {
-          ...toolCallMetadata(toolRun, toolDecision),
+          ...toolCallMetadata(toolRun, toolDecision, provider),
           finalModel: model.id,
           finalProviderResult,
         },
@@ -557,7 +565,7 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
         metadata: {
           model: model.id,
           tool_model: toolModelId || null,
-          provider: 'replicate',
+          provider,
           ...toolDecisionMetadata(toolDecision),
         },
       });
@@ -574,7 +582,7 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
     }
 
     const prompt = buildPrompt({ agent, messages, userMessage });
-    const providerResult = await runReplicatePrediction({
+    const providerResult = await adapter.predictions.run({
       apiKey,
       model,
       params: { prompt },
@@ -594,7 +602,7 @@ export async function runLocalChat({ job, agent, userMessage, apiKey, modelId, t
       metadata: {
         model: model.id,
         tool_model: toolModelId || null,
-        provider: 'replicate',
+        provider,
         ...toolDecisionMetadata(toolDecision),
         ...(optimizedPrompt ? { optimized_prompt: optimizedPrompt } : {}),
       },

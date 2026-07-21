@@ -36,7 +36,7 @@ const DEFAULT_SKILLS = [
     'Generate an image when the user asks for a visual output.',
     'Use this skill when the user explicitly asks to create, draw, render, or generate an image. Summarize the result and include the generated image URL.',
     {
-      type: 'replicate_model',
+      type: 'provider_model',
       mode: 't2i',
       toolcall: true,
       intent: 'generate_media',

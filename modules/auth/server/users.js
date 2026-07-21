@@ -1,29 +1,18 @@
 import { query } from '../../db/server/db.js';
-import { encryptSecret, decryptSecret } from './crypto.js';
 import { AuthError } from './errors.js';
+import {
+  getUserProviderCredential,
+  listUserProviderCredentialStates,
+  upsertUserProviderCredential,
+} from '../../providers/server/credentials.js';
 
-export async function createUser({ email, passwordHash, name, replicateApiKey }) {
-  const encryptedKey = encryptSecret(replicateApiKey);
-
+export async function createUser({ email, passwordHash, name }) {
   try {
     const result = await query(
-      `insert into auth_users (
-        email,
-        password_hash,
-        name,
-        replicate_api_key_encrypted,
-        replicate_api_key_iv,
-        replicate_api_key_tag
-      ) values ($1, $2, $3, $4, $5, $6)
+      `insert into auth_users (email, password_hash, name)
+      values ($1, $2, $3)
       returning *`,
-      [
-        email,
-        passwordHash,
-        name,
-        encryptedKey?.encrypted ?? null,
-        encryptedKey?.iv ?? null,
-        encryptedKey?.tag ?? null,
-      ]
+      [email, passwordHash, name]
     );
 
     return result.rows[0];
@@ -59,45 +48,19 @@ export async function updateUserAccount(userId, { name, email }) {
 }
 
 export async function updateUserReplicateApiKey(userId, replicateApiKey) {
-  const encryptedKey = encryptSecret(replicateApiKey);
-
-  if (!encryptedKey) {
+  if (typeof replicateApiKey !== 'string' || !replicateApiKey.trim()) {
     throw new AuthError('invalid_input', 'Replicate API key is required.');
   }
-
-  const result = await query(
-    `update auth_users
-     set replicate_api_key_encrypted = $2,
-         replicate_api_key_iv = $3,
-         replicate_api_key_tag = $4,
-         updated_at = now()
-     where id = $1
-     returning *`,
-    [userId, encryptedKey.encrypted, encryptedKey.iv, encryptedKey.tag]
-  );
-
-  return result.rows[0] ?? null;
+  await upsertUserProviderCredential(userId, 'replicate', replicateApiKey);
+  return findUserById(userId);
 }
 
 export async function updateUserMuapiApiKey(userId, muapiApiKey) {
-  const encryptedKey = encryptSecret(muapiApiKey);
-
-  if (!encryptedKey) {
+  if (typeof muapiApiKey !== 'string' || !muapiApiKey.trim()) {
     throw new AuthError('invalid_input', 'MuAPI API key is required.');
   }
-
-  const result = await query(
-    `update auth_users
-     set muapi_api_key_encrypted = $2,
-         muapi_api_key_iv = $3,
-         muapi_api_key_tag = $4,
-         updated_at = now()
-     where id = $1
-     returning *`,
-    [userId, encryptedKey.encrypted, encryptedKey.iv, encryptedKey.tag]
-  );
-
-  return result.rows[0] ?? null;
+  await upsertUserProviderCredential(userId, 'muapi', muapiApiKey);
+  return findUserById(userId);
 }
 
 export async function updateUserPreferredProvider(userId, preferredProvider) {
@@ -127,43 +90,25 @@ export async function findUserById(id) {
 }
 
 export async function getUserReplicateApiKey(userId) {
-  const user = await findUserById(userId);
-  if (!user?.replicate_api_key_encrypted) {
-    return null;
-  }
-
-  return decryptSecret({
-    encrypted: user.replicate_api_key_encrypted,
-    iv: user.replicate_api_key_iv,
-    tag: user.replicate_api_key_tag,
-  });
+  return getUserProviderCredential(userId, 'replicate');
 }
 
 export async function getUserMuapiApiKey(userId) {
-  const user = await findUserById(userId);
-  if (!user?.muapi_api_key_encrypted) {
-    return null;
-  }
-
-  return decryptSecret({
-    encrypted: user.muapi_api_key_encrypted,
-    iv: user.muapi_api_key_iv,
-    tag: user.muapi_api_key_tag,
-  });
+  return getUserProviderCredential(userId, 'muapi');
 }
 
-export function toSafeUser(user) {
+export async function toSafeUser(user) {
   if (!user) {
     return null;
   }
 
+  const providerCredentials = await listUserProviderCredentialStates(user.id);
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     provider: user.preferred_provider || 'replicate',
     preferredProvider: user.preferred_provider || 'replicate',
-    hasReplicateApiKey: Boolean(user.replicate_api_key_encrypted),
-    hasMuapiApiKey: Boolean(user.muapi_api_key_encrypted),
+    providerCredentials,
   };
 }

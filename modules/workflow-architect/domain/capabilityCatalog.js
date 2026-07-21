@@ -1,5 +1,6 @@
 import { buildNodeSchemas } from '../../workflow/server/schemas.js';
 import { canExecuteUtilityNode } from '../../workflow/server/utilityNodes.js';
+import { requireProviderFeature } from '../../providers/publicRegistry.js';
 import {
   getInputPortDefinitions,
   getOutputPortDefinitions,
@@ -46,7 +47,7 @@ export const CURATED_MODEL_PROFILES = {
       label: 'GPT Image generation',
       promptPort: 'prompt',
       qualityTier: 'high',
-      speedTier: 'slow',
+      speedTier: 'balanced',
       cost: 'expensive',
       defaultParameters: {
         aspect_ratio: '1:1',
@@ -134,6 +135,14 @@ export const CURATED_MODEL_PROFILES = {
     },
   ],
 };
+
+export const CURATED_MODEL_PROFILES_BY_PROVIDER = Object.freeze({
+  replicate: CURATED_MODEL_PROFILES,
+});
+
+export function getProviderArchitectProfiles(provider = 'replicate') {
+  return CURATED_MODEL_PROFILES_BY_PROVIDER[provider] || {};
+}
 
 function modelEntry(fullCatalog, category, modelId) {
   return fullCatalog?.categories?.[category]?.models?.[modelId] || null;
@@ -467,12 +476,12 @@ function buildConnectionRules(nodes) {
   return rules;
 }
 
-export function getArchitectModelProfile(category, modelId) {
-  return (CURATED_MODEL_PROFILES[category] || []).find((profile) => profile.modelId === modelId) || null;
+export function getArchitectModelProfile(category, modelId, provider = 'replicate') {
+  return (getProviderArchitectProfiles(provider)[category] || []).find((profile) => profile.modelId === modelId) || null;
 }
 
-export function getArchitectNodeProfile(category, modelId, catalog = null) {
-  const curated = getArchitectModelProfile(category, modelId);
+export function getArchitectNodeProfile(category, modelId, catalog = null, provider = catalog?.provider || 'replicate') {
+  const curated = getArchitectModelProfile(category, modelId, provider);
   if (curated) return curated;
   const entry = modelEntry(catalog, category, modelId);
   if (!entry) return null;
@@ -497,8 +506,10 @@ export function defaultArchitectModelProfile(category, {
   capability = null,
   operationMode = null,
   introducibleOnEmptyCanvas = false,
+  provider = catalog?.provider || 'replicate',
 } = {}) {
-  const curated = CURATED_MODEL_PROFILES[category]?.find((profile) => {
+  const providerProfiles = getProviderArchitectProfiles(provider);
+  const curated = providerProfiles[category]?.find((profile) => {
     const entry = modelEntry(catalog, category, profile.modelId);
     if (!entry) return true;
     const node = catalogNode(category, profile, entry);
@@ -515,31 +526,25 @@ export function defaultArchitectModelProfile(category, {
     if (capability && node.capability !== capability && !node.capability_aliases.includes(capability)) continue;
     if (operationMode && !node.operation_modes.includes(operationMode)) continue;
     if (introducibleOnEmptyCanvas && !node.introducible_on_empty_canvas) continue;
-    return getArchitectNodeProfile(category, modelId, catalog);
+    return getArchitectNodeProfile(category, modelId, catalog, provider);
   }
-  return CURATED_MODEL_PROFILES[category]?.[0] || null;
+  return providerProfiles[category]?.[0] || null;
 }
 
 export function buildArchitectCapabilityCatalog(provider = 'replicate', fullCatalog = null) {
-  if (provider !== 'replicate') {
-    return {
-      version: ARCHITECT_CATALOG_VERSION,
-      provider,
-      categories: {},
-      compact: [],
-    };
-  }
+  requireProviderFeature(provider, 'workflowArchitect');
 
   const sourceCatalog = fullCatalog || buildNodeSchemas(provider);
   const categories = {};
   const compact = [];
   const nodeTypes = [];
+  const providerProfiles = getProviderArchitectProfiles(provider);
 
   for (const category of ['text', 'image', 'video', 'audio', 'utility']) {
     categories[category] = { models: {} };
     const sourceModels = sourceCatalog.categories?.[category]?.models || {};
     for (const [modelId, sourceEntry] of Object.entries(sourceModels)) {
-      const curated = getArchitectModelProfile(category, modelId);
+      const curated = (providerProfiles[category] || []).find((profile) => profile.modelId === modelId) || null;
       const entry = curated ? cloneEntry(sourceEntry, curated) : { ...sourceEntry, architectEnabled: true };
       const node = curated ? catalogNode(category, curated, entry) : catalogNodeFromEntry(category, modelId, entry);
       if (!node.architect_enabled) continue;

@@ -12,18 +12,13 @@ import { getChatJob } from '@/modules/agents/server/repo';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
-function getApiKey(request) {
-    const headerKey = request.headers.get('x-api-key');
-    if (headerKey) return headerKey;
-    // Cookie-based auth removed for security (CWE-522)
-    return null;
-}
-
 function cleanHeaders(request) {
     const headers = new Headers(request.headers);
     headers.delete('host');
     headers.delete('connection');
     headers.delete('cookie');
+    headers.delete('x-api-key');
+    headers.delete('authorization');
     return headers;
 }
 
@@ -33,11 +28,17 @@ export async function GET(request, { params }) {
     const slug = await params;
     const pathSegments = slug.path || [];
     const path = pathSegments.join('/');
+    let active;
+
+    try {
+        active = await getActiveProviderKey(request);
+    } catch (error) {
+        const { body, status } = errorResponse(error);
+        return NextResponse.json(body, { status });
+    }
 
     if (pathSegments.length === 3 && pathSegments[0] === 'predictions' && pathSegments[2] === 'result') {
-        try {
-            const active = await getActiveProviderKey(request);
-            if (active.provider !== 'muapi') {
+        if (active.provider !== 'muapi') {
                 const job = await getChatJob(pathSegments[1], {
                     userId: active.user.id,
                     provider: active.provider,
@@ -55,17 +56,17 @@ export async function GET(request, { params }) {
                     messages: job.error ? [{ role: 'assistant', content: job.error }] : [],
                     suggestions: [],
                 }, { status: 200 });
-            }
-        } catch {
-            // Legacy unauthenticated/MuAPI-key mode falls through to the MuAPI proxy.
         }
+    }
+    if (active.provider !== 'muapi') {
+        return NextResponse.json({ error: 'provider_feature_unsupported' }, { status: 400 });
     }
     
     const { search } = new URL(request.url);
     const targetUrl = `${MUAPI_BASE}/api/v1/${path}${search}`;
 
     const headers = cleanHeaders(request);
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
 
     // NOTE: credential logging removed for security (CWE-200)
     if (apiKey) headers.set('x-api-key', apiKey);
@@ -91,7 +92,6 @@ export async function POST(request, { params }) {
             findReplicateModelByEndpoint,
             getActiveProviderKey,
             getProviderMissingKeyMessage,
-            getRequestApiKey: getApiKey,
             proxyMuapiV1Request,
             runReplicatePrediction,
         },

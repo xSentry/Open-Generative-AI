@@ -1,5 +1,3 @@
-import { NextResponse } from 'next/server';
-
 // Extracted 1:1 from the original app/api/workflow/[[...path]]/route.js so that
 // MuAPI users keep the exact same behaviour after the local-engine dispatch was
 // introduced. This is a pure passthrough proxy to https://api.muapi.ai/workflow.
@@ -16,8 +14,8 @@ function cleanHeaders(request) {
 }
 
 // Proxy an incoming workflow request to MuAPI. `apiKey` is resolved upstream via
-// getActiveProviderKey (which already honours the x-api-key header, the
-// muapi_key cookie and MUAPI_API_KEY), so we simply forward it.
+// The authenticated route resolves the user's database credential and passes it
+// explicitly; browser headers and cookies are never credential sources.
 export async function proxyToMuapi(request, { params }, method, apiKey) {
   const slug = await params;
   const pathSegments = slug?.path || [];
@@ -37,9 +35,15 @@ export async function proxyToMuapi(request, { params }, method, apiKey) {
       body: hasBody ? await request.arrayBuffer() : undefined,
     });
     const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+    return new Response(JSON.stringify(data), {
+      status: response.status,
+      headers: { 'content-type': 'application/json' },
+    });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    });
   }
 }
 

@@ -13,8 +13,8 @@
 // and for `api` / utility `prompt-concatenator` `input_schema` is the plain
 // properties map (matches how the UI reads `wavespeedSchema`/`concatSchema`).
 
-import { STUDIO_MODEL_LISTS } from '../../studio/server/studioCatalog.js';
-import { getSerializableReplicateModelLists } from '../../providers/replicate/server/catalog.js';
+import { requireProviderOperation } from '../../providers/server/registry.js';
+import { resolveCatalogModel } from '../../providers/core/catalog.js';
 import { buildUtilityModelEntries } from './utilityNodes.js';
 
 // ---------------------------------------------------------------------------
@@ -81,8 +81,11 @@ const PASSTHROUGH_PROPERTIES = {
 // ---------------------------------------------------------------------------
 
 function getModelLists(provider) {
-  if (provider === 'replicate') return getSerializableReplicateModelLists();
-  return STUDIO_MODEL_LISTS;
+  const adapter = requireProviderOperation(provider, 'workflow');
+  if (!adapter.catalog.getModelListsSync) {
+    throw new TypeError(`Provider "${provider}" catalog cannot be loaded synchronously.`);
+  }
+  return adapter.catalog.getModelListsSync();
 }
 
 function dedupeById(models) {
@@ -168,8 +171,23 @@ function mediaModelEntry(model) {
   return {
     name: model.name,
     endpoint: model.endpoint || model.id,
+    provider_mode: model.mode || null,
     input_schema: { schemas: { input_data: { properties: normalizeMediaProperties(model) } } },
   };
+}
+
+export function resolveWorkflowProviderModes(provider, nodes = []) {
+  const lists = getModelLists(provider);
+  return nodes.map((node) => {
+    if (!node?.model || node.category === 'utility' || String(node.model).endsWith('-passthrough')) return node;
+    const params = node.params || node.input_params || {};
+    const model = resolveCatalogModel(lists, node.model, {
+      mode: node.provider_mode || node.providerMode || null,
+      category: node.category || null,
+      params,
+    });
+    return model?.mode ? { ...node, provider_mode: model.mode } : node;
+  });
 }
 
 function buildMediaCategory(models, passthroughId) {
