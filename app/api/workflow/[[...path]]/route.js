@@ -4,7 +4,7 @@ import {
   getProviderMissingKeyMessage,
 } from '@/modules/providers/server/providerKeys';
 import { errorResponse } from '@/modules/auth/server/errors';
-import { proxyToMuapi } from '@/modules/providers/muapi/server/workflowProxy';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 import { handleLocalWorkflow } from '@/modules/workflow/server/router';
 import {
   createWorkflowThumbnailObjectKey,
@@ -75,15 +75,12 @@ async function dispatch(request, ctx, method) {
     );
   }
 
-  if (provider === 'muapi') {
-    return proxyToMuapi(request, { params: Promise.resolve(routeParams) }, method, apiKey);
-  }
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: getProviderMissingKeyMessage(provider) },
-      { status: 401 }
-    );
+  const adapter = requireProviderOperation(provider, 'workflow');
+  if (adapter.transports?.workflowProxy) {
+    if (!apiKey) {
+      return NextResponse.json({ error: getProviderMissingKeyMessage(provider) }, { status: 401 });
+    }
+    return adapter.transports.workflowProxy(request, { params: Promise.resolve(routeParams) }, method, apiKey);
   }
 
   return handleLocalWorkflow(request, ctx, method, { user, provider, apiKey }, executionDeps);

@@ -235,7 +235,7 @@ async function replicateJson(url, apiKey, options = {}) {
     error.status = response.status;
     error.response = data;
     if (response.status === 401) {
-      error.message = 'Replicate rejected the API token. Check your REPLICATE_API_TOKEN or saved key.';
+      error.message = 'Replicate rejected the stored API token.';
     }
     throw error;
   }
@@ -252,6 +252,7 @@ export async function runReplicatePrediction({
   interval = 2000,
   saveRuntimeSampleFn = saveRuntimeSample,
   onStarted,
+  signal,
 }) {
   const version = model?.replicate?.version;
   if (!version) {
@@ -267,6 +268,7 @@ export async function runReplicatePrediction({
   let prediction = await replicateJson(`${REPLICATE_API}/predictions`, apiKey, {
     method: 'POST',
     body: JSON.stringify({ version, input }),
+    signal,
   });
 
   // Replicate documents created_at on the initial prediction object and on
@@ -328,7 +330,7 @@ export async function runReplicatePrediction({
     }
 
     await sleep(interval);
-    prediction = await replicateJson(pollUrl, apiKey);
+    prediction = await replicateJson(pollUrl, apiKey, { signal });
   }
 
   throw new Error('Replicate generation timed out.');

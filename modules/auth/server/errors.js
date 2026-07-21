@@ -8,7 +8,7 @@ export class AuthError extends Error {
 }
 
 export function errorResponse(error) {
-  if (error instanceof AuthError) {
+  if (error instanceof AuthError || (error?.code && error?.status)) {
     return {
       body: { error: { code: error.code, message: error.message } },
       status: error.status,

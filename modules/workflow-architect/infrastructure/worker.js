@@ -8,7 +8,8 @@ import {
   getArchitectWorkflow,
   markArchitectJobRunning,
 } from './repository.js';
-import { getUserReplicateApiKey } from '../../auth/server/users.js';
+import { getUserProviderCredential } from '../../providers/server/credentials.js';
+import { requireProviderOperation } from '../../providers/server/registry.js';
 import { buildNodeSchemas } from '../../workflow/server/schemas.js';
 import { applyWorkflowPatch } from '../../workflow-domain/applyPatch.js';
 import { buildArchitectCapabilityCatalog } from '../domain/capabilityCatalog.js';
@@ -22,7 +23,6 @@ import {
   compileCreateWorkflowIrToPatch,
 } from '../domain/compiler.js';
 import { normalizeBoundedEditRequest, normalizeCreateWorkflowIr } from '../domain/normalizer.js';
-import { generateCreateWorkflowIr } from './models/replicateStructuredModel.js';
 
 const terminalEventTypes = new Set(['failed', 'completed']);
 
@@ -37,12 +37,18 @@ export async function processArchitectJob(jobId, deps = {}) {
   const publishEvent = deps.publishArchitectEvent || (async () => {});
   const getWorkflow = deps.getArchitectWorkflow || getArchitectWorkflow;
   const buildSchemas = deps.buildNodeSchemas || buildNodeSchemas;
-  const generateIr = deps.generateCreateWorkflowIr || generateCreateWorkflowIr;
   const generateIrReturnsHydrated = deps.generateIrReturnsHydrated ?? !deps.generateCreateWorkflowIr;
-  const getReplicateApiKey = deps.getUserReplicateApiKey || getUserReplicateApiKey;
+  const getProviderCredential = deps.getUserProviderCredential
+    || (deps.getUserReplicateApiKey
+      ? (userId) => deps.getUserReplicateApiKey(userId)
+      : (userId, provider) => getUserProviderCredential(userId, provider));
 
   const job = await markRunning(jobId);
   if (!job) return null;
+  const recordedProvider = job.provider || 'replicate';
+  const providerAdapter = requireProviderOperation(recordedProvider, 'workflowArchitect');
+  const generateIr = deps.generateCreateWorkflowIr
+    || providerAdapter.workflowArchitect.generateCreateWorkflowIr;
 
   const publishJobUpdate = async (overrides = {}) => {
     try {
@@ -272,9 +278,9 @@ export async function processArchitectJob(jobId, deps = {}) {
       payloadRedacted: { catalog_version: catalog.version },
     });
 
-    const apiKey = await getReplicateApiKey(job.userId);
+    const apiKey = await getProviderCredential(job.userId, recordedProvider);
     if (!apiKey) {
-      const error = new Error('Missing saved user Replicate API key for Architect model calls.');
+      const error = new Error(`Missing saved user credential for ${recordedProvider} Architect model calls.`);
       error.code = 'ARCHITECT_MODEL_KEY_MISSING';
       throw error;
     }

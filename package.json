@@ -13,7 +13,9 @@
   ],
   "scripts": {
     "dev": "node scripts/run-next.js dev",
-    "build": "node scripts/run-next.js build",
+    "build": "node scripts/check-provider-boundaries.mjs && node scripts/run-next.js build",
+    "check:provider-boundaries": "node scripts/check-provider-boundaries.mjs",
+    "check:providers": "node scripts/check-provider-diagnostics.mjs",
     "start": "node scripts/run-next.js start",
     "lint": "next lint",
     "build:studio": "npm run build -w studio",

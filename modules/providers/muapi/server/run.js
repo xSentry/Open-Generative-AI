@@ -62,10 +62,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function runMuapiPrediction({ apiKey, endpoint, params, maxAttempts = 900, interval = 2000 }) {
+export async function runMuapiPrediction({ apiKey, endpoint, params, maxAttempts = 900, interval = 2000, signal }) {
   const submitData = await muapiJsonRequest(apiKey, endpoint, {
     method: 'POST',
     body: JSON.stringify(params),
+    signal,
   });
   const requestId = submitData.request_id || submitData.id;
 
@@ -81,7 +82,7 @@ export async function runMuapiPrediction({ apiKey, endpoint, params, maxAttempts
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await sleep(interval);
-    const result = await muapiJsonRequest(apiKey, `predictions/${requestId}/result`);
+    const result = await muapiJsonRequest(apiKey, `predictions/${requestId}/result`, { signal });
     const status = result.status?.toLowerCase();
 
     if (status === 'completed' || status === 'succeeded' || status === 'success') {

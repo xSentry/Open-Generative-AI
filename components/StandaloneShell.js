@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ImageStudio, VideoStudio, ClippingStudio, VibeMotionStudio, LipSyncStudio, RecastStudio, CinemaStudio, AudioStudio, MarketingStudio, WorkflowStudio, AgentStudio, AppsStudio, AiInfluencerStudio } from 'studio';
+import { getProviderManifest } from '@/modules/providers/publicRegistry';
 
 const DesignAgentStudio = dynamic(() => import('studio').then(mod => mod.DesignAgentStudio), {
   ssr: false,
   loading: () => <div className="h-full w-full bg-black flex items-center justify-center text-white/20">Loading Design Studio...</div>
 });
-import axios from 'axios';
 
 const TABS = [
   { id: 'image',   label: 'Image Studio' },
@@ -28,10 +28,15 @@ const TABS = [
   { id: 'ai-influencer', label: 'AI Influencer Studio' },
 ];
 
-// Tabs/features that are only available when MuAPI is the selected provider.
-const MUAPI_ONLY_TABS = new Set(['clipping', 'vibe-motion', 'apps', 'ai-influencer']);
-
-const STORAGE_KEY = 'muapi_key';
+const TAB_FEATURES = {
+  clipping: 'clipping',
+  'vibe-motion': 'vibeMotion',
+  apps: 'apps',
+  'ai-influencer': 'apps',
+  workflows: 'workflow',
+  agents: 'agents',
+  'design-agent': 'designAgent',
+};
 
 export default function StandaloneShell() {
   const params = useParams();
@@ -67,7 +72,7 @@ export default function StandaloneShell() {
     return 'image';
   };
   
-  const [apiKey, setApiKey] = useState(null);
+  const apiKey = null;
   const [activeTab, setActiveTab] = useState(getInitialTab());
 
   const [authUser, setAuthUser] = useState(null);
@@ -163,12 +168,12 @@ export default function StandaloneShell() {
     };
   }, [authChecked, authUser?.provider, authUser?.preferredProvider]);
 
-  // Redirect away from MuAPI-only tabs (AI Clipping, Vibe Motion, Explore Apps)
-  // if the selected provider is not MuAPI (e.g. Replicate).
   useEffect(() => {
     if (!authChecked) return;
     const provider = authUser?.provider || authUser?.preferredProvider || 'replicate';
-    if (provider !== 'muapi' && MUAPI_ONLY_TABS.has(activeTab)) {
+    const manifest = getProviderManifest(provider);
+    const feature = TAB_FEATURES[activeTab];
+    if (!manifest || (feature && manifest.features?.[feature] !== true)) {
       router.replace('/studio/image');
     }
   }, [authChecked, authUser?.provider, authUser?.preferredProvider, activeTab, router]);
@@ -199,45 +204,12 @@ export default function StandaloneShell() {
 
   useEffect(() => {
     setHasMounted(true);
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      setApiKey(stored);
-      // Sync cookie immediately on mount to establish identity for background requests
-      document.cookie = `muapi_key=${stored}; path=/; max-age=31536000; SameSite=Lax`;
-    }
   }, []);
 
   const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
-    localStorage.removeItem(STORAGE_KEY);
-    document.cookie = "muapi_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     router.replace('/login');
   }, [router]);
-
-  // Inject API key into all outgoing Axios requests (prop-based approach)
-  // We use an interceptor to be selective and NOT send the key to external domains like S3
-  useEffect(() => {
-    // Safety: Clear any global defaults that might have been set previously
-    delete axios.defaults.headers.common['x-api-key'];
-
-    if (!apiKey) return;
-
-    const interceptorId = axios.interceptors.request.use((config) => {
-      // Check if URL is local/proxied
-      const isRelative = config.url.startsWith('/') || !config.url.startsWith('http');
-      const isInternalProxy = config.url.includes('/api/app') || config.url.includes('/api/workflow') || config.url.includes('/api/agents') || config.url.includes('/api/api') || config.url.includes('/api/v1');
-
-      if (isRelative || isInternalProxy) {
-        config.headers['x-api-key'] = apiKey;
-      }
-      
-      return config;
-    });
-
-    return () => {
-      axios.interceptors.request.eject(interceptorId);
-    };
-  }, [apiKey]);
 
   // Drag and Drop Handlers
   const handleDragOver = useCallback((e) => {
@@ -283,14 +255,14 @@ export default function StandaloneShell() {
   );
 
   const preferredProvider = authUser?.provider || authUser?.preferredProvider || 'replicate';
-  const isMuapiProvider = preferredProvider === 'muapi';
-  const providerLabel = preferredProvider === 'muapi' ? 'MuAPI' : 'Replicate';
-  const selectedProviderHasKey = preferredProvider === 'muapi'
-    ? Boolean(authUser?.hasMuapiApiKey)
-    : Boolean(authUser?.hasReplicateApiKey);
+  const providerManifest = getProviderManifest(preferredProvider);
+  const providerLabel = providerManifest?.label || preferredProvider;
+  const selectedProviderHasKey = Boolean(authUser?.providerCredentials?.[preferredProvider]?.hasCredential);
 
-  // Hide MuAPI-only features (AI Clipping, Vibe Motion, Explore Apps) for other providers.
-  const visibleTabs = TABS.filter((tab) => isMuapiProvider || !MUAPI_ONLY_TABS.has(tab.id));
+  const visibleTabs = TABS.filter((tab) => {
+    const feature = TAB_FEATURES[tab.id];
+    return !feature || providerManifest?.features?.[feature] === true;
+  });
   const activeTabLabel = visibleTabs.find((tab) => tab.id === activeTab)?.label || 'Image Studio';
 
   return (
@@ -476,8 +448,8 @@ export default function StandaloneShell() {
       <div className="flex-1 min-h-0 relative overflow-hidden">
         {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'clipping' && isMuapiProvider && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'vibe-motion' && isMuapiProvider && <VibeMotionStudio apiKey={apiKey} />}
+        {activeTab === 'clipping' && providerManifest?.features.clipping && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'vibe-motion' && providerManifest?.features.vibeMotion && <VibeMotionStudio apiKey={apiKey} />}
         {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'body-swap' && <RecastStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} />}
@@ -486,8 +458,8 @@ export default function StandaloneShell() {
         {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} provider={preferredProvider} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'agents' && <AgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'design-agent' && <DesignAgentStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
-        {activeTab === 'apps' && isMuapiProvider && <AppsStudio apiKey={apiKey} />}
-        {activeTab === 'ai-influencer' && <AiInfluencerStudio apiKey={apiKey} />}
+        {activeTab === 'apps' && providerManifest?.features.apps && <AppsStudio apiKey={apiKey} />}
+        {activeTab === 'ai-influencer' && providerManifest?.features.apps && <AiInfluencerStudio apiKey={apiKey} />}
       </div>
 
       {/* Settings Modal */}

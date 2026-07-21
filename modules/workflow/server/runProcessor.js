@@ -10,18 +10,28 @@ import { executeGraph, executeSingleNode, latestResultsFromRuns } from './engine
 import { executeNode as defaultExecuteNode, estimateReplicateNodeRuntime } from './nodeExecutors.js';
 import { storeNodeOutputs, signResultOutputs } from './outputStorage.js';
 
+function nodeNeedsProviderCredential(node) {
+  const category = node?.category;
+  const model = node?.model;
+  if (category === 'utility') return false;
+  if (typeof model === 'string' && model.endsWith('-passthrough')) return false;
+  if (category === 'text' && (!model || model === 'text-passthrough')) return false;
+  if (!category) return true;
+  return ['text', 'image', 'video', 'audio'].includes(category);
+}
+
 export async function createDefaultRunDeps() {
   const [
     s3,
     runsRepo,
     workflowsRepo,
-    { getUserMuapiApiKey, getUserReplicateApiKey },
+    { getUserProviderCredential },
     { publishUserEvent, workflowRunEvent },
   ] = await Promise.all([
     import('../../storage/server/s3.js'),
     import('./runsRepo.js'),
     import('./workflowsRepo.js'),
-    import('../../auth/server/users.js'),
+    import('../../providers/server/credentials.js'),
     import('../../events/server/publisher.js'),
   ]);
 
@@ -48,10 +58,7 @@ export async function createDefaultRunDeps() {
     fetchFn: (...args) => fetch(...args),
     publishWorkflowEvent: (event) =>
       publishUserEvent(event.userId, workflowRunEvent(event)),
-    resolveProviderKey: async ({ userId, provider }) =>
-      provider === 'muapi'
-        ? (await getUserMuapiApiKey(userId)) || process.env.MUAPI_API_KEY || null
-        : (await getUserReplicateApiKey(userId)) || process.env.REPLICATE_API_TOKEN || null,
+    resolveProviderKey: ({ userId, provider }) => getUserProviderCredential(userId, provider),
   };
 }
 
@@ -103,16 +110,22 @@ export async function runClaimedRun(run, injectedDeps) {
   }
 
   const provider = run.provider || workflow.provider;
+  const nodes = workflow.nodes || [];
+  const selectedNodes = run.targetNodeId
+    ? nodes.filter((node) => node.id === run.targetNodeId)
+    : nodes;
+  const needsCredential = selectedNodes.some(nodeNeedsProviderCredential);
   let apiKey;
   try {
-    apiKey = await deps.resolveProviderKey({ userId: run.userId, provider });
-    if (!apiKey) throw new Error('No provider API key available for this user.');
+    apiKey = needsCredential
+      ? await deps.resolveProviderKey({ userId: run.userId, provider })
+      : null;
+    if (needsCredential && !apiKey) throw new Error('No provider API key available for this user.');
   } catch (error) {
     await eventedRepo.updateRun(run.id, { status: 'failed', error: error.message });
     return { status: 'failed', error: error.message };
   }
 
-  const nodes = workflow.nodes || [];
   const nodeRuns = await deps.listNodeRuns(run.id);
 
   // storeOutputs mirrors media into our bucket and reports the stored keys so the

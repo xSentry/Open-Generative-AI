@@ -3,20 +3,21 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { listProviderManifests } from '@/modules/providers/publicRegistry';
+
+const PROVIDERS = listProviderManifests();
 
 const initialAccount = {
   name: '',
   email: '',
   preferredProvider: 'replicate',
-  hasReplicateApiKey: false,
-  hasMuapiApiKey: false,
+  providerCredentials: {},
 };
 
 export default function AccountSettingsForm() {
   const router = useRouter();
   const [account, setAccount] = useState(initialAccount);
-  const [replicateApiKey, setReplicateApiKey] = useState('');
-  const [muapiApiKey, setMuapiApiKey] = useState('');
+  const [credential, setCredential] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -24,9 +25,10 @@ export default function AccountSettingsForm() {
   const [keyMessage, setKeyMessage] = useState('');
   const [error, setError] = useState('');
 
-  const selectedProviderHasKey = account.preferredProvider === 'replicate'
-    ? account.hasReplicateApiKey
-    : account.hasMuapiApiKey;
+  const selectedManifest = PROVIDERS.find(({ id }) => id === account.preferredProvider) || PROVIDERS[0];
+  const selectedProviderHasKey = Boolean(
+    account.providerCredentials?.[account.preferredProvider]?.hasCredential,
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -49,8 +51,7 @@ export default function AccountSettingsForm() {
             name: data.user?.name || '',
             email: data.user?.email || '',
             preferredProvider: data.user?.provider || data.user?.preferredProvider || 'replicate',
-            hasReplicateApiKey: Boolean(data.user?.hasReplicateApiKey),
-            hasMuapiApiKey: Boolean(data.user?.hasMuapiApiKey),
+            providerCredentials: data.user?.providerCredentials || {},
           });
         }
       } catch (loadError) {
@@ -99,8 +100,7 @@ export default function AccountSettingsForm() {
         name: data.user?.name || '',
         email: data.user?.email || '',
         preferredProvider: data.user?.provider || data.user?.preferredProvider || 'replicate',
-        hasReplicateApiKey: Boolean(data.user?.hasReplicateApiKey),
-        hasMuapiApiKey: Boolean(data.user?.hasMuapiApiKey),
+        providerCredentials: data.user?.providerCredentials || {},
       });
       setAccountMessage('Account updated.');
       router.refresh();
@@ -122,15 +122,7 @@ export default function AccountSettingsForm() {
         provider: account.preferredProvider,
       };
 
-      if (account.preferredProvider === 'replicate') {
-        if (replicateApiKey.trim()) {
-          body.replicateApiKey = replicateApiKey;
-        }
-      } else {
-        if (muapiApiKey.trim()) {
-          body.muapiApiKey = muapiApiKey;
-        }
-      }
+      if (credential.trim()) body.credential = credential;
 
       const response = await fetch('/api/account/provider', {
         method: 'PUT',
@@ -146,11 +138,9 @@ export default function AccountSettingsForm() {
       setAccount((current) => ({
         ...current,
         preferredProvider: data.user?.provider || data.user?.preferredProvider || current.preferredProvider,
-        hasReplicateApiKey: Boolean(data.user?.hasReplicateApiKey),
-        hasMuapiApiKey: Boolean(data.user?.hasMuapiApiKey),
+        providerCredentials: data.user?.providerCredentials || {},
       }));
-      setReplicateApiKey('');
-      setMuapiApiKey('');
+      setCredential('');
       setKeyMessage('Provider settings saved.');
       router.refresh();
     } catch (saveError) {
@@ -246,30 +236,29 @@ export default function AccountSettingsForm() {
                   </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/60">
-                  {account.preferredProvider === 'replicate'
-                    ? account.hasReplicateApiKey ? 'Replicate saved' : 'Replicate not saved'
-                    : account.hasMuapiApiKey ? 'MuAPI saved' : 'MuAPI not saved'}
+                  {selectedManifest?.label} {selectedProviderHasKey ? 'saved' : 'not saved'}
                 </span>
               </div>
 
               <div className="mb-6">
                 <span className="mb-2 block text-xs font-bold text-white/35">Provider</span>
-                <div className="grid grid-cols-2 gap-2 rounded-md border border-white/[0.06] bg-white/5 p-1">
-                  {['replicate', 'muapi'].map((provider) => (
+                <div className="grid gap-2 rounded-md border border-white/[0.06] bg-white/5 p-1" style={{ gridTemplateColumns: `repeat(${PROVIDERS.length}, minmax(0, 1fr))` }}>
+                  {PROVIDERS.map((provider) => (
                     <button
-                      key={provider}
+                      key={provider.id}
                       type="button"
                       onClick={() => {
-                        updateField('preferredProvider', provider);
+                        updateField('preferredProvider', provider.id);
+                        setCredential('');
                         setKeyMessage('');
                       }}
                       className={`h-10 rounded text-sm font-semibold capitalize transition-colors ${
-                        account.preferredProvider === provider
+                        account.preferredProvider === provider.id
                           ? 'bg-[var(--primary-color)] text-black'
                           : 'text-white/60 hover:bg-white/10 hover:text-white'
                       }`}
                     >
-                      {provider === 'muapi' ? 'MuAPI' : 'Replicate'}
+                      {provider.label}
                     </button>
                   ))}
                 </div>
@@ -277,23 +266,19 @@ export default function AccountSettingsForm() {
 
               <label className="block">
                 <span className="mb-2 block text-xs font-bold text-white/35">
-                  {account.preferredProvider === 'replicate' ? 'New Replicate API Key' : 'New MuAPI API Key'}
+                  New {selectedManifest?.credential.label}
                 </span>
                 <input
                   type="password"
-                  value={account.preferredProvider === 'replicate' ? replicateApiKey : muapiApiKey}
+                  value={credential}
                   onChange={(event) => {
-                    if (account.preferredProvider === 'replicate') {
-                      setReplicateApiKey(event.target.value);
-                    } else {
-                      setMuapiApiKey(event.target.value);
-                    }
+                    setCredential(event.target.value);
                     setKeyMessage('');
                     setError('');
                   }}
                   autoComplete="off"
                   className="w-full rounded-md border border-white/[0.06] bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/15 focus:ring-1 focus:ring-[var(--primary-color)]/40"
-                  placeholder={account.preferredProvider === 'replicate' ? 'r8_...' : 'mu_...'}
+                  placeholder={selectedManifest?.credential.placeholder || ''}
                   required={!selectedProviderHasKey}
                 />
               </label>

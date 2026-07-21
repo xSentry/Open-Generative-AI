@@ -1,7 +1,7 @@
 import {
-  CURATED_MODEL_PROFILES,
   defaultArchitectModelProfile,
   getArchitectNodeProfile,
+  getProviderArchitectProfiles,
 } from './capabilityCatalog.js';
 import { validateCreateWorkflowIr } from './architectIrSchema.js';
 
@@ -64,7 +64,7 @@ function inputProperties(catalog, category, modelId) {
 function selectModelProfile(category, preferences = {}, catalog = null, rawNode = {}) {
   const requestedCapability = typeof rawNode.capability === 'string' ? rawNode.capability : null;
   const operationMode = typeof rawNode.operation_mode === 'string' ? rawNode.operation_mode : null;
-  const profiles = CURATED_MODEL_PROFILES[category] || [];
+  const profiles = getProviderArchitectProfiles(catalog?.provider || 'replicate')[category] || [];
   const preferred = profiles.find((profile) =>
     (!preferences?.speed_tier || profile.speedTier === preferences.speed_tier) &&
     (!preferences?.quality_tier || profile.qualityTier === preferences.quality_tier) &&

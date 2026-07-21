@@ -708,7 +708,7 @@ export function createNoopPatchForContext(context) {
   });
 }
 
-export function curatedAlternativeForNode(node) {
-  const profiles = [defaultArchitectModelProfile(node.category)].filter(Boolean);
+export function curatedAlternativeForNode(node, catalog = null) {
+  const profiles = [defaultArchitectModelProfile(node.category, { catalog })].filter(Boolean);
   return profiles.find((profile) => profile.modelId !== node.modelId)?.modelId || null;
 }

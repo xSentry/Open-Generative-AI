@@ -17,6 +17,7 @@ import {
   buildNodeSchemas,
   buildApiNodeSchemas,
   buildApiInputs,
+  resolveWorkflowProviderModes,
 } from './schemas.js';
 import {
   executeGraph,
@@ -211,7 +212,7 @@ export async function handleLocalWorkflow(request, { params }, method, ctx, deps
         name: body.name || 'Untitled',
         category: body.category || null,
         edges: body.edges || [],
-        nodes: body.data?.nodes || [],
+        nodes: resolveWorkflowProviderModes(ctx.provider, body.data?.nodes || []),
         sourceWorkflowId: body.source_workflow_id || null,
         expectedRevision: body.expected_revision ?? body.revision ?? null,
       });

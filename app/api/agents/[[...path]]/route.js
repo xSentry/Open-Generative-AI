@@ -1,24 +1,11 @@
 import { NextResponse } from 'next/server';
 import { errorResponse } from '@/modules/auth/server/errors';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 import * as repo from '@/modules/agents/server/repo';
 import { realignPrompt, runLocalChat, suggestAgent } from '@/modules/agents/server/runtime';
 
 export const runtime = 'nodejs';
-
-const MUAPI_BASE = 'https://api.muapi.ai';
-
-function getApiKey(request) {
-  return request.headers.get('x-api-key') || null;
-}
-
-function cleanHeaders(request) {
-  const headers = new Headers(request.headers);
-  headers.delete('host');
-  headers.delete('connection');
-  headers.delete('cookie');
-  return headers;
-}
 
 function json(body, status = 200) {
   return NextResponse.json(body, { status });
@@ -32,27 +19,6 @@ async function readJson(request) {
   }
 }
 
-async function proxyMuapi(request, params) {
-  const slug = await params;
-  const path = (slug.path || []).join('/');
-  const { search } = new URL(request.url);
-  const targetUrl = path
-    ? `${MUAPI_BASE}/agents/${path}${search}`
-    : `${MUAPI_BASE}/agents${search}`;
-
-  const headers = cleanHeaders(request);
-  const apiKey = getApiKey(request);
-  if (apiKey) headers.set('x-api-key', apiKey);
-
-  const body = request.method !== 'GET' && request.method !== 'HEAD'
-    ? await request.arrayBuffer()
-    : undefined;
-  const response = await fetch(targetUrl, { method: request.method, headers, body });
-  const contentType = response.headers.get('content-type') || 'application/json';
-  const data = await response.arrayBuffer();
-  return new Response(data, { status: response.status, headers: { 'content-type': contentType } });
-}
-
 async function withProvider(request, params, method) {
   let active;
   try {
@@ -62,8 +28,9 @@ async function withProvider(request, params, method) {
     return json(body, status);
   }
 
-  if (active.provider === 'muapi') {
-    return proxyMuapi(request, params);
+  const adapter = requireProviderOperation(active.provider, 'agents');
+  if (adapter.transports?.agentsProxy) {
+    return adapter.transports.agentsProxy(request, { params, apiKey: active.apiKey });
   }
 
   const slug = await params;
@@ -229,6 +196,7 @@ async function handleAgentRoute(request, path, method, scope, apiKey) {
       apiKey,
       modelId: body?.conversation_model || body?.conversationModel || null,
       toolModelId: body?.tool_model || body?.toolModel || null,
+      provider: scope.provider,
     });
     return json({ request_id: job.id, conversation_id: conversation.id });
   }

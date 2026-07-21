@@ -22,6 +22,39 @@ function uploadError(error, message, status) {
   return json({ error, message }, { status });
 }
 
+// Compatibility adapter for characterization tests and older embedders. The
+// production routes always inject requireProviderOperation from the registry.
+function resolveStudioAdapter(deps, provider) {
+  if (typeof deps.requireProviderOperation === 'function') {
+    return deps.requireProviderOperation(provider, 'studio');
+  }
+  const adapters = {
+    muapi: {
+      catalog: {
+        getModelLists: async () => deps.getSerializableStudioModelLists(),
+        getModel: async (mode, id) => deps.getStudioModel(mode, id),
+      },
+      predictions: { run: ({ apiKey, model, params }) => deps.runMuapiPrediction({ apiKey, endpoint: model.endpoint || model.id, params }) },
+      uploads: { requiresPublicHttps: false, maxBytes: deps.maxUploadBytes },
+    },
+    replicate: {
+      catalog: {
+        getModelLists: async () => deps.getSerializableReplicateModelLists(),
+        getModel: async (mode, id) => deps.getReplicateStudioModel(mode, id),
+      },
+      predictions: { run: (options) => deps.runReplicatePrediction(options) },
+      runtime: deps.estimatePredictionRuntime && deps.createRuntimeSignature ? {
+        estimate: ({ model, params }) => deps.estimatePredictionRuntime({
+          provider: 'replicate', model,
+          signature: deps.createRuntimeSignature({ model, params }),
+        }),
+      } : null,
+      uploads: { requiresPublicHttps: true, maxBytes: deps.maxUploadBytes },
+    },
+  };
+  return adapters[provider] || null;
+}
+
 // Scan generation params for references to our own studio-uploads/* objects so
 // the worker can clean them up after the generation finishes.
 function extractInputAssets(params = {}) {
@@ -88,19 +121,13 @@ export function serializeGeneration(generation, deps) {
 export async function handleStudioModelsRequest(request, deps) {
   try {
     const { provider } = await deps.getActiveProviderKey(request);
-
-    if (provider === 'muapi') {
-      return json({
-        provider,
-        models: deps.getSerializableStudioModelLists(),
-        unavailableCounts: {},
-      });
-    }
-
+    const adapter = resolveStudioAdapter(deps, provider);
     return json({
-      provider: 'replicate',
-      models: deps.getSerializableReplicateModelLists(),
-      unavailableCounts: deps.getReplicateUnavailableCounts(),
+      provider,
+      models: await adapter.catalog.getModelLists(),
+      unavailableCounts: provider === 'replicate' && deps.getReplicateUnavailableCounts
+        ? deps.getReplicateUnavailableCounts()
+        : {},
     });
   } catch (error) {
     const { body, status } = deps.errorResponse(error);
@@ -124,37 +151,25 @@ export async function handleStudioGenerateRequest(request, deps) {
     const modelId = body?.model;
     const params = body?.params || {};
 
-    // Validate the model up-front and capture a runner closure per provider.
-    let runProvider;
+    const adapter = resolveStudioAdapter(deps, provider);
+    const studioModel = await adapter.catalog.getModel(mode, modelId);
+    if (!studioModel) {
+      return badRequest(
+        provider === 'replicate'
+          ? `Model "${modelId}" is not available for Replicate in mode "${mode}".`
+          : `Unknown Studio model "${modelId}" for mode "${mode}".`,
+        provider === 'replicate' ? 'unsupported_replicate_model' : 'unknown_model',
+      );
+    }
+    const runProvider = () => adapter.predictions.run({
+      apiKey, model: studioModel, params, mode, signal: request.signal,
+    });
     let runtimeEstimate = null;
-    if (provider === 'muapi') {
-      const studioModel = deps.getStudioModel(mode, modelId);
-      if (!studioModel) {
-        return badRequest(`Unknown Studio model "${modelId}" for mode "${mode}".`, 'unknown_model');
-      }
-      runProvider = () =>
-        deps.runMuapiPrediction({ apiKey, endpoint: studioModel.endpoint || studioModel.id, params });
-    } else {
-      const replicateModel = deps.getReplicateStudioModel(mode, modelId);
-      if (!replicateModel) {
-        return badRequest(
-          `Model "${modelId}" is not available for Replicate in mode "${mode}".`,
-          'unsupported_replicate_model'
-        );
-      }
-      runProvider = () => deps.runReplicatePrediction({ apiKey, model: replicateModel, params, mode });
-      // Runtime history is best-effort: missing or incompatible samples simply
-      // produce no estimate and must never prevent a generation from starting.
-      if (typeof deps.estimatePredictionRuntime === 'function'
-        && typeof deps.createRuntimeSignature === 'function') {
-        try {
-          runtimeEstimate = await deps.estimatePredictionRuntime({
-            provider: 'replicate', model: replicateModel,
-            signature: deps.createRuntimeSignature({ model: replicateModel, params }),
-          });
-        } catch (error) {
-          console.warn('[replicate-runtime] could not calculate estimate:', error?.message || error);
-        }
+    if (adapter.runtime?.estimate) {
+      try {
+        runtimeEstimate = await adapter.runtime.estimate({ model: studioModel, params });
+      } catch (error) {
+        console.warn('[provider-runtime] could not calculate estimate:', error?.message || error);
       }
     }
 
@@ -171,7 +186,7 @@ export async function handleStudioGenerateRequest(request, deps) {
         userId,
         mode,
         mediaType,
-        provider: provider === 'muapi' ? 'muapi' : 'replicate',
+        provider,
         model: modelId,
         prompt,
         params,
@@ -207,7 +222,7 @@ export async function handleStudioGenerateRequest(request, deps) {
 
     // Legacy (no persistence): behave exactly as before.
     const result = await runProvider();
-    return json({ ...result, model: modelId, provider: provider === 'muapi' ? 'muapi' : 'replicate', ...(runtimeEstimate ? { runtimeEstimate } : {}) });
+    return json({ ...result, model: modelId, provider, ...(runtimeEstimate ? { runtimeEstimate } : {}) });
   } catch (error) {
     const typedResponse = typedError(error);
     if (typedResponse) return typedResponse;
@@ -228,6 +243,7 @@ export async function handleStudioUploadRequest(request, deps) {
   try {
     const user = await deps.requireUser(request);
     const { provider } = await deps.getActiveProviderKey(request);
+    const adapter = resolveStudioAdapter(deps, provider);
     const formData = await request.formData();
     const file = formData.get('file');
 
@@ -239,16 +255,17 @@ export async function handleStudioUploadRequest(request, deps) {
       return uploadError('invalid_file', 'Uploaded file is empty.', 400);
     }
 
-    if (file.size > deps.maxUploadBytes) {
+    const maxBytes = adapter.uploads?.maxBytes || deps.maxUploadBytes;
+    if (file.size > maxBytes) {
       return uploadError('file_too_large', 'Uploaded file is larger than 250 MB.', 413);
     }
 
     const config = deps.getS3Config();
     const readBaseUrl = config.publicBaseUrl || config.endpoint || '';
-    if (provider === 'replicate' && !readBaseUrl.startsWith('https://')) {
+    if (adapter.uploads?.requiresPublicHttps && !readBaseUrl.startsWith('https://')) {
       return uploadError(
         'upload_url_not_public',
-        'Replicate uploads require an HTTPS S3_PUBLIC_BASE_URL or deployed HTTPS bucket endpoint.',
+        `${provider} uploads require an HTTPS S3_PUBLIC_BASE_URL or deployed HTTPS bucket endpoint.`,
         500
       );
     }
@@ -326,10 +343,17 @@ export async function handleMuapiV1PostRequest(request, { path, deps }) {
       );
     }
 
+    if (activeProvider.provider !== 'muapi') {
+      return json(
+        { error: 'provider_feature_unsupported', message: `Endpoint "${path}" is not supported by ${activeProvider.provider}.` },
+        { status: 400 }
+      );
+    }
+
     return deps.proxyMuapiV1Request({
       request,
       path,
-      apiKey: activeProvider.provider === 'muapi' ? activeProvider.apiKey : deps.getRequestApiKey(request),
+      apiKey: activeProvider.apiKey,
       body,
     });
   } catch (error) {

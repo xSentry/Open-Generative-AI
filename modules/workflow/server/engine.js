@@ -184,7 +184,13 @@ export async function executeGraph({
 
     try {
       if (nodeRunId) {
-        runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
+        runtimeEstimate = await estimateNodeRuntime({
+          provider,
+          model: node.model,
+          mode: node.providerMode || node.provider_mode || node.mode || null,
+          category: node.category || null,
+          params,
+        });
         await repo.updateNodeRun(nodeRunId, {
           status: 'running',
           ...(runtimeEstimate ? { result: { runtimeEstimate } } : {}),
@@ -309,7 +315,13 @@ export async function executeSingleNode({
 }) {
   const params = resolveParams(node.params || {}, resultsByNodeId);
   try {
-    const runtimeEstimate = await estimateNodeRuntime({ provider, model: node.model, params });
+    const runtimeEstimate = await estimateNodeRuntime({
+      provider,
+      model: node.model,
+      mode: node.providerMode || node.provider_mode || node.mode || null,
+      category: node.category || null,
+      params,
+    });
     if (runtimeEstimate) {
       await repo.updateNodeRun(nodeRunId, {
         status: 'running',

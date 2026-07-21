@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Inference Provider"
+  short_description: "Add an inference provider through shared adapters."
+  default_prompt: "Use $add-inference-provider to integrate a new inference provider into this repository."

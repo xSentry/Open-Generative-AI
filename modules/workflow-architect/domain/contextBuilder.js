@@ -1,12 +1,9 @@
 import { savedPayloadToWorkflowGraph } from '../../workflow-domain/workflowAdapters.js';
 import { validateWorkflowGraph } from '../../workflow-domain/graphValidator.js';
+import { requireProviderFeature } from '../../providers/publicRegistry.js';
 
-function assertEditableReplicateWorkflow(job, workflow) {
-  if (job.provider !== 'replicate') {
-    const error = new Error('Workflow Architect is only available for Replicate workflows.');
-    error.code = 'UNSUPPORTED_PROVIDER';
-    throw error;
-  }
+function assertEditableProviderWorkflow(job, workflow) {
+  requireProviderFeature(job.provider, 'workflowArchitect');
   if (!workflow || workflow.userId !== job.userId || workflow.provider !== job.provider || workflow.isTemplate) {
     const error = new Error('Editable workflow not found.');
     error.code = 'WORKFLOW_NOT_FOUND';
@@ -66,7 +63,7 @@ function selectedNeighborhood(graph, selectedNode) {
 }
 
 export function buildCreateWorkflowContext(job, workflow, { catalog }) {
-  assertEditableReplicateWorkflow(job, workflow);
+  assertEditableProviderWorkflow(job, workflow);
   if (job.operation !== 'create') {
     const error = new Error('Create workflow context requires a create job.');
     error.code = 'ARCHITECT_OPERATION_UNSUPPORTED';
@@ -107,7 +104,7 @@ export function buildCreateWorkflowContext(job, workflow, { catalog }) {
 }
 
 export function buildWorkflowContext(job, workflow, { catalog, selectedNodeId = null } = {}) {
-  assertEditableReplicateWorkflow(job, workflow);
+  assertEditableProviderWorkflow(job, workflow);
   const graph = workflowToGraph(workflow, catalog);
   const validation = validateWorkflowGraph(graph, { catalog });
   const selectedNode = selectedNodeId

@@ -16,18 +16,11 @@ export function studioConcurrencySemaphores(jobData, env = process.env) {
   const retryDelayMs = positiveNumber(env.STUDIO_CONCURRENCY_RETRY_DELAY_MS, 1000);
   const semaphores = [];
 
-  if (provider === 'replicate') {
+  if (provider) {
+    const envPrefix = provider.toUpperCase().replace(/-/g, '_');
     semaphores.push({
-      name: 'studio:provider:replicate',
-      limit: positiveNumber(env.REPLICATE_MAX_ACTIVE_JOBS),
-      leaseMs,
-      retryDelayMs,
-      env,
-    });
-  } else if (provider === 'muapi') {
-    semaphores.push({
-      name: 'studio:provider:muapi',
-      limit: positiveNumber(env.MUAPI_MAX_ACTIVE_JOBS),
+      name: `studio:provider:${provider}`,
+      limit: positiveNumber(env[`${envPrefix}_MAX_ACTIVE_JOBS`]),
       leaseMs,
       retryDelayMs,
       env,

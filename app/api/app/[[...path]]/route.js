@@ -1,23 +1,19 @@
 import { NextResponse } from 'next/server';
 import { getActiveProviderKey } from '@/modules/providers/server/providerKeys';
 import { createObjectKey } from '@/modules/storage/server/s3';
+import { requireProviderOperation } from '@/modules/providers/server/registry';
 
 export const runtime = 'nodejs';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
-
-function getApiKey(request) {
-    // Only accept x-api-key header. Cookie-based auth is removed for security:
-    // cookies without HttpOnly flag can be stolen by XSS (CWE-522).
-    const headerKey = request.headers.get('x-api-key');
-    return headerKey || null;
-}
 
 function cleanHeaders(request) {
     const headers = new Headers(request.headers);
     headers.delete('host');
     headers.delete('connection');
     headers.delete('cookie'); // CRITICAL: Stop forwarding browser cookies to MuAPI to avoid auth conflicts
+    headers.delete('x-api-key');
+    headers.delete('authorization');
     return headers;
 }
 
@@ -31,10 +27,17 @@ export async function GET(request, { params }) {
     
     const { search } = new URL(request.url);
 
+    let active;
+    try {
+        active = await getActiveProviderKey(request);
+    } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: error.status || 401 });
+    }
+
     if (effectivePath === 'get_file_upload_url') {
         try {
-            const active = await getActiveProviderKey(request);
-            if (active.provider !== 'muapi') {
+            const adapter = requireProviderOperation(active.provider, 'studio');
+            if (!adapter.transports?.appProxy) {
                 const url = new URL(request.url);
                 const filename = url.searchParams.get('filename') || 'upload';
                 const key = createObjectKey({ userId: active.user.id, filename });
@@ -44,16 +47,22 @@ export async function GET(request, { params }) {
                     key,
                 });
             }
-        } catch {
-            // Legacy MuAPI-key mode falls through to the MuAPI proxy.
+        } catch (error) {
+            return NextResponse.json({ error: error.message }, { status: error.status || 400 });
         }
+    }
+
+    try {
+        requireProviderOperation(active.provider, 'apps');
+    } catch (error) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
     }
 
     const targetUrl = `${MUAPI_BASE}/app/${effectivePath}${search}`;
 
     const headers = cleanHeaders(request);
 
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {
@@ -93,19 +102,26 @@ export async function POST(request, { params }) {
     // task_names (model ids) are unknown to MuAPI — proxying would 404. Resolve
     // the active provider and compute the dynamic cost locally instead so the
     // builder's useGenerationCost hook works. Only MuAPI keeps proxying.
+    let active;
+    try {
+        active = await getActiveProviderKey(request);
+    } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: error.status || 401 });
+    }
     if (path === 'calculate_dynamic_cost') {
-        let provider = 'muapi';
         try {
-            ({ provider } = await getActiveProviderKey(request));
+            requireProviderOperation(active.provider, 'apps');
         } catch {
-            // Legacy/unauthenticated MuAPI-key mode: fall through to the proxy.
-        }
-        if (provider !== 'muapi') {
             // No pricing metadata exists for Replicate models in our catalog, so
             // we return a nominal local estimate (see workflow self-hosting plan
             // §9). The local workflow engine does not charge against this value.
             return NextResponse.json({ cost: 0 }, { status: 200 });
         }
+    }
+    try {
+        requireProviderOperation(active.provider, 'apps');
+    } catch (error) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
     }
 
     const { search } = new URL(request.url);
@@ -113,7 +129,7 @@ export async function POST(request, { params }) {
 
     const headers = cleanHeaders(request);
 
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {
@@ -137,11 +153,18 @@ export async function DELETE(request, { params }) {
     const path = pathSegments.join('/');
     
     const { search } = new URL(request.url);
+    let active;
+    try {
+        active = await getActiveProviderKey(request);
+        requireProviderOperation(active.provider, 'apps');
+    } catch (error) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
+    }
     const targetUrl = `${MUAPI_BASE}/app/${path}${search}`;
 
     const headers = cleanHeaders(request);
 
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {
@@ -162,11 +185,18 @@ export async function PUT(request, { params }) {
     const path = pathSegments.join('/');
     
     const { search } = new URL(request.url);
+    let active;
+    try {
+        active = await getActiveProviderKey(request);
+        requireProviderOperation(active.provider, 'apps');
+    } catch (error) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
+    }
     const targetUrl = `${MUAPI_BASE}/app/${path}${search}`;
 
     const headers = cleanHeaders(request);
 
-    const apiKey = getApiKey(request);
+    const apiKey = active.apiKey;
     if (apiKey) headers.set('x-api-key', apiKey);
 
     try {

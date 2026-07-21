@@ -1,15 +1,7 @@
-import { getUserReplicateApiKey } from '../../auth/server/users.js';
-import {
-  getReplicateModelById,
-  getReplicateModelByRef,
-  getReplicateStudioModel,
-  getReplicateModelsForMode,
-} from '../../providers/replicate/server/catalog.js';
-import { runReplicatePrediction } from '../../providers/replicate/server/run.js';
+import { getUserProviderCredential } from '../../providers/server/credentials.js';
+import { requireProviderOperation } from '../../providers/server/registry.js';
 import * as repo from './repo.js';
 import { enqueueDesignAgentJob } from './jobQueue.js';
-
-const REPLICATE_API = 'https://api.replicate.com/v1';
 
 const SKILLS = [
   {
@@ -43,12 +35,12 @@ const TOOL_TO_MODE = {
   generate_audio: { mode: 'audio', kind: 'audio' },
 };
 
-function pickModel(mode, requestedModelId = null) {
+function pickModel(adapter, mode, requestedModelId = null) {
+  const models = adapter.catalog.getModelListsSync?.()[mode] || [];
   if (requestedModelId) {
-    const model = getReplicateStudioModel(mode, requestedModelId);
+    const model = models.find((entry) => entry.id === requestedModelId);
     if (model) return model;
   }
-  const models = getReplicateModelsForMode(mode);
   return models.find((model) => model.hasPrompt) || models[0] || null;
 }
 
@@ -83,25 +75,6 @@ function normalizeToolName(value) {
   return TOOL_TO_MODE[name] ? name : null;
 }
 
-function extractJsonObject(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    const match = String(text).match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function buildPlannerPrompt({ payload, message, assets }) {
   const assetSummary = assets.map((asset) => ({
     label: asset.asset_label,
@@ -111,10 +84,10 @@ function buildPlannerPrompt({ payload, message, assets }) {
 
   return [
     'You are the planner for a creative design canvas.',
-    'Return only JSON with keys: tool, prompt, source_asset_label, replicate_model.',
+    'Return only JSON with keys: tool, prompt, source_asset_label, provider_model.',
     `Valid tools: ${Object.keys(TOOL_TO_MODE).join(', ')}.`,
     'Choose source_asset_label only from the provided assets, or null.',
-    'replicate_model is optional and must be an exact local Replicate catalog model id when you are confident.',
+    'provider_model is optional and must be an exact model id from the active provider catalog when you are confident.',
     '',
     JSON.stringify({
       user_message: message,
@@ -127,98 +100,23 @@ function buildPlannerPrompt({ payload, message, assets }) {
   ].join('\n');
 }
 
-function plannerTextFromOutput(output) {
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) {
-    return output.map((item) => (typeof item === 'string' ? item : item?.text || item?.content || '')).join('');
-  }
-  if (output && typeof output === 'object') {
-    if (typeof output.text === 'string') return output.text;
-    if (typeof output.content === 'string') return output.content;
-    if (typeof output.output === 'string') return output.output;
-  }
-  return '';
-}
-
-async function replicateJson(url, apiKey, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(data?.detail || data?.title || `Replicate planner request failed with ${response.status}`);
-  }
-  return data;
-}
-
-function resolveReplicatePlannerModel(modelId) {
-  if (!modelId) return null;
-  const catalogModel = getReplicateModelById(modelId) || getReplicateModelByRef(modelId);
-  if (catalogModel?.replicate?.version) {
-    return {
-      ref: catalogModel.replicate?.ref || modelId,
-      version: catalogModel.replicate.version,
-    };
-  }
-
-  return {
-    ref: modelId,
-    version: null,
-  };
-}
-
-async function callReplicatePlanner({ apiKey, payload, message, assets }) {
-  const plannerModel = resolveReplicatePlannerModel(payload.planner_model);
-  if (!apiKey || (!plannerModel?.ref && !plannerModel?.version)) return null;
-
-  const prompt = buildPlannerPrompt({ payload, message, assets });
-  const input = { prompt };
-  const body = plannerModel.version
-    ? { version: plannerModel.version, input }
-    : { input };
-  const submitUrl = plannerModel.version
-    ? `${REPLICATE_API}/predictions`
-    : `${REPLICATE_API}/models/${plannerModel.ref}/predictions`;
-
-  let prediction = await replicateJson(submitUrl, apiKey, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-  const pollUrl = prediction?.urls?.get || `${REPLICATE_API}/predictions/${prediction.id}`;
-  const maxAttempts = 120;
-  const interval = 1000;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (prediction?.status === 'succeeded') {
-      return extractJsonObject(plannerTextFromOutput(prediction.output));
-    }
-    if (prediction?.status === 'failed' || prediction?.status === 'canceled') {
-      throw new Error(`Replicate planner ${prediction.status}: ${prediction.error || 'Unknown error'}`);
-    }
-    await sleep(interval);
-    prediction = await replicateJson(pollUrl, apiKey);
-  }
-
-  throw new Error('Replicate planner timed out.');
-}
-
-async function planTool({ payload, message, assets, provider, apiKey }) {
-  if (provider === 'replicate' && payload.planner_model) {
+async function planTool({ adapter, payload, message, assets, provider, apiKey }) {
+  if (adapter.planning?.createToolPlan && payload.planner_model) {
     try {
-      const plan = await callReplicatePlanner({ apiKey, payload, message, assets });
+      const plan = await adapter.planning.createToolPlan({
+        apiKey,
+        modelId: payload.planner_model,
+        prompt: buildPlannerPrompt({ payload, message, assets }),
+      });
       const tool = normalizeToolName(plan?.tool);
       if (tool) {
         return {
           tool,
           prompt: typeof plan.prompt === 'string' && plan.prompt.trim() ? plan.prompt.trim() : message,
           sourceAssetLabel: typeof plan.source_asset_label === 'string' ? plan.source_asset_label : null,
-          requestedModelId: typeof plan.replicate_model === 'string' ? plan.replicate_model : null,
+          requestedModelId: typeof (plan.provider_model || plan.replicate_model) === 'string'
+            ? (plan.provider_model || plan.replicate_model)
+            : null,
           planner: provider,
         };
       }
@@ -262,14 +160,14 @@ function chooseSourceAsset({ assets, sourceKind, requestedLabel, message }) {
   return [...assets].reverse().find((asset) => asset.kind === sourceKind) || null;
 }
 
-async function buildTool(job, scope, apiKey) {
+async function buildTool(job, scope, apiKey, adapter) {
   const payload = job.payload || {};
   const message =
     payload.message ||
     Object.values(payload.inputs || {}).find((value) => typeof value === 'string') ||
     '';
   const assets = await repo.listAssets(job.session_id, scope);
-  const plan = await planTool({ payload, message, assets, provider: scope.provider, apiKey });
+  const plan = await planTool({ adapter, payload, message, assets, provider: scope.provider, apiKey });
   let name = plan.tool;
   const sourceKind = sourceKindForTool(name);
   const sourceAsset = chooseSourceAsset({
@@ -305,7 +203,7 @@ async function buildTool(job, scope, apiKey) {
   return {
     name,
     mode: config.mode,
-    model: pickModel(config.mode, requestedModelId),
+    model: pickModel(adapter, config.mode, requestedModelId),
     params,
     kind: config.kind,
     sourceAsset,
@@ -323,8 +221,9 @@ export async function processDesignAgentJob(jobId) {
   await repo.updateJob(jobId, { status: 'processing' });
 
   try {
-    const apiKey = await getUserReplicateApiKey(job.user_id) || process.env.REPLICATE_API_TOKEN;
-    const tool = await buildTool(job, scope, apiKey);
+    const adapter = requireProviderOperation(job.provider, 'designAgent');
+    const apiKey = await getUserProviderCredential(job.user_id, job.provider);
+    const tool = await buildTool(job, scope, apiKey, adapter);
     await repo.addEvent({
       jobId,
       sessionId: job.session_id,
@@ -334,7 +233,7 @@ export async function processDesignAgentJob(jobId) {
     });
 
     if (!tool.model) {
-      throw new Error(`No Replicate model is configured for ${tool.mode}.`);
+      throw new Error(`No ${job.provider} model is configured for ${tool.mode}.`);
     }
 
     await repo.addEvent({
@@ -355,10 +254,10 @@ export async function processDesignAgentJob(jobId) {
     });
 
     if (!apiKey) {
-      throw new Error('A Replicate API key is required for the selected provider.');
+      throw new Error(`A provider credential is required for ${job.provider}.`);
     }
 
-    const result = await runReplicatePrediction({
+    const result = await adapter.predictions.run({
       apiKey,
       model: tool.model,
       params: tool.params,

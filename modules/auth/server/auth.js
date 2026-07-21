@@ -9,6 +9,8 @@ import {
   updateUserPreferredProvider,
   updateUserReplicateApiKey,
 } from './users.js';
+import { requireProviderManifest } from '../../providers/publicRegistry.js';
+import { upsertUserProviderCredential } from '../../providers/server/credentials.js';
 import { readSession } from './session.js';
 import { AuthError } from './errors.js';
 
@@ -53,10 +55,14 @@ function validateMuapiApiKey(muapiApiKey) {
 
 function validateProvider(provider) {
   const normalized = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
-  if (normalized !== 'replicate' && normalized !== 'muapi') {
-    throw new AuthError('invalid_input', 'Provider must be replicate or muapi.');
-  }
+  requireProviderManifest(normalized);
   return normalized;
+}
+
+function validateCredential(credential, manifest) {
+  const trimmed = typeof credential === 'string' ? credential.trim() : '';
+  if (!trimmed) throw new AuthError('invalid_input', `${manifest.credential.label} is required.`);
+  return trimmed;
 }
 
 export async function register({ email, password, name }) {
@@ -128,14 +134,24 @@ export async function updateReplicateApiKey(request, input) {
   const updatedUser = await updateUserReplicateApiKey(user.id, replicateApiKey);
 
   return {
-    hasReplicateApiKey: Boolean(updatedUser?.replicate_api_key_encrypted),
+    hasReplicateApiKey: Boolean(updatedUser),
   };
 }
 
 export async function updateProviderSettings(request, input) {
   const user = await requireUser(request);
   const preferredProvider = validateProvider(input?.provider ?? input?.preferredProvider);
+  const manifest = requireProviderManifest(preferredProvider);
   let updatedUser = await updateUserPreferredProvider(user.id, preferredProvider);
+
+  if (Object.prototype.hasOwnProperty.call(input ?? {}, 'credential')) {
+    await upsertUserProviderCredential(
+      user.id,
+      preferredProvider,
+      validateCredential(input.credential, manifest),
+    );
+    updatedUser = await findUserById(user.id);
+  }
 
   if (Object.prototype.hasOwnProperty.call(input ?? {}, 'replicateApiKey')) {
     const replicateApiKey = validateReplicateApiKey(input.replicateApiKey);
