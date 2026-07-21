@@ -455,7 +455,7 @@ export default function StandaloneShell() {
         {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} />}
         {activeTab === 'audio'   && <AudioStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'marketing' && <MarketingStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} provider={preferredProvider} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
+        {activeTab === 'workflows' && <WorkflowStudio apiKey={apiKey} provider={preferredProvider} providerFeatures={providerManifest?.features} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'agents' && <AgentStudio apiKey={apiKey} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'design-agent' && <DesignAgentStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} isHeaderVisible={isHeaderVisible} onToggleHeader={setIsHeaderVisible} />}
         {activeTab === 'apps' && providerManifest?.features.apps && <AppsStudio apiKey={apiKey} />}

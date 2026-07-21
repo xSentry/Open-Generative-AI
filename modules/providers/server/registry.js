@@ -1,6 +1,7 @@
 import { SERVER_FEATURE_OPERATIONS } from '../core/contracts.js';
 import { requireProviderFeature, requireProviderManifest } from '../publicRegistry.js';
 import { muapiAdapter } from '../muapi/server/adapter.js';
+import { minimaxAdapter } from '../minimax/server/adapter.js';
 import { replicateAdapter } from '../replicate/server/adapter.js';
 import { instrumentProviderAdapter } from './operations.js';
 
@@ -85,7 +86,7 @@ export function createServerRegistry(adapters, { manifests = null } = {}) {
   };
 }
 
-const registry = createServerRegistry([replicateAdapter, muapiAdapter]);
+const registry = createServerRegistry([replicateAdapter, muapiAdapter, minimaxAdapter]);
 export const listProviderAdapters = registry.listProviderAdapters;
 export const getProviderAdapter = registry.getProviderAdapter;
 export const requireProviderAdapter = registry.requireProviderAdapter;

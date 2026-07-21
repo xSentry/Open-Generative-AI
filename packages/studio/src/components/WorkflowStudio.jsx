@@ -473,7 +473,7 @@ function WorkflowOutputCard({ card }) {
   );
 }
 
-export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeaderVisible = true, onToggleHeader }) {
+export default function WorkflowStudio({ apiKey, provider = 'replicate', providerFeatures, isHeaderVisible = true, onToggleHeader }) {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug || [];
@@ -1257,6 +1257,7 @@ export default function WorkflowStudio({ apiKey, provider = 'replicate', isHeade
                 <WorkflowUI
                   workflowId={selectedWorkflow?.id}
                   provider={provider}
+                  providerFeatures={providerFeatures}
                   initialNodeSchemas={nodeSchemas}
                   initialWorkflowData={{
                     ...workflowDef,

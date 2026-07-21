@@ -1,6 +1,7 @@
 import { unsupportedFeature, unsupportedMode, unknownProvider } from './core/errors.js';
 import { validateProviderManifest } from './core/publicManifest.js';
 import { muapiManifest } from './muapi/manifest.js';
+import { minimaxManifest } from './minimax/manifest.js';
 import { replicateManifest } from './replicate/manifest.js';
 
 export function createPublicRegistry(manifests) {
@@ -21,7 +22,7 @@ export function createPublicRegistry(manifests) {
   };
 }
 
-const registry = createPublicRegistry([replicateManifest, muapiManifest]);
+const registry = createPublicRegistry([replicateManifest, muapiManifest, minimaxManifest]);
 export const listProviderManifests = registry.listProviderManifests;
 export const getProviderManifest = registry.getProviderManifest;
 export const requireProviderManifest = registry.requireProviderManifest;

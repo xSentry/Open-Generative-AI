@@ -31,6 +31,7 @@
     "requeue:pending": "node scripts/requeue-pending-jobs.js",
     "replicate:import-model": "node modules/providers/replicate/scripts/replicate-model-import.js",
     "replicate:smoke": "node scripts/replicate-studio-smoke.js",
+    "minimax:sync-models": "node modules/providers/minimax/scripts/sync-model-catalog.js",
     "setup": "git submodule update --init --recursive && npm install && npm run build:packages",
     "vendor:submodules": "node scripts/vendor-submodules.js",
     "upstream:check": "node scripts/sync-upstreams.js check",
@@ -129,6 +130,7 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.5",
     "ai-agent": "file:./packages/Open-Poe-AI/packages/agents",
     "axios": "^1.7.0",
     "bcryptjs": "^3.0.2",
