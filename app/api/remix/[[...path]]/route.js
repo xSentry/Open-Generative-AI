@@ -4,7 +4,7 @@ import { errorResponse } from '@/modules/auth/server/errors';
 import { getUserProviderCredential } from '@/modules/providers/server/credentials';
 import { createPresignedGetUrl, deleteObject, getS3Config, uploadObject } from '@/modules/storage/server/s3';
 import {
-  MAX_SOURCE_BYTES, RemixError, createRemixObjectKey, numberInRange, requireReplicateUser,
+  MAX_SOURCE_BYTES, RemixError, createRemixObjectKey, numberInRange, planEditScope, requireReplicateUser,
 } from '@/modules/remix/contracts';
 import {
   createAsset, createFrameEdit, createJob, createProject, createVideoVersion,
@@ -42,6 +42,25 @@ function signed(key) {
   return key ? createPresignedGetUrl({ config: getS3Config(), key }) : null;
 }
 
+function serializeVideoVersion(version) {
+  if (!version) return null;
+  return {
+    ...version,
+    url: signed(version.playback_object_key || version.object_key),
+    downloadUrl: signed(version.object_key),
+    thumbnailUrl: signed(version.thumbnail_object_key),
+  };
+}
+
+function serializeFrameEdit(edit) {
+  if (!edit) return null;
+  return {
+    ...edit,
+    sourceUrl: signed(edit.source_object_key),
+    outputUrl: signed(edit.output_object_key),
+  };
+}
+
 async function dispatchRemixJob(data, inlineProcessor) {
   if (String(process.env.REMIX_ASYNC_JOBS || '').toLowerCase() === 'true') {
     await enqueueRemixJob(data);
@@ -60,16 +79,9 @@ function serializeGraph(graph) {
   return {
     project: graph.project,
     assets,
-    videoVersions: graph.videoVersions.map((version) => ({
-      ...version,
-      url: signed(version.playback_object_key || version.object_key),
-      downloadUrl: signed(version.object_key),
-      thumbnailUrl: signed(version.thumbnail_object_key),
-    })),
+    videoVersions: graph.videoVersions.map(serializeVideoVersion),
     frameEdits: graph.frameEdits.map((edit) => ({
-      ...edit,
-      sourceUrl: signed(edit.source_object_key),
-      outputUrl: signed(edit.output_object_key),
+      ...serializeFrameEdit(edit),
       outputAsset: byId.get(edit.output_asset_id) || null,
     })),
     jobs: graph.jobs,
@@ -131,6 +143,29 @@ export async function GET(request, context) {
     if (parts[0] === 'projects' && !parts[1]) {
       const projects = await listProjects(user.id);
       return json({ projects: projects.map((project) => ({ ...project, previewUrl: signed(project.preview_object_key) })) });
+    }
+    if (parts[0] === 'projects' && parts[1] && parts[2] === 'jobs' && parts[3]) {
+      let project = await requireProject(parts[1], user.id);
+      const job = await requireJob(parts[3], project.id, user.id);
+      const result = { job };
+      if (job.type === 'edit-frame' && job.subject_id) {
+        result.frameEdit = serializeFrameEdit(await requireFrameEdit(job.subject_id, project.id));
+      } else if (job.type === 'edit-video' && job.subject_id) {
+        result.videoVersion = serializeVideoVersion(await requireVideoVersion(job.subject_id, project.id));
+        if (['succeeded', 'failed', 'canceled'].includes(job.status)) {
+          project = await requireProject(parts[1], user.id);
+          result.project = project;
+        }
+      } else if (job.type === 'prepare-video') {
+        project = await requireProject(parts[1], user.id);
+        result.project = project;
+        if (project.active_video_version_id) {
+          result.videoVersion = serializeVideoVersion(
+            await requireVideoVersion(project.active_video_version_id, project.id),
+          );
+        }
+      }
+      return json(result);
     }
     if (parts[0] === 'projects' && parts[1]) {
       return json(serializeGraph(await getProjectGraph(parts[1], user.id)));
@@ -261,12 +296,22 @@ export async function POST(request, context) {
       }
       const resolved = await resolveRemixVideoModel(body.videoModelKey || 'aleph-2');
       const selectedTimestamp = Number(frameEdit.actual_timestamp_seconds);
+      const sourceDuration = Number(source.duration_seconds || source.metadata?.source?.durationSeconds);
+      const scopePlan = planEditScope({
+        scope: body.scope,
+        durationSeconds: sourceDuration,
+        selectedTimeSeconds: selectedTimestamp,
+        rangeEndSeconds: body.sectionEndSeconds,
+        minSegmentSeconds: resolved.segment.minSeconds,
+        maxSegmentSeconds: resolved.segment.maxSeconds,
+        modelLabel: resolved.label,
+      });
       const version = await createVideoVersion({
         projectId: project.id, parentVersionId: source.id, videoAssetId: null,
         frameEditId: frameEdit.id, scope: body.scope,
         selectedTimestampSeconds: selectedTimestamp,
-        rangeStartSeconds: body.scope === 'from-frame' ? selectedTimestamp : 0,
-        rangeEndSeconds: Number(source.duration_seconds || source.metadata?.source?.durationSeconds),
+        rangeStartSeconds: scopePlan.rangeStartSeconds,
+        rangeEndSeconds: scopePlan.rangeEndSeconds,
         provider: resolved.provider, model: resolved.key,
         prompt: String(body.prompt || frameEdit.prompt || '').trim(),
         params: body.params || {}, status: 'queued',

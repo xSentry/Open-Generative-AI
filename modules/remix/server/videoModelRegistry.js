@@ -15,6 +15,30 @@ export const REMIX_VIDEO_MODELS = Object.freeze([
       keyframes: 'keyframe_images',
       positions: 'keyframe_positions',
     }),
+    segment: Object.freeze({ minSeconds: 2, maxSeconds: 30 }),
+  }),
+  Object.freeze({
+    key: 'kling-v3-omni-video',
+    label: 'Kling 3.0 Omni',
+    provider: 'replicate',
+    catalogModelId: 'kling-v3-omni-video',
+    mode: 'v2v',
+    role: 'video-edit',
+    inputMap: Object.freeze({
+      prompt: 'prompt',
+      video: 'reference_video',
+      keyframes: 'reference_images',
+    }),
+    fixedInputs: Object.freeze({
+      video_reference_type: 'base',
+      generate_audio: false,
+    }),
+    optionalInputNames: Object.freeze(['keep_original_sound', 'mode']),
+    inputOverrides: Object.freeze({
+      mode: Object.freeze({ enum: Object.freeze(['standard', 'pro']) }),
+    }),
+    promptReferenceToken: '<<<image_1>>>',
+    segment: Object.freeze({ minSeconds: 3, maxSeconds: 10 }),
   }),
 ]);
 
@@ -31,11 +55,12 @@ export async function resolveRemixVideoModel(key) {
     model = null;
   }
   const inputs = model?.inputs || {};
+  const positionField = entry.inputMap.positions;
   const valid = model?.outputKind === 'video'
     && inputs[entry.inputMap.prompt]?.type === 'string'
     && inputs[entry.inputMap.video]?.mediaKind === 'video'
     && inputs[entry.inputMap.keyframes]?.mediaKind === 'image'
-    && inputs[entry.inputMap.positions]?.type === 'array';
+    && (!positionField || inputs[positionField]?.type === 'array');
   if (!valid) {
     throw new RemixError(
       'remix_video_model_unavailable',
@@ -44,11 +69,48 @@ export async function resolveRemixVideoModel(key) {
     );
   }
   const optionalInputs = Object.fromEntries(
-    Object.entries(inputs).filter(([name]) =>
-      !Object.values(entry.inputMap).includes(name) && !model.required?.includes(name),
-    ),
+    Object.entries(inputs)
+      .filter(([name]) =>
+        !Object.values(entry.inputMap).includes(name)
+        && !Object.hasOwn(entry.fixedInputs || {}, name)
+        && !model.required?.includes(name)
+        && (!entry.optionalInputNames || entry.optionalInputNames.includes(name)),
+      )
+      .map(([name, schema]) => [
+        name,
+        entry.inputOverrides?.[name] ? { ...schema, ...entry.inputOverrides[name] } : schema,
+      ]),
   );
   return { ...entry, model, optionalInputs };
+}
+
+export function buildRemixVideoParams({
+  resolved,
+  prompt,
+  videoUrl,
+  keyframeUrl,
+  keyframePosition,
+  params = {},
+}) {
+  const map = resolved.inputMap;
+  const safeParams = Object.fromEntries(
+    Object.entries(params).filter(([name, value]) => {
+      const schema = resolved.optionalInputs?.[name];
+      return schema && (!schema.enum || schema.enum.includes(value));
+    }),
+  );
+  let mappedPrompt = String(prompt || '').trim();
+  if (resolved.promptReferenceToken && !mappedPrompt.includes(resolved.promptReferenceToken)) {
+    mappedPrompt = `${mappedPrompt} Use ${resolved.promptReferenceToken} as the visual reference for the edit.`.trim();
+  }
+  return {
+    ...safeParams,
+    ...(resolved.fixedInputs || {}),
+    [map.prompt]: mappedPrompt,
+    [map.video]: videoUrl,
+    [map.keyframes]: [keyframeUrl],
+    ...(map.positions ? { [map.positions]: [keyframePosition] } : {}),
+  };
 }
 
 export async function listRemixVideoModels() {
@@ -57,7 +119,7 @@ export async function listRemixVideoModels() {
       const item = await resolveRemixVideoModel(entry.key);
       return {
         key: item.key, label: item.label, provider: item.provider, mode: item.mode,
-        model: item.catalogModelId, inputs: item.optionalInputs,
+        model: item.catalogModelId, inputs: item.optionalInputs, segment: item.segment,
       };
     } catch {
       return null;

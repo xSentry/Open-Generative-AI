@@ -8,7 +8,7 @@ export class RemixError extends Error {
   }
 }
 
-export const REMIX_SCOPES = new Set(['whole', 'from-frame']);
+export const REMIX_SCOPES = new Set(['whole', 'from-frame', 'range']);
 export const MAX_SOURCE_BYTES = 250 * 1024 * 1024;
 export const ALEPH_MIN_SECONDS = 2;
 export const ALEPH_MAX_SECONDS = 30;
@@ -40,17 +40,28 @@ export function createRemixObjectKey({ userId, projectId, kind, filename = 'asse
   return `remix/${userId}/${projectId}/${safeKind}/${randomUUID()}-${safeName}`;
 }
 
-export function planEditScope({ scope, durationSeconds, selectedTimeSeconds }) {
+export function planEditScope({
+  scope,
+  durationSeconds,
+  selectedTimeSeconds,
+  rangeEndSeconds,
+  minSegmentSeconds = ALEPH_MIN_SECONDS,
+  maxSegmentSeconds = ALEPH_MAX_SECONDS,
+  modelLabel = 'Aleph',
+}) {
   if (!REMIX_SCOPES.has(scope)) {
-    throw new RemixError('remix_invalid_scope', 'Scope must be "whole" or "from-frame".');
+    throw new RemixError('remix_invalid_scope', 'Scope must be "whole", "from-frame", or "range".');
   }
   const duration = numberInRange(durationSeconds, 'Video duration', 0.001, Number.MAX_SAFE_INTEGER);
   const selected = numberInRange(selectedTimeSeconds, 'Selected timestamp', 0, duration);
-  const segmentDuration = scope === 'whole' ? duration : duration - selected;
-  if (segmentDuration < ALEPH_MIN_SECONDS || segmentDuration > ALEPH_MAX_SECONDS) {
+  const rangeEnd = scope === 'range'
+    ? numberInRange(rangeEndSeconds, 'Section end', selected, duration)
+    : duration;
+  const segmentDuration = scope === 'whole' ? duration : rangeEnd - selected;
+  if (segmentDuration < minSegmentSeconds || segmentDuration > maxSegmentSeconds) {
     throw new RemixError(
       'remix_video_duration_unsupported',
-      `The Aleph input segment must be ${ALEPH_MIN_SECONDS}–${ALEPH_MAX_SECONDS} seconds; this segment is ${segmentDuration.toFixed(2)} seconds.`,
+      `The ${modelLabel} input segment must be ${minSegmentSeconds}–${maxSegmentSeconds} seconds; this segment is ${segmentDuration.toFixed(2)} seconds.`,
     );
   }
   return {
@@ -59,7 +70,7 @@ export function planEditScope({ scope, durationSeconds, selectedTimeSeconds }) {
     segmentDurationSeconds: segmentDuration,
     keyframePosition: scope === 'whole' ? String(selected) : 'first',
     rangeStartSeconds: scope === 'whole' ? 0 : selected,
-    rangeEndSeconds: duration,
+    rangeEndSeconds: rangeEnd,
   };
 }
 import { randomUUID } from 'node:crypto';

@@ -15,7 +15,7 @@ import {
   updateJob, updateProject, updateVideoVersion,
 } from './repo.js';
 import { buildImageEditParams, imageInputFields, requireEligibleImageModel } from './modelCatalog.js';
-import { resolveRemixVideoModel } from './videoModelRegistry.js';
+import { buildRemixVideoParams, resolveRemixVideoModel } from './videoModelRegistry.js';
 
 function signedUrl(objectKey) {
   return createInternalPresignedGetUrl({ config: getS3Config(), key: objectKey });
@@ -88,8 +88,8 @@ export async function processPrepareVideo({ projectId, userId, sourceAsset, job 
       return version;
     });
   } catch (error) {
-    await failJob(job, error);
     await updateProject(projectId, { status: 'failed', error: error.message }).catch(() => {});
+    await failJob(job, error);
     throw error;
   }
 }
@@ -192,8 +192,8 @@ export async function processFrameEdit({ projectId, userId, frameEditId, job }) 
       return asset;
     });
   } catch (error) {
-    await failJob(job, error);
     await updateFrameEdit(frameEditId, { status: 'failed', error: error.message, completedAt: new Date() }).catch(() => {});
+    await failJob(job, error);
     throw error;
   }
 }
@@ -212,12 +212,16 @@ export async function processVideoEdit({ projectId, userId, versionId, job }) {
     const width = Number(source.width || source.metadata?.source?.width);
     const height = Number(source.height || source.metadata?.source?.height);
     const fps = Number(source.fps || source.metadata?.source?.fps || 30);
+    const resolved = await resolveRemixVideoModel(queuedVersion.model);
     const scopePlan = planEditScope({
       scope: queuedVersion.scope,
       durationSeconds,
       selectedTimeSeconds: Number(queuedVersion.selected_timestamp_seconds),
+      rangeEndSeconds: Number(queuedVersion.range_end_seconds),
+      minSegmentSeconds: resolved.segment.minSeconds,
+      maxSegmentSeconds: resolved.segment.maxSeconds,
+      modelLabel: resolved.label,
     });
-    const resolved = await resolveRemixVideoModel(queuedVersion.model);
     const apiKey = await getUserProviderCredential(userId, resolved.provider);
     if (!apiKey) throw new RemixError('remix_provider_credential_missing', 'Add your Replicate API token in Settings.', 401);
     return await withTempDir('remix-edit-video-', async (dir) => {
@@ -239,21 +243,21 @@ export async function processVideoEdit({ projectId, userId, versionId, job }) {
         filename: 'aleph-input.mp4', contentType: 'video/mp4',
         metadata: { role: 'aleph-input', versionId, sourceVersionId: source.id }, media: alephMedia,
       });
-      const map = resolved.inputMap;
-      const providerParams = {
-        ...queuedVersion.params,
-        [map.prompt]: queuedVersion.prompt,
-        [map.video]: providerAssetUrl(alephAsset.object_key),
-        [map.keyframes]: [providerAssetUrl(frameEdit.output_object_key)],
-        [map.positions]: [scopePlan.keyframePosition],
-      };
+      const providerParams = buildRemixVideoParams({
+        resolved,
+        prompt: queuedVersion.prompt,
+        videoUrl: providerAssetUrl(alephAsset.object_key),
+        keyframeUrl: providerAssetUrl(frameEdit.output_object_key),
+        keyframePosition: scopePlan.keyframePosition,
+        params: queuedVersion.params,
+      });
       await updateJob(job.id, { status: 'active', progress: 0.3, stage: 'generating-video' });
       const adapter = requireProviderOperation(resolved.provider, 'studio');
       const result = await adapter.predictions.run({
         apiKey, model: resolved.model, mode: resolved.mode, params: providerParams,
       });
       const outputUrl = providerOutputUrl(result);
-      if (!outputUrl) throw new RemixError('remix_provider_empty_output', 'Aleph returned no video.', 502);
+      if (!outputUrl) throw new RemixError('remix_provider_empty_output', `${resolved.label} returned no video.`, 502);
       await downloadToFile(outputUrl, generatedPath);
       await updateJob(job.id, { status: 'active', progress: 0.75, stage: 'normalizing-and-splicing' });
       await normalizeGeneratedVideo({
@@ -264,6 +268,7 @@ export async function processVideoEdit({ projectId, userId, versionId, job }) {
         sourcePath, generatedPath: normalizedPath, outputPath: finalPath,
         scope: queuedVersion.scope,
         selectedTimeSeconds: Number(queuedVersion.selected_timestamp_seconds),
+        rangeEndSeconds: scopePlan.rangeEndSeconds,
         durationSeconds, fps,
       });
       const finalMedia = await probeVideo(finalPath);
@@ -295,8 +300,8 @@ export async function processVideoEdit({ projectId, userId, versionId, job }) {
       return videoAsset;
     });
   } catch (error) {
-    await failJob(job, error);
     await updateVideoVersion(versionId, { status: 'failed', error: error.message, completedAt: new Date() }).catch(() => {});
+    await failJob(job, error);
     throw error;
   }
 }

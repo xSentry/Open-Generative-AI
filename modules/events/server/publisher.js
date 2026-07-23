@@ -28,6 +28,32 @@ export function studioGenerationEvent({ userId, id, status, queueStatus, progres
   };
 }
 
+export function remixJobEvent({
+  userId,
+  projectId,
+  jobId,
+  jobType,
+  subjectId,
+  status,
+  stage,
+  progress,
+  error,
+}) {
+  return {
+    type: 'remix.job.updated',
+    userId,
+    projectId,
+    jobId,
+    jobType: jobType || null,
+    subjectId: subjectId || null,
+    status: status || null,
+    stage: stage || null,
+    progress: progress ?? null,
+    error: error || null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function workflowRunEvent({
   userId,
   workflowId,
