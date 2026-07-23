@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, compactModelParams, findMissingRequiredInput, mergeModelMediaParams, useDynamicModelParams } from "./DynamicModelInputs.jsx";
 
 // ─── Constants (inlined from promptUtils) ───────────────────────────────────
 
@@ -662,6 +663,7 @@ export default function CinemaStudio({
   }, [isReplicate, modelsByMode?.cinema]);
 
   const selectedModel = cinemaModels.find((m) => m.id === selectedModelId) || null;
+  const [modelParams, setModelParams] = useDynamicModelParams(selectedModel);
 
   // ── Textarea auto-grow ──
   const textareaRef = useRef(null);
@@ -783,8 +785,6 @@ export default function CinemaStudio({
     const basePrompt = settings.prompt.trim();
     if (!basePrompt || isGenerating) return;
 
-    setIsGenerating(true);
-
     const finalPrompt = buildNanoBananaPrompt(
       basePrompt,
       settings.camera,
@@ -798,7 +798,22 @@ export default function CinemaStudio({
     const fallbackModel = uploadedImage ? "nano-banana-pro-edit" : "nano-banana-pro";
     const model = isReplicate ? (selectedModelId || fallbackModel) : fallbackModel;
 
+    const exactParams = compactModelParams(mergeModelMediaParams(selectedModel, {
+      ...modelParams,
+      ...(selectedModel?.inputs?.prompt ? { prompt: finalPrompt } : {}),
+      ...(selectedModel?.inputs?.aspect_ratio ? { aspect_ratio: settings.aspect_ratio } : {}),
+      ...(selectedModel?.inputs?.resolution ? { resolution: resolution.toLowerCase() } : {}),
+    }, { image: uploadedImage, images: uploadedImage ? [uploadedImage] : [] }));
+    const missingRequired = findMissingRequiredInput(selectedModel, exactParams);
+    if (missingRequired) {
+      alert(`Please provide ${selectedModel.inputs?.[missingRequired]?.title || missingRequired}.`);
+      return;
+    }
+
+    setIsGenerating(true);
+
     const params = {
+      ...exactParams,
       prompt: finalPrompt,
       aspect_ratio: settings.aspect_ratio,
       resolution: resolution.toLowerCase(),
@@ -817,7 +832,7 @@ export default function CinemaStudio({
       }
 
       // ── Legacy synchronous path (Electron / non-hosted) ────────────────────
-      const res = await generateImage(apiKey, { model, ...params });
+      const res = await generateImage(apiKey, { model, ...params, inputSchema: selectedModel?.inputs });
 
       if (res && res.url) {
         const entry = {
@@ -867,6 +882,8 @@ export default function CinemaStudio({
     historyItems,
     isReplicate,
     selectedModelId,
+    selectedModel,
+    modelParams,
     uploadedImage,
     serverActive,
     serverGen,
@@ -941,7 +958,6 @@ export default function CinemaStudio({
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-black relative overflow-hidden">
-      
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
         {serverActive && serverGen.loading && history.length === 0 ? (
@@ -1114,10 +1130,25 @@ export default function CinemaStudio({
         <div className="bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-md p-4 flex justify-between shadow-2xl items-end relative gap-2">
           {/* Left Column */}
           <div className="flex-1 flex flex-col gap-3 min-h-[80px] justify-between py-1">
+            <DynamicModelInputsPanel
+              model={selectedModel}
+              values={{ ...modelParams, prompt: settings.prompt, aspect_ratio: settings.aspect_ratio, resolution: resolution.toLowerCase() }}
+              onChange={(next) => {
+                setModelParams(next);
+                setSettings((previous) => ({
+                  ...previous,
+                  ...(next.prompt !== undefined ? { prompt: next.prompt } : {}),
+                  ...(next.aspect_ratio !== undefined ? { aspect_ratio: next.aspect_ratio } : {}),
+                }));
+                if (next.resolution !== undefined) setResolution(String(next.resolution).toUpperCase());
+              }}
+              apiKey={apiKey}
+              exclude={["prompt"]}
+            />
             {/* Input Row */}
             <div className="flex items-start gap-4 w-full px-1">
               {/* Image Upload Button */}
-              <div className="relative pt-0.5">
+              <div className={`${selectedModel?.imageField || selectedModel?.inputs?.image ? "hidden" : "relative"} pt-0.5`}>
                 <input
                   type="file"
                   ref={imageInputRef}
@@ -1230,7 +1261,7 @@ export default function CinemaStudio({
                 )}
 
                 {/* Aspect Ratio Button */}
-                <div className="relative">
+                <div className={selectedModel?.inputs?.aspect_ratio ? "hidden" : "relative"}>
                   <button
                     ref={arBtnRef}
                     className="flex items-center gap-1.5 px-3 py-1 bg-white/[0.03] hover:bg-white/10 text-xs font-bold text-white/40 hover:text-white transition-colors rounded-md border border-white/[0.03]"
@@ -1257,7 +1288,7 @@ export default function CinemaStudio({
                 </div>
 
                 {/* Resolution Button */}
-                <div className="relative">
+                <div className={selectedModel?.inputs?.resolution ? "hidden" : "relative"}>
                   <button
                     ref={resBtnRef}
                     className="flex items-center gap-1.5 px-3 py-1 bg-white/[0.03] hover:bg-white/10 text-xs font-bold text-white/40 hover:text-white transition-colors rounded-md border border-white/[0.03]"

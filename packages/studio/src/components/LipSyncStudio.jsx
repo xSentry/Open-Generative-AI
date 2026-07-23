@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, compactModelParams, findMissingRequiredInput, hasModelMediaValue, mergeModelMediaParams, useDynamicModelParams } from "./DynamicModelInputs.jsx";
 import {
   lipsyncModels,
 } from "../models.js";
@@ -633,6 +634,7 @@ export default function LipSyncStudio({
 
   // ── Derived model info ──────────────────────────────────────────────────
   const selectedModel = effectiveLipsyncModels.find((m) => m.id === selectedModelId);
+  const [modelParams, setModelParams] = useDynamicModelParams(selectedModel);
   const resolutionOptions = selectedModel?.inputs?.resolution?.enum || [];
   const showResolution = resolutionOptions.length > 0;
   const showPrompt = !!selectedModel?.hasPrompt;
@@ -860,15 +862,29 @@ export default function LipSyncStudio({
   };
 
   const handleGenerate = async () => {
-    if (!audioUrl) {
+    const exactParams = compactModelParams(mergeModelMediaParams(selectedModel, {
+      ...modelParams,
+      ...(selectedModel?.inputs?.prompt ? { prompt } : {}),
+      ...(selectedModel?.inputs?.resolution ? { resolution: selectedResolution } : {}),
+    }, {
+      image: inputMode === "image" ? imageUrl : null,
+      video: inputMode === "video" ? videoUrl : null,
+      audio: audioUrl,
+    }));
+    const missingRequired = findMissingRequiredInput(selectedModel, exactParams);
+    if (missingRequired) {
+      alert(`Please provide ${selectedModel.inputs?.[missingRequired]?.title || missingRequired}.`);
+      return;
+    }
+    if (!audioUrl && !hasModelMediaValue(selectedModel, modelParams, "audio")) {
       alert("Please upload an audio file first.");
       return;
     }
-    if (inputMode === "image" && !imageUrl) {
+    if (inputMode === "image" && !imageUrl && !hasModelMediaValue(selectedModel, modelParams, "image")) {
       alert("Please upload a portrait image first.");
       return;
     }
-    if (inputMode === "video" && !videoUrl) {
+    if (inputMode === "video" && !videoUrl && !hasModelMediaValue(selectedModel, modelParams, "video")) {
       alert("Please upload a source video first.");
       return;
     }
@@ -879,6 +895,8 @@ export default function LipSyncStudio({
     try {
       const lipsyncParams = {
         model: selectedModelId,
+        ...exactParams,
+        inputSchema: selectedModel?.inputs,
         audio_url: audioUrl,
       };
       if (inputMode === "image") lipsyncParams.image_url = imageUrl;
@@ -978,7 +996,6 @@ export default function LipSyncStudio({
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-app-bg relative overflow-hidden">
-      
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
         {serverGen.active && serverGen.loading && history.length === 0 ? (
@@ -1134,6 +1151,17 @@ export default function LipSyncStudio({
       {/* ── BOTTOM PROMPT BAR ── */}
       <div className="absolute bottom-4 w-full max-w-[95%] lg:max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
         <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-md border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+          <DynamicModelInputsPanel
+            model={selectedModel}
+            values={{ ...modelParams, prompt, resolution: selectedResolution }}
+            onChange={(next) => {
+              setModelParams(next);
+              if (next.prompt !== undefined) setPrompt(next.prompt);
+              if (next.resolution !== undefined) setSelectedResolution(next.resolution);
+            }}
+            apiKey={apiKey}
+            exclude={["prompt"]}
+          />
           {/* Mode toggle row */}
           <div className="flex items-center gap-2 px-3">
             <button
@@ -1162,7 +1190,7 @@ export default function LipSyncStudio({
 
           {/* Uploads row */}
           <div className="flex items-center gap-2 px-1">
-            <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2">
               {/* Image picker — only in image mode */}
               {inputMode === "image" && (
                 <MediaPickerButton
@@ -1309,7 +1337,7 @@ export default function LipSyncStudio({
 
               {/* Resolution selector */}
               {showResolution && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     ref={resolutionBtnRef}
                     type="button"

@@ -69,6 +69,7 @@ export async function generateImage(apiKey, params) {
     const modelInfo = getModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const payload = { prompt: params.prompt };
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
     if (params.aspect_ratio) payload.aspect_ratio = params.aspect_ratio;
     if (params.resolution) payload.resolution = params.resolution;
     if (params.quality) payload.quality = params.quality;
@@ -107,10 +108,21 @@ export async function generateI2I(apiKey, params) {
     return submitAndPoll(endpoint, payload, apiKey, params.onRequestId, 60);
 }
 
+function copyDeclaredInputs(payload, params, inputSchema) {
+    for (const key of Object.keys(inputSchema || {})) {
+        const value = params[key];
+        if (value === undefined || value === null || value === '') continue;
+        if (Array.isArray(value) && value.length === 0) continue;
+        payload[key] = value;
+    }
+}
+
 export async function generateVideo(apiKey, params) {
     const modelInfo = getVideoModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const payload = {};
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
     if (params.prompt) payload.prompt = params.prompt;
     if (params.aspect_ratio) payload.aspect_ratio = params.aspect_ratio;
     if (params.duration) payload.duration = params.duration;
@@ -125,6 +137,7 @@ export async function generateI2V(apiKey, params) {
     const modelInfo = getI2VModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const payload = {};
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
     if (params.prompt) payload.prompt = params.prompt;
     const imageField = modelInfo?.imageField || 'image_url';
     if (params.images_list && params.images_list.length > 0) {
@@ -165,6 +178,7 @@ export async function generateMarketingStudioAd(apiKey, params) {
         images_list: params.images_list || [],
         video_files: params.video_files || []
     };
+    copyDeclaredInputs(payload, params, params.inputSchema);
     return submitAndPoll(endpoint, payload, apiKey, params.onRequestId, 900);
 }
 
@@ -172,7 +186,14 @@ export async function processV2V(apiKey, params) {
     const modelInfo = getV2VModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const videoField = modelInfo?.videoField || 'video_url';
-    const payload = { [videoField]: params.video_url };
+    const payload = {};
+    const inputSchema = params.inputSchema || modelInfo?.inputs;
+    copyDeclaredInputs(payload, params, inputSchema);
+    if (params.video_url && payload[videoField] === undefined) {
+        payload[videoField] = inputSchema?.[videoField]?.type === 'array'
+            ? [params.video_url]
+            : params.video_url;
+    }
     if (modelInfo?.imageField && params.image_url) {
         payload[modelInfo.imageField] = params.image_url;
     }
@@ -186,7 +207,9 @@ export async function processRecast(apiKey, params) {
     const modelInfo = getRecastModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const videoField = modelInfo?.videoField || 'video_url';
-    const payload = { [videoField]: params.video_url };
+    const payload = {};
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
+    if (params.video_url && payload[videoField] === undefined) payload[videoField] = params.video_url;
     if (modelInfo?.imageField && params.image_url) {
         payload[modelInfo.imageField] = params.image_url;
     }
@@ -203,6 +226,7 @@ export async function processLipSync(apiKey, params) {
     const modelInfo = getLipSyncModelById(params.model);
     const endpoint = modelInfo?.endpoint || params.model;
     const payload = {};
+    copyDeclaredInputs(payload, params, params.inputSchema || modelInfo?.inputs);
     if (params.audio_url) payload.audio_url = params.audio_url;
     if (params.image_url) payload.image_url = params.image_url;
     if (params.video_url) payload.video_url = params.video_url;

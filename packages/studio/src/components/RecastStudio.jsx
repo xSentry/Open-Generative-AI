@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, compactModelParams, findMissingRequiredInput, hasModelMediaValue, mergeModelMediaParams, useDynamicModelParams } from "./DynamicModelInputs.jsx";
 import {
   recastModels,
 } from "../models.js";
@@ -536,6 +537,7 @@ export default function RecastStudio({
 
   // ── Derived model info ──────────────────────────────────────────────────────
   const selectedModel = effectiveRecastModels.find((m) => m.id === selectedModelId);
+  const [modelParams, setModelParams] = useDynamicModelParams(selectedModel);
   const aspectOptions = selectedModel?.inputs?.aspect_ratio?.enum || [];
   const showAspect = aspectOptions.length > 0;
   const showPrompt = !!selectedModel?.hasPrompt;
@@ -675,11 +677,11 @@ export default function RecastStudio({
   };
 
   const handleGenerate = async () => {
-    if (!videoUrl) {
+    if (!videoUrl && !hasModelMediaValue(selectedModel, modelParams, "video")) {
       alert("Please upload a source video first.");
       return;
     }
-    if (!imageUrl) {
+    if (!imageUrl && !hasModelMediaValue(selectedModel, modelParams, "image")) {
       alert("Please upload a character image first.");
       return;
     }
@@ -688,8 +690,21 @@ export default function RecastStudio({
     setGenerateError(null);
 
     try {
+      const exactParams = compactModelParams(mergeModelMediaParams(selectedModel, {
+        ...modelParams,
+        ...(selectedModel?.inputs?.prompt ? { prompt } : {}),
+        ...(selectedModel?.inputs?.aspect_ratio ? { aspect_ratio: selectedAspectRatio } : {}),
+      }, { video: videoUrl, image: imageUrl }));
+      const missingRequired = findMissingRequiredInput(selectedModel, exactParams);
+      if (missingRequired) {
+        alert(`Please provide ${selectedModel.inputs?.[missingRequired]?.title || missingRequired}.`);
+        setIsGenerating(false);
+        return;
+      }
       const params = {
         model: selectedModelId,
+        ...exactParams,
+        inputSchema: selectedModel?.inputs,
         video_url: videoUrl,
         image_url: imageUrl,
       };
@@ -741,7 +756,6 @@ export default function RecastStudio({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-app-bg relative overflow-hidden">
-
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
         {serverGen.active && serverGen.loading && history.length === 0 ? (
@@ -895,9 +909,20 @@ export default function RecastStudio({
       {/* ── BOTTOM PROMPT BAR ── */}
       <div className="absolute bottom-4 w-full max-w-[95%] lg:max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
         <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-md border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+          <DynamicModelInputsPanel
+            model={selectedModel}
+            values={{ ...modelParams, prompt, aspect_ratio: selectedAspectRatio }}
+            onChange={(next) => {
+              setModelParams(next);
+              if (next.prompt !== undefined) setPrompt(next.prompt);
+              if (next.aspect_ratio !== undefined) setSelectedAspectRatio(next.aspect_ratio);
+            }}
+            apiKey={apiKey}
+            exclude={["prompt"]}
+          />
           {/* Uploads row */}
           <div className="flex items-center gap-2 px-1">
-            <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2">
               {/* Source video */}
               <MediaPickerButton
                 accept="video/*"
@@ -1007,7 +1032,7 @@ export default function RecastStudio({
 
               {/* Aspect ratio selector */}
               {showAspect && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     ref={aspectBtnRef}
                     type="button"

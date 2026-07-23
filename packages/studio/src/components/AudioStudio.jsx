@@ -6,6 +6,7 @@ import { audioModels, getAudioModelById } from "../models.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel } from "./DynamicModelInputs.jsx";
 
 // ---------------------------------------------------------------------------
 // Upload button states
@@ -977,7 +978,6 @@ export default function AudioStudio({
 
   return (
     <div className="w-full h-full flex bg-app-bg text-white overflow-hidden relative">
-      
       {/* ─── LEFT CONFIGURATION SIDEBAR ─── */}
       <div className="w-full lg:w-[400px] border-r border-zinc-900 flex flex-col bg-zinc-950/40 backdrop-blur-lg flex-shrink-0 z-30">
         <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-6 pb-24">
@@ -1035,7 +1035,14 @@ export default function AudioStudio({
 
           {/* Dynamic Configuration Form */}
           <div className="space-y-5">
-            {selectedModel && Object.entries(selectedModel.inputs || {}).map(([key, schema]) => {
+            <DynamicModelInputsPanel
+              model={selectedModel}
+              values={params}
+              onChange={setParams}
+              apiKey={apiKey}
+              placement="inline"
+            />
+            {false && selectedModel && Object.entries(selectedModel.inputs || {}).map(([key, schema]) => {
               // Skip model switcher itself (if it's in schemas)
               if (key === 'model') return null;
               // Audio URL file upload (single)

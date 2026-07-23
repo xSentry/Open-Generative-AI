@@ -7,6 +7,7 @@ import DrawModal from "./DrawModal.jsx";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, compactModelParams, findMissingRequiredInput, hasModelMediaValue, mergeModelMediaParams, useDynamicModelParams } from "./DynamicModelInputs.jsx";
 import {
   t2iModels,
   i2iModels,
@@ -1113,6 +1114,7 @@ export default function ImageStudio({
   const showQualityBtn = currentResolutions.length > 0;
   const currentEffects = modelEffects(selectedModelObj, imageMode);
   const showEffectBtn = currentEffects.length > 0;
+  const [modelParams, setModelParams] = useDynamicModelParams(selectedModelObj);
 
   useEffect(() => {
     if (!modelsByMode) return;
@@ -1309,13 +1311,26 @@ export default function ImageStudio({
   const handleGenerate = async () => {
     if (generating) return;
 
+    const exactParams = compactModelParams(mergeModelMediaParams(selectedModelObj, {
+      ...modelParams,
+      ...(selectedModelObj?.inputs?.prompt ? { prompt: prompt.trim() } : {}),
+      ...(selectedModelObj?.inputs?.aspect_ratio ? { aspect_ratio: selectedAr } : {}),
+      ...(currentQualityField && selectedQuality ? { [currentQualityField]: selectedQuality } : {}),
+      ...(showEffectBtn && selectedEffect ? { name: selectedEffect } : {}),
+    }, { image: uploadedImageUrls[0], images: uploadedImageUrls, swap: swapImageUrl }));
+    const missingRequired = findMissingRequiredInput(selectedModelObj, exactParams);
+    if (missingRequired) {
+      alert(`Please provide ${selectedModelObj.inputs?.[missingRequired]?.title || missingRequired}.`);
+      return;
+    }
+
     if (imageMode) {
-      if (uploadedImageUrls.length === 0) {
+      if (uploadedImageUrls.length === 0 && !hasModelMediaValue(selectedModelObj, modelParams, "image")) {
         alert("Please upload a reference image first.");
         return;
       }
       const modelInfo = selectedModelObj || getI2IModelById(selectedModelId);
-      if (modelInfo?.swapField && !swapImageUrl) {
+      if (modelInfo?.swapField && !swapImageUrl && !modelParams[modelInfo.swapField]) {
         alert("Please upload a swap face image.");
         return;
       }
@@ -1334,6 +1349,7 @@ export default function ImageStudio({
       const buildParams = () => {
         if (imageMode) {
           const genParams = {
+            ...exactParams,
             images_list: uploadedImageUrls,
             image_url: uploadedImageUrls[0],
             aspect_ratio: selectedAr,
@@ -1347,6 +1363,7 @@ export default function ImageStudio({
           return genParams;
         }
         const genParams = {
+          ...exactParams,
           prompt: prompt.trim(),
           aspect_ratio: selectedAr,
         };
@@ -1371,7 +1388,7 @@ export default function ImageStudio({
       // ── Legacy synchronous path (Electron / non-hosted) ──────────────────
       const results = await Promise.all(
         Array.from({ length: batchSize }).map(async () => {
-          const genParams = { model: selectedModelId, ...buildParams() };
+          const genParams = { model: selectedModelId, ...buildParams(), inputSchema: selectedModelObj?.inputs };
           return imageMode
             ? await generateI2I(apiKey, genParams)
             : await generateImage(apiKey, genParams);
@@ -1416,7 +1433,6 @@ export default function ImageStudio({
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-app-bg relative p-4 md:p-6 overflow-hidden">
-
       {/* ── CENTRAL GALLERY AREA ── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
         {serverGen.active && serverGen.loading && history.length === 0 ? (
@@ -1593,10 +1609,23 @@ export default function ImageStudio({
         style={{ animationDelay: "0.2s" }}
       >
         <div className="w-full bg-gradient-to-b from-[#18181c]/90 via-[#0f0f12]/90 to-[#0c0c0e]/95 backdrop-blur-2xl rounded-[2rem] border border-white/[0.08] p-4 flex flex-col gap-3 shadow-[0_15px_50px_rgba(0,0,0,0.8)]">
+          <DynamicModelInputsPanel
+            model={selectedModelObj}
+            values={{ ...modelParams, prompt, aspect_ratio: selectedAr, ...(currentQualityField ? { [currentQualityField]: selectedQuality } : {}), name: selectedEffect }}
+            onChange={(next) => {
+              setModelParams(next);
+              if (next.prompt !== undefined) setPrompt(next.prompt);
+              if (next.aspect_ratio !== undefined) setSelectedAr(next.aspect_ratio);
+              if (currentQualityField && next[currentQualityField] !== undefined) setSelectedQuality(next[currentQualityField]);
+              if (next.name !== undefined) setSelectedEffect(next.name);
+            }}
+            apiKey={apiKey}
+            exclude={["prompt"]}
+          />
           {/* Top row: upload picker + textarea */}
           <div className="flex flex-col gap-3">
             {/* Inline list of uploaded files */}
-            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="hidden items-center gap-2.5 flex-wrap">
               {uploadedImageUrls && uploadedImageUrls.length > 0 && uploadedImageUrls.map((url, idx) => (
                 <div key={idx} className="relative w-12 h-12 rounded-xl border border-white/10 overflow-hidden shadow-md group">
                   <img src={url} alt="" className="w-full h-full object-cover" />
@@ -1704,7 +1733,7 @@ export default function ImageStudio({
               </div>
 
               {/* Aspect ratio button */}
-              <div className="relative">
+              <div className="hidden relative">
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1739,7 +1768,7 @@ export default function ImageStudio({
 
               {/* Quality/resolution button (represented as Diamond icon) */}
               {showQualityBtn && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1775,7 +1804,7 @@ export default function ImageStudio({
 
               {/* Effect type button */}
               {showEffectBtn && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1810,7 +1839,7 @@ export default function ImageStudio({
               )}
 
               {/* Batch size selector */}
-              <div className="flex items-center gap-1 bg-white/[0.03] rounded-md p-1 border border-white/[0.03]">
+              <div className="hidden items-center gap-1 bg-white/[0.03] rounded-md p-1 border border-white/[0.03]">
                 {[1, 2, 3, 4].map((num) => (
                   <button
                     key={num}
