@@ -40886,6 +40886,7 @@ export const i2vReplicateModels = [
       "title": "Output",
       "format": "uri"
     },
+    "runtimeSignatureVersion": 1,
     "imageField": "keyframe_images",
     "videoField": "video"
   },
@@ -49769,6 +49770,7 @@ export const v2vReplicateModels = [
       "title": "Output",
       "format": "uri"
     },
+    "runtimeSignatureVersion": 1,
     "imageField": "keyframe_images",
     "videoField": "video"
   },
@@ -77773,6 +77775,7 @@ export const marketingReplicateModels = [
       "title": "Output",
       "format": "uri"
     },
+    "runtimeSignatureVersion": 1,
     "imageField": "keyframe_images",
     "videoField": "video"
   },

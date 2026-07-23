@@ -224,6 +224,17 @@ export function createPresignedGetUrl({ config, key, date = new Date() }) {
   return url.toString();
 }
 
+// Background workers must read through the authenticated S3 endpoint. A
+// public/CDN base is intended for browsers and external model providers and
+// may not proxy AWS signature query parameters back to the private bucket.
+export function createInternalPresignedGetUrl({ config, key, date = new Date() }) {
+  return createPresignedGetUrl({
+    config: { ...config, publicBaseUrl: '' },
+    key,
+    date,
+  });
+}
+
 export async function uploadObject({ config, key, body, contentType }) {
   assertS3Config(config);
   const url = buildObjectUrl({

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ImageStudio, VideoStudio, ClippingStudio, VibeMotionStudio, LipSyncStudio, RecastStudio, CinemaStudio, AudioStudio, MarketingStudio, WorkflowStudio, AgentStudio, AppsStudio, AiInfluencerStudio } from 'studio';
+import { ImageStudio, VideoStudio, ClippingStudio, VibeMotionStudio, LipSyncStudio, RecastStudio, CinemaStudio, AudioStudio, MarketingStudio, WorkflowStudio, AgentStudio, AppsStudio, AiInfluencerStudio, RemixStudio } from 'studio';
 import { getProviderManifest } from '@/modules/providers/publicRegistry';
 
 const DesignAgentStudio = dynamic(() => import('studio').then(mod => mod.DesignAgentStudio), {
@@ -14,6 +14,7 @@ const DesignAgentStudio = dynamic(() => import('studio').then(mod => mod.DesignA
 const TABS = [
   { id: 'image',   label: 'Image Studio' },
   { id: 'video',   label: 'Video Studio' },
+  { id: 'remix',   label: 'Remix Studio' },
   { id: 'audio',   label: 'Audio Studio' },
   { id: 'clipping', label: 'AI Clipping' },
   { id: 'vibe-motion', label: 'Vibe Motion' },
@@ -86,7 +87,7 @@ export default function StandaloneShell() {
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
-  const supportsGlobalFileDrop = activeTab === 'clipping';
+  const supportsGlobalFileDrop = activeTab === 'clipping' || activeTab === 'remix';
 
   // Sync tab with URL if user navigates manually or via browser back/forward
   useEffect(() => {
@@ -174,7 +175,7 @@ export default function StandaloneShell() {
     const provider = authUser?.provider || authUser?.preferredProvider || 'replicate';
     const manifest = getProviderManifest(provider);
     const feature = TAB_FEATURES[activeTab];
-    if (!manifest || (feature && manifest.features?.[feature] !== true)) {
+    if (!manifest || (activeTab === 'remix' && provider !== 'replicate') || (feature && manifest.features?.[feature] !== true)) {
       router.replace('/studio/image');
     }
   }, [authChecked, authUser?.provider, authUser?.preferredProvider, activeTab, router]);
@@ -264,6 +265,7 @@ export default function StandaloneShell() {
   const selectedProviderHasKey = Boolean(authUser?.providerCredentials?.[preferredProvider]?.hasCredential);
 
   const visibleTabs = TABS.filter((tab) => {
+    if (tab.id === 'remix') return preferredProvider === 'replicate';
     const feature = TAB_FEATURES[tab.id];
     return !feature || providerManifest?.features?.[feature] === true;
   });
@@ -452,6 +454,7 @@ export default function StandaloneShell() {
       <div className="flex-1 min-h-0 relative overflow-hidden">
         {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'remix' && preferredProvider === 'replicate' && <RemixStudio droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'clipping' && providerManifest?.features.clipping && <ClippingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'vibe-motion' && providerManifest?.features.vibeMotion && <VibeMotionStudio apiKey={apiKey} />}
         {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} provider={preferredProvider} modelsByMode={studioModelsByMode} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}

@@ -31,6 +31,9 @@ RUN apk add --no-cache ffmpeg \
   && addgroup -S nodejs \
   && adduser -S nextjs -G nodejs
 
+ENV FFMPEG_PATH=/usr/bin/ffmpeg \
+  FFPROBE_PATH=/usr/bin/ffprobe
+
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next

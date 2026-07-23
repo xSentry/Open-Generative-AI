@@ -11,6 +11,8 @@ services:
       - BULLMQ_PREFIX=${BULLMQ_PREFIX:-open-generative-ai}
       - STUDIO_ASYNC_GENERATIONS=${STUDIO_ASYNC_GENERATIONS:-true}
       - STUDIO_QUEUE_NAME=${STUDIO_QUEUE_NAME:-studio-generations}
+      - REMIX_ASYNC_JOBS=${REMIX_ASYNC_JOBS:-true}
+      - REMIX_QUEUE_NAME=${REMIX_QUEUE_NAME:-remix-jobs}
       - WORKFLOW_QUEUE_NAME=${WORKFLOW_QUEUE_NAME:-workflow-runs}
       - WORKFLOW_ARCHITECT_QUEUE_NAME=${WORKFLOW_ARCHITECT_QUEUE_NAME:-workflow-architect}
       - DESIGN_AGENT_QUEUE_NAME=${DESIGN_AGENT_QUEUE_NAME:-design-agent-jobs}
@@ -33,6 +35,21 @@ services:
       - STUDIO_JOB_BACKOFF_MS=${STUDIO_JOB_BACKOFF_MS:-5000}
       - STUDIO_DELETE_INPUTS_AFTER_GENERATION=${STUDIO_DELETE_INPUTS_AFTER_GENERATION:-true}
       - STUDIO_OUTPUT_URL_MODE=${STUDIO_OUTPUT_URL_MODE:-signed}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  remix-worker:
+    build: .
+    command: npm run worker:remix
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - BULLMQ_PREFIX=${BULLMQ_PREFIX:-open-generative-ai}
+      - REMIX_QUEUE_NAME=${REMIX_QUEUE_NAME:-remix-jobs}
+      - REMIX_WORKER_CONCURRENCY=${REMIX_WORKER_CONCURRENCY:-2}
+      - REMIX_JOB_ATTEMPTS=${REMIX_JOB_ATTEMPTS:-2}
+      - REMIX_JOB_BACKOFF_MS=${REMIX_JOB_BACKOFF_MS:-5000}
     depends_on:
       - redis
     restart: unless-stopped
