@@ -6,7 +6,7 @@ import { audioModels, getAudioModelById } from "../models.js";
 import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
-import { DynamicModelInputsPanel } from "./DynamicModelInputs.jsx";
+import DynamicModelInputs from "./DynamicModelInputs.jsx";
 
 // ---------------------------------------------------------------------------
 // Upload button states
@@ -1035,13 +1035,22 @@ export default function AudioStudio({
 
           {/* Dynamic Configuration Form */}
           <div className="space-y-5">
-            <DynamicModelInputsPanel
-              model={selectedModel}
-              values={params}
-              onChange={setParams}
-              apiKey={apiKey}
-              placement="inline"
-            />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b border-white/[0.07] pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-primary">Configuration</span>
+                <span className="text-[10px] font-medium text-zinc-600">
+                  {Object.keys(selectedModel?.inputs || {}).filter((name) => name !== "model").length} inputs
+                </span>
+              </div>
+              <DynamicModelInputs
+                model={selectedModel}
+                values={params}
+                onChange={setParams}
+                apiKey={apiKey}
+                exclude={["model"]}
+                layout="stack"
+              />
+            </div>
             {false && selectedModel && Object.entries(selectedModel.inputs || {}).map(([key, schema]) => {
               // Skip model switcher itself (if it's in schemas)
               if (key === 'model') return null;

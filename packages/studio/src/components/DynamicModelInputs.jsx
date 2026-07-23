@@ -363,7 +363,7 @@ function DynamicField({ name, schema, value, onChange, apiKey, required }) {
   );
 }
 
-export default function DynamicModelInputs({ model, values, onChange, apiKey, exclude = [] }) {
+export default function DynamicModelInputs({ model, values, onChange, apiKey, exclude = [], layout = "grid" }) {
   if (!model) return null;
   const excluded = new Set(exclude);
   const required = new Set(model.required || []);
@@ -376,7 +376,7 @@ export default function DynamicModelInputs({ model, values, onChange, apiKey, ex
   });
 
   return (
-    <div className="grid grid-cols-2 gap-2.5">
+    <div className={layout === "stack" ? "flex flex-col gap-2.5" : "grid grid-cols-2 gap-2.5"}>
       {orderedFields.map(([name, schema]) => (
         <DynamicField key={name} name={name} schema={schema} value={values[name]} onChange={(value) => setValue(name, value)} apiKey={apiKey} required={required.has(name)} />
       ))}
