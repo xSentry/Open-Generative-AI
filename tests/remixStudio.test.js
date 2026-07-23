@@ -12,6 +12,7 @@ import {
   getEligibleImageModels,
 } from '../modules/remix/server/modelCatalog.js';
 import {
+  buildRemixVideoParams,
   listRemixVideoModels,
   resolveRemixVideoModel,
 } from '../modules/remix/server/videoModelRegistry.js';
@@ -19,6 +20,7 @@ import {
   createInternalPresignedGetUrl,
   createPresignedGetUrl,
 } from '../modules/storage/server/s3.js';
+import { mergeRemixProjectPatch } from '../packages/studio/src/remixEvents.js';
 
 test('Remix is gated to the selected Replicate provider', () => {
   assert.equal(requireReplicateUser({ preferredProvider: 'replicate' }), 'replicate');
@@ -55,7 +57,7 @@ test('worker S3 reads ignore the external public base URL', () => {
   assert.equal(new URL(createInternalPresignedGetUrl(args)).host, 'minio:9000');
 });
 
-test('scope planning maps whole-video timestamps and from-frame first keyframes', () => {
+test('scope planning maps whole-video, from-frame, and selected-section keyframes', () => {
   assert.deepEqual(planEditScope({
     scope: 'whole',
     durationSeconds: 10,
@@ -81,6 +83,19 @@ test('scope planning maps whole-video timestamps and from-frame first keyframes'
     rangeStartSeconds: 3.25,
     rangeEndSeconds: 10,
   });
+  assert.deepEqual(planEditScope({
+    scope: 'range',
+    durationSeconds: 10,
+    selectedTimeSeconds: 3.25,
+    rangeEndSeconds: 7.5,
+  }), {
+    scope: 'range',
+    segmentStartSeconds: 3.25,
+    segmentDurationSeconds: 4.25,
+    keyframePosition: 'first',
+    rangeStartSeconds: 3.25,
+    rangeEndSeconds: 7.5,
+  });
 });
 
 test('scope planning enforces the current Aleph duration contract', () => {
@@ -92,6 +107,15 @@ test('scope planning enforces the current Aleph duration contract', () => {
   );
   assert.throws(
     () => planEditScope({ scope: 'whole', durationSeconds: 31, selectedTimeSeconds: 2 }),
+    (error) => error.code === 'remix_video_duration_unsupported',
+  );
+  assert.throws(
+    () => planEditScope({
+      scope: 'range',
+      durationSeconds: 20,
+      selectedTimeSeconds: 5,
+      rangeEndSeconds: 6,
+    }),
     (error) => error.code === 'remix_video_duration_unsupported',
   );
 });
@@ -191,12 +215,88 @@ test('Aleph registry resolves against the checked-in catalog and exposes only op
   assert.equal(resolved.mode, 'v2v');
   assert.equal(resolved.model.outputKind, 'video');
   assert.deepEqual(Object.keys(resolved.optionalInputs), ['seed']);
-  assert.deepEqual(await listRemixVideoModels(), [{
+  const models = await listRemixVideoModels();
+  assert.deepEqual(models[0], {
     key: 'aleph-2',
     label: 'Aleph 2.0',
     provider: 'replicate',
     mode: 'v2v',
     model: 'aleph-2',
     inputs: resolved.optionalInputs,
-  }]);
+    segment: { minSeconds: 2, maxSeconds: 30 },
+  });
+});
+
+test('Kling Omni registry maps Remix edits to its base-video contract', async () => {
+  const resolved = await resolveRemixVideoModel('kling-v3-omni-video');
+  assert.equal(resolved.provider, 'replicate');
+  assert.equal(resolved.mode, 'v2v');
+  assert.deepEqual(Object.keys(resolved.optionalInputs), ['keep_original_sound', 'mode']);
+  assert.deepEqual(resolved.optionalInputs.mode.enum, ['standard', 'pro']);
+  assert.deepEqual(resolved.segment, { minSeconds: 3, maxSeconds: 10 });
+
+  assert.deepEqual(buildRemixVideoParams({
+    resolved,
+    prompt: 'Make the jacket red.',
+    videoUrl: 'https://assets.test/source.mp4',
+    keyframeUrl: 'https://assets.test/frame.webp',
+    keyframePosition: 'first',
+    params: {
+      mode: 'pro',
+      video_reference_type: 'feature',
+      generate_audio: true,
+      aspect_ratio: '1:1',
+    },
+  }), {
+    mode: 'pro',
+    video_reference_type: 'base',
+    generate_audio: false,
+    prompt: 'Make the jacket red. Use <<<image_1>>> as the visual reference for the edit.',
+    reference_video: 'https://assets.test/source.mp4',
+    reference_images: ['https://assets.test/frame.webp'],
+  });
+
+  const models = await listRemixVideoModels();
+  assert.deepEqual(models.map((model) => model.key), ['aleph-2', 'kling-v3-omni-video']);
+});
+
+test('targeted Remix generation patches preserve the active video identity', () => {
+  const activeVideo = { id: 'video-original', status: 'succeeded', url: 'https://assets.test/original.mp4' };
+  const graph = {
+    project: { id: 'project-a', active_video_version_id: activeVideo.id },
+    jobs: [{ id: 'job-frame', status: 'queued' }],
+    frameEdits: [{ id: 'frame-edit', status: 'queued' }],
+    videoVersions: [activeVideo],
+  };
+  const next = mergeRemixProjectPatch(graph, {
+    job: { id: 'job-frame', status: 'active' },
+    frameEdit: { id: 'frame-edit', status: 'processing' },
+  });
+
+  assert.strictEqual(next.project, graph.project);
+  assert.strictEqual(next.videoVersions, graph.videoVersions);
+  assert.strictEqual(next.videoVersions[0], activeVideo);
+  assert.equal(next.frameEdits[0].status, 'processing');
+});
+
+test('a completed Remix video patch switches the active video once', () => {
+  const graph = {
+    project: { id: 'project-a', active_video_version_id: 'video-original' },
+    jobs: [{ id: 'job-video', status: 'active' }],
+    frameEdits: [],
+    videoVersions: [{ id: 'video-original', url: 'https://assets.test/original.mp4' }],
+  };
+  const next = mergeRemixProjectPatch(graph, {
+    project: { id: 'project-a', active_video_version_id: 'video-generated' },
+    job: { id: 'job-video', status: 'succeeded' },
+    videoVersion: {
+      id: 'video-generated',
+      status: 'succeeded',
+      url: 'https://assets.test/generated.mp4',
+    },
+  });
+
+  assert.equal(next.project.active_video_version_id, 'video-generated');
+  assert.equal(next.videoVersions.length, 2);
+  assert.equal(next.videoVersions[1].url, 'https://assets.test/generated.mp4');
 });

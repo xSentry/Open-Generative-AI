@@ -140,7 +140,8 @@ export async function normalizeGeneratedVideo({
 }
 
 export async function spliceAndMux({
-  sourcePath, generatedPath, outputPath, scope, selectedTimeSeconds, durationSeconds, fps,
+  sourcePath, generatedPath, outputPath, scope, selectedTimeSeconds, rangeEndSeconds,
+  durationSeconds, fps,
 }) {
   const visualPath = `${outputPath}.visual.mp4`;
   if (scope === 'whole') {
@@ -153,12 +154,36 @@ export async function spliceAndMux({
     return;
   }
   const boundary = Math.floor(selectedTimeSeconds * fps) / fps;
+  const rangeEnd = scope === 'range'
+    ? Math.min(durationSeconds, Math.max(boundary, Number(rangeEndSeconds)))
+    : durationSeconds;
+  let filter;
+  if (boundary <= 0 && rangeEnd >= durationSeconds) {
+    await runMediaCommand('ffmpeg', [
+      '-y', '-i', generatedPath, '-i', sourcePath,
+      '-map', '0:v:0', '-map', '1:a:0?', '-t', String(durationSeconds),
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest',
+      '-movflags', '+faststart', outputPath,
+    ]);
+    return;
+  }
+  if (boundary <= 0) {
+    filter = `[1:v]setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[g];`
+      + `[0:v]trim=start=${rangeEnd}:end=${durationSeconds},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[s];`
+      + '[g][s]concat=n=2:v=1:a=0[v]';
+  } else if (rangeEnd >= durationSeconds) {
+    filter = `[0:v]trim=start=0:end=${boundary},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[p];`
+      + `[1:v]setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[g];`
+      + '[p][g]concat=n=2:v=1:a=0[v]';
+  } else {
+    filter = `[0:v]trim=start=0:end=${boundary},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[p];`
+      + `[1:v]setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[g];`
+      + `[0:v]trim=start=${rangeEnd}:end=${durationSeconds},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[s];`
+      + '[p][g][s]concat=n=3:v=1:a=0[v]';
+  }
   await runMediaCommand('ffmpeg', [
     '-y', '-i', sourcePath, '-i', generatedPath,
-    '-filter_complex',
-    `[0:v]trim=start=0:end=${boundary},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[p];`
-      + `[1:v]setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[g];`
-      + '[p][g]concat=n=2:v=1:a=0[v]',
+    '-filter_complex', filter,
     '-map', '[v]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19',
     '-pix_fmt', 'yuv420p', visualPath,
   ]);

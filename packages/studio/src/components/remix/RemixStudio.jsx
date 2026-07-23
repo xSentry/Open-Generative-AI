@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DynamicModelInputs, { DynamicModelInputsPanel, createDefaultModelParams } from "../DynamicModelInputs.jsx";
 import ModelProviderMark from "../ModelProviderMark.jsx";
+import { mergeRemixProjectPatch, subscribeRemixJobs } from "../../remixEvents.js";
 
 const api = async (path, options = {}) => {
   const response = await fetch(`/api/remix${path}`, {
@@ -614,8 +615,12 @@ function CenterComposer({
   framePrompt, setFramePrompt, videoPrompt, setVideoPrompt, imageModel, imageModels,
   onModelChange, imageParams, setImageParams, references, setReferences, onAddReference,
   imageAssignments, onMoveImage, referenceInput, submittingFrame, onEditFrame, selectedEdit,
+  scope, setScope, duration, fps, sectionEndTime, setSectionEndTime,
+  videoModels, videoModelKey, setVideoModelKey,
+  videoOptionsModel, videoParams, setVideoParams, submittingVideo, hasCredential, onGenerateVideo,
 }) {
   const editingFrame = mode === "frame";
+  const videoStartTime = Number(selectedEdit?.actual_timestamp_seconds ?? selectedTime);
   return (
     <section className="relative z-30 min-h-0 overflow-visible border-t border-white/[0.06] bg-[#060607] px-3 py-3 sm:px-6">
       <div className="mx-auto max-w-3xl">
@@ -639,6 +644,47 @@ function CenterComposer({
                 onMove={onMoveImage}
                 onRemoveReference={(id) => setReferences((items) => items.filter((item) => item.id !== id))}
               />
+            </div>
+          )}
+          {!editingFrame && selectedEdit && (
+            <div className="relative z-20 mb-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(190px,0.8fr)]">
+              <div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <label className={`rounded-lg border px-2 py-2 text-[10px] ${scope === "whole" ? "border-[var(--primary-color)]/50 bg-[var(--primary-color)]/[0.08] text-white" : "border-white/10 text-white/40"}`}>
+                    <input type="radio" className="mr-1 accent-[var(--primary-color)]" checked={scope === "whole"} onChange={() => setScope("whole")} />
+                    Entire video
+                  </label>
+                  <label className={`rounded-lg border px-2 py-2 text-[10px] ${scope === "from-frame" ? "border-[var(--primary-color)]/50 bg-[var(--primary-color)]/[0.08] text-white" : "border-white/10 text-white/40"}`}>
+                    <input type="radio" className="mr-1 accent-[var(--primary-color)]" checked={scope === "from-frame"} onChange={() => setScope("from-frame")} />
+                    Frame to end
+                  </label>
+                  <label className={`rounded-lg border px-2 py-2 text-[10px] ${scope === "range" ? "border-[var(--primary-color)]/50 bg-[var(--primary-color)]/[0.08] text-white" : "border-white/10 text-white/40"}`}>
+                    <input type="radio" className="mr-1 accent-[var(--primary-color)]" checked={scope === "range"} onChange={() => setScope("range")} />
+                    Section
+                  </label>
+                </div>
+                {scope === "range" && (
+                  <div className="mt-2 rounded-lg border border-white/[0.08] bg-black/25 px-2.5 py-2">
+                    <div className="mb-1.5 flex items-center justify-between text-[9px] font-medium text-white/40">
+                      <span>Selected section</span>
+                      <span className="tabular-nums text-white/65">
+                        {formatTime(videoStartTime)}–{formatTime(sectionEndTime)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      aria-label="Selected section end"
+                      min={Math.min(duration, videoStartTime + 2)}
+                      max={duration}
+                      step={1 / fps}
+                      value={sectionEndTime}
+                      onChange={(event) => setSectionEndTime(Number(event.target.value))}
+                      className="h-1.5 w-full cursor-ew-resize accent-[var(--primary-color)]"
+                    />
+                  </div>
+                )}
+              </div>
+              <DynamicModelInputsPanel model={videoOptionsModel} values={videoParams} onChange={setVideoParams} title="Video options" placement="above" />
             </div>
           )}
           <div className="flex items-start gap-3">
@@ -669,11 +715,22 @@ function CenterComposer({
                   <input ref={referenceInput} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => event.target.files?.[0] && onAddReference(event.target.files[0])} />
                 </>
               )}
-              {!editingFrame && <span className="text-[10px] text-white/30">Video model and scope options are in the right panel.</span>}
+              {!editingFrame && (
+                <RemixModelSelector models={videoModels} value={videoModelKey} onChange={setVideoModelKey} label="Video generation model" />
+              )}
             </div>
-            {editingFrame && (
+            {editingFrame ? (
               <button type="button" disabled={!selectedFrame || !framePrompt.trim() || submittingFrame} onClick={onEditFrame} className="h-8 rounded-md bg-[var(--primary-color)] px-4 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-30">
                 {submittingFrame ? "Starting…" : "Edit frame"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={!selectedEdit || selectedEdit.status !== "succeeded" || !videoPrompt.trim() || submittingVideo || !hasCredential}
+                onClick={onGenerateVideo}
+                className="h-8 rounded-md bg-[var(--primary-color)] px-4 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-30"
+              >
+                {submittingVideo ? "Starting…" : hasCredential ? "Generate video" : "Add Replicate token"}
               </button>
             )}
           </div>
@@ -727,10 +784,7 @@ function VideoGenerationCard({ version, selected, index, onSelect, onCompare, on
 
 function RightPanel({
   tab, setTab, edits, versions, activeId, selectedEditId, onSelectEdit, onDeleteEdit,
-  onSelectVersion, onCompareVersion, onDeleteVersion, selectedEdit, scope, setScope,
-  duration, selectedTime, videoModels, videoModelKey, setVideoModelKey,
-  videoOptionsModel, videoParams, setVideoParams, videoPrompt,
-  submittingVideo, hasCredential, onGenerateVideo,
+  onSelectVersion, onCompareVersion, onDeleteVersion,
 }) {
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-white/[0.07] bg-[#09090a]">
@@ -754,32 +808,11 @@ function RightPanel({
           </div>
         )}
       </div>
-
-      <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-white/[0.07] bg-[#0d0d0f] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/35">Video generation</p>
-          <RemixModelSelector models={videoModels} value={videoModelKey} onChange={setVideoModelKey} label="Video generation model" placement="above" />
-        </div>
-        {!selectedEdit ? (
-          <p className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-[10px] leading-4 text-white/25">Select an edited frame above to generate a video.</p>
-        ) : (
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-1.5">
-              <label className={`rounded-lg border px-2 py-2 text-[10px] ${scope === "whole" ? "border-[var(--primary-color)]/50 bg-[var(--primary-color)]/[0.08] text-white" : "border-white/10 text-white/40"}`}><input type="radio" className="mr-1.5 accent-[var(--primary-color)]" checked={scope === "whole"} onChange={() => setScope("whole")} />Entire video<span className="mt-0.5 block pl-4 text-[8px] opacity-50">0:00–{formatTime(duration)}</span></label>
-              <label className={`rounded-lg border px-2 py-2 text-[10px] ${scope === "from-frame" ? "border-[var(--primary-color)]/50 bg-[var(--primary-color)]/[0.08] text-white" : "border-white/10 text-white/40"}`}><input type="radio" className="mr-1.5 accent-[var(--primary-color)]" checked={scope === "from-frame"} onChange={() => setScope("from-frame")} />From frame<span className="mt-0.5 block pl-4 text-[8px] opacity-50">After {formatTime(selectedEdit.actual_timestamp_seconds || selectedTime)}</span></label>
-            </div>
-            <DynamicModelInputsPanel model={videoOptionsModel} values={videoParams} onChange={setVideoParams} title="Video options" />
-            <button type="button" disabled={!videoPrompt.trim() || submittingVideo || !hasCredential} onClick={onGenerateVideo} className="h-9 w-full rounded-md bg-[var(--primary-color)] text-xs font-bold text-black hover:brightness-110 disabled:opacity-30">
-              {submittingVideo ? "Starting…" : hasCredential ? "Generate video" : "Add Replicate token"}
-            </button>
-          </div>
-        )}
-      </div>
     </aside>
   );
 }
 
-function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setError, onBack, onDeleteProject }) {
+function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, applyPatch, setError, onBack, onDeleteProject }) {
   const playerRef = useRef(null);
   const referenceInput = useRef(null);
   const frameCommitSequenceRef = useRef(0);
@@ -815,6 +848,7 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
   }) : null, [videoModel]);
   const [videoParams, setVideoParams] = useState(() => createDefaultModelParams(videoOptionsModel));
   const [scope, setScope] = useState("whole");
+  const [sectionEndTime, setSectionEndTime] = useState(duration);
   const [references, setReferences] = useState([]);
   const imageFieldDefinitions = useMemo(() => catalogImageFields(imageModel), [imageModel]);
   const imageCapacity = imageFieldDefinitions.reduce((total, field) => total + field.limit, 0);
@@ -858,6 +892,10 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
   useEffect(() => {
     setVideoParams(createDefaultModelParams(videoOptionsModel));
   }, [videoOptionsModel?.id]);
+
+  useEffect(() => {
+    setSectionEndTime(duration);
+  }, [active?.id, selectedEdit?.id, duration]);
 
   const seek = (time) => {
     const value = Math.min(duration, Math.max(0, Number(time)));
@@ -983,10 +1021,10 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
           params: imageParams,
         }),
       });
+      applyPatch({ frameEdit: result.frameEdit, job: result.job });
       if (!videoPrompt) setVideoPrompt(framePrompt);
       setSelectedEditId(result.frameEdit?.id || null);
       setRightTab("frames");
-      await refresh();
     } catch (error) { setError(error.message); }
     finally { setSubmittingFrame(false); }
   };
@@ -995,7 +1033,7 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
     if (!selectedEdit || selectedEdit.status !== "succeeded" || !videoPrompt.trim()) return;
     setSubmittingVideo(true);
     try {
-      await api(`/projects/${graph.project.id}/video-edits`, {
+      const result = await api(`/projects/${graph.project.id}/video-edits`, {
         method: "POST",
         headers: { "idempotency-key": uniqueKey() },
         body: JSON.stringify({
@@ -1004,11 +1042,12 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
           videoModelKey: videoModel?.key,
           prompt: videoPrompt,
           scope,
+          sectionEndSeconds: scope === "range" ? sectionEndTime : undefined,
           params: videoParams,
         }),
       });
+      applyPatch({ videoVersion: result.videoVersion, job: result.job });
       setRightTab("videos");
-      await refresh();
     } catch (error) { setError(error.message); }
     finally { setSubmittingVideo(false); }
   };
@@ -1053,7 +1092,7 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
           display: "grid",
           gridColumn: "1",
           gridRow: "1",
-          gridTemplateRows: "2.75rem minmax(210px, 1fr) 5.5rem minmax(176px, 32vh)",
+          gridTemplateRows: "2.75rem minmax(210px, 1fr) 5.5rem minmax(210px, 36vh)",
         }}
       >
         <header className="flex min-w-0 items-center justify-between border-b border-white/[0.06] px-4">
@@ -1102,6 +1141,11 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
           imageAssignments={imageAssignments} onMoveImage={moveImage}
           onAddReference={(file) => void addReference(file)} referenceInput={referenceInput}
           submittingFrame={submittingFrame} onEditFrame={editFrame} selectedEdit={selectedEdit}
+          scope={scope} setScope={setScope} duration={duration} fps={fps}
+          sectionEndTime={sectionEndTime} setSectionEndTime={setSectionEndTime}
+          videoModels={models.videoModels} videoModelKey={videoModel?.key || ""} setVideoModelKey={setVideoModelKey}
+          videoOptionsModel={videoOptionsModel} videoParams={videoParams} setVideoParams={setVideoParams}
+          submittingVideo={submittingVideo} hasCredential={models.hasCredential} onGenerateVideo={generateVideo}
         />
       </main>
 
@@ -1112,11 +1156,6 @@ function Editor({ graph, models, selectedFrame, setSelectedFrame, refresh, setEr
           onSelectEdit={(id) => { setSelectedEditId(id); setMode("video"); }}
           onDeleteEdit={deleteFrameEdit} onSelectVersion={selectVersion}
           onCompareVersion={setCompareVersion} onDeleteVersion={deleteVersion}
-          selectedEdit={selectedEdit} scope={scope} setScope={setScope} duration={duration}
-          selectedTime={selectedTime} videoModels={models.videoModels} videoModelKey={videoModel?.key || ""}
-          setVideoModelKey={setVideoModelKey} videoOptionsModel={videoOptionsModel} videoParams={videoParams}
-          setVideoParams={setVideoParams} videoPrompt={videoPrompt} submittingVideo={submittingVideo}
-          hasCredential={models.hasCredential} onGenerateVideo={generateVideo}
         />
       </div>
     </div>
@@ -1133,6 +1172,11 @@ export default function RemixStudio({ droppedFiles, onFilesHandled }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [deletingIds, setDeletingIds] = useState(() => new Set());
+  const streamConnected = useRef(false);
+  const hydrationRequests = useRef(new Map());
+  const queuedHydrations = useRef(new Set());
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
 
   const loadProjects = useCallback(async () => {
     const result = await api("/projects");
@@ -1144,6 +1188,34 @@ export default function RemixStudio({ droppedFiles, onFilesHandled }) {
     const result = await api(`/projects/${id}`);
     setGraph(result);
   }, [projectId]);
+
+  const applyPatch = useCallback((patch) => {
+    setGraph((current) => mergeRemixProjectPatch(current, patch));
+  }, []);
+
+  const hydrateJob = useCallback(async (targetProjectId, jobId) => {
+    if (!targetProjectId || !jobId) return;
+    const requestKey = `${targetProjectId}:${jobId}`;
+    if (hydrationRequests.current.has(requestKey)) {
+      queuedHydrations.current.add(requestKey);
+      return hydrationRequests.current.get(requestKey);
+    }
+    const request = api(`/projects/${targetProjectId}/jobs/${jobId}`)
+      .then((patch) => {
+        setGraph((current) => (
+          current?.project?.id === targetProjectId ? mergeRemixProjectPatch(current, patch) : current
+        ));
+      })
+      .catch((cause) => setError(cause.message))
+      .finally(() => {
+        hydrationRequests.current.delete(requestKey);
+        if (queuedHydrations.current.delete(requestKey)) {
+          void hydrateJob(targetProjectId, jobId);
+        }
+      });
+    hydrationRequests.current.set(requestKey, request);
+    return request;
+  }, []);
 
   useEffect(() => {
     Promise.all([api("/models"), api("/projects")])
@@ -1162,16 +1234,54 @@ export default function RemixStudio({ droppedFiles, onFilesHandled }) {
     void loadProject(projectId).catch((cause) => setError(cause.message));
   }, [projectId, loadProject]);
 
-  const hasWork = graph && (
-    graph.project.status === "preparing"
-    || graph.jobs.some((job) => ["queued", "active"].includes(job.status))
-  );
-
+  // Remix uses the same authenticated app event stream as the other studios.
+  // Notifications hydrate one job and its subject instead of replacing the
+  // complete graph (and therefore the active video's signed URL).
   useEffect(() => {
-    if (!projectId || !hasWork) return undefined;
-    const timer = setInterval(() => void loadProject(projectId).catch((cause) => setError(cause.message)), 2500);
+    if (!projectId) return undefined;
+    const dispose = subscribeRemixJobs({
+      onOpen: () => {
+        streamConnected.current = true;
+        const activeJobs = graphRef.current?.jobs?.filter(
+          (job) => ["queued", "active"].includes(job.status),
+        ) || [];
+        activeJobs.forEach((job) => void hydrateJob(projectId, job.id));
+      },
+      onError: () => {
+        streamConnected.current = false;
+      },
+      onUpdate: (event) => {
+        if (event.projectId === projectId) void hydrateJob(projectId, event.jobId);
+      },
+    });
+    if (!dispose) streamConnected.current = false;
+    return () => {
+      streamConnected.current = false;
+      dispose?.();
+    };
+  }, [projectId, hydrateJob]);
+
+  const activeJobKey = graph?.jobs
+    ?.filter((job) => ["queued", "active"].includes(job.status))
+    .map((job) => job.id)
+    .sort()
+    .join("|") || "";
+
+  // Hydrate newly tracked jobs once to close the submit/subscribe race. After
+  // that, poll only while SSE is unavailable. Each response is a narrow patch,
+  // so frame/video cards update without disturbing the player.
+  useEffect(() => {
+    if (!projectId || !activeJobKey) return undefined;
+    const activeJobIds = activeJobKey.split("|");
+    if (activeJobIds.length === 0) return undefined;
+    activeJobIds.forEach((jobId) => void hydrateJob(projectId, jobId));
+    const poll = () => {
+      if (streamConnected.current) return;
+      activeJobIds.forEach((jobId) => void hydrateJob(projectId, jobId));
+    };
+    const timer = setInterval(poll, 2500);
     return () => clearInterval(timer);
-  }, [projectId, hasWork, loadProject]);
+  }, [projectId, activeJobKey, hydrateJob]);
 
   const createFromFile = useCallback(async (file) => {
     if (!file) return;
@@ -1248,7 +1358,8 @@ export default function RemixStudio({ droppedFiles, onFilesHandled }) {
           ) : (
             <Editor
               graph={graph} models={models} selectedFrame={selectedFrame} setSelectedFrame={setSelectedFrame}
-              refresh={() => loadProject(graph.project.id)} setError={setError} onDeleteProject={deleteProject}
+              refresh={() => loadProject(graph.project.id)} applyPatch={applyPatch}
+              setError={setError} onDeleteProject={deleteProject}
               onBack={() => { setProjectId(null); setGraph(null); void loadProjects(); }}
             />
           )

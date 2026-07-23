@@ -1,4 +1,5 @@
 import { query } from '../../db/server/db.js';
+import { publishUserEvent, remixJobEvent } from '../../events/server/publisher.js';
 import { RemixError } from '../contracts.js';
 
 const PROJECT_COLUMNS = `
@@ -248,7 +249,26 @@ export async function updateJob(jobId, fields) {
     `update remix_jobs set ${sets.join(', ')} where id = $1 returning *`,
     values,
   );
-  return result.rows[0] || null;
+  const job = result.rows[0] || null;
+  if (job) {
+    void publishUserEvent(job.user_id, remixJobEvent({
+      userId: job.user_id,
+      projectId: job.project_id,
+      jobId: job.id,
+      jobType: job.type,
+      subjectId: job.subject_id,
+      status: job.status,
+      stage: job.stage,
+      progress: job.progress,
+      error: job.error_message,
+    }))
+      .catch((error) => {
+        // Redis/SSE is an optimization. Persisted job state remains the source of
+        // truth and the client falls back to targeted polling when streaming fails.
+        console.warn('[remix] could not publish job update:', error?.message || error);
+      });
+  }
+  return job;
 }
 
 export async function requireJob(jobId, projectId, userId) {
