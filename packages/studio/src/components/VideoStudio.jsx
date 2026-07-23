@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, createDefaultModelParams } from "./DynamicModelInputs.jsx";
 import {
   t2vModels,
   i2vModels,
@@ -64,6 +65,15 @@ function modelAcceptsPrompt(model) {
   if (!model) return false;
   if (typeof model.hasPrompt === "boolean") return model.hasPrompt;
   return Boolean(model.inputs?.prompt);
+}
+
+function compactParams(params) {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) =>
+      value !== undefined && value !== null && value !== "" &&
+      (!Array.isArray(value) || value.length > 0),
+    ),
+  );
 }
 
 function modelAcceptsImageInput(model) {
@@ -413,6 +423,7 @@ export default function VideoStudio({
 
   // ── prompt ──
   const [prompt, setPrompt] = useState("");
+  const [modelParams, setModelParams] = useState({});
 
   // ── refs ──
   const containerRef = useRef(null);
@@ -497,6 +508,12 @@ export default function VideoStudio({
     () => getCurrentModels().find((m) => m.id === selectedModel),
     [getCurrentModels, selectedModel],
   );
+
+  useEffect(() => {
+    const model = getCurrentModel();
+    if (!model) return;
+    setModelParams((previous) => createDefaultModelParams(model, previous));
+  }, [getCurrentModel]);
 
   const getImageUploadTargetModel = useCallback(
     (modelId = selectedModel, isImageMode = imageMode, isV2vMode = v2vMode) => {
@@ -630,6 +647,7 @@ export default function VideoStudio({
       if (data.uploads?.video_url || data.uploadedVideoUrl) setUploadedVideoUrl(data.uploads?.video_url || data.uploadedVideoUrl);
       if (data.uploads?.video_name || data.uploadedVideoName) setUploadedVideoName(data.uploads?.video_name || data.uploadedVideoName);
       if (data.prompt) setPrompt(data.prompt);
+      if (data.modelParams) setModelParams(data.modelParams);
       suppressProviderDefaultRef.current = true;
 
       // Update control visibility based on restored model/mode
@@ -707,6 +725,7 @@ export default function VideoStudio({
             video_name: uploadedVideoName,
           },
           prompt,
+          modelParams,
           // Phase 5: results live server-side when active — persist prefs only.
         };
         localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
@@ -732,6 +751,7 @@ export default function VideoStudio({
     uploadedVideoUrl,
     uploadedVideoName,
     prompt,
+    modelParams,
     modelsByMode,
     hasProviderCatalog,
     getCurrentModels,
@@ -1095,13 +1115,50 @@ export default function VideoStudio({
     const currentModel = getCurrentModel();
     const isExtendMode = currentModel?.requiresRequestId;
     const trimmedPrompt = prompt.trim();
+    const requestParams = { ...modelParams };
+    if (modelAcceptsPrompt(currentModel)) requestParams.prompt = trimmedPrompt;
+    if (currentModel?.inputs?.aspect_ratio) requestParams.aspect_ratio = selectedAr;
+    if (currentModel?.inputs?.duration) requestParams.duration = selectedDuration;
+    if (currentModel?.inputs?.resolution) requestParams.resolution = selectedResolution;
+    if (currentModel?.inputs?.quality) requestParams.quality = selectedQuality;
+    if (currentModel?.inputs?.mode) requestParams.mode = selectedMode;
+    if (currentModel?.inputs?.name) requestParams.name = selectedEffect;
+    if (uploadedImageUrls.length > 0) requestParams.images_list = uploadedImageUrls;
+    else if (uploadedImageUrl) requestParams.image_url = uploadedImageUrl;
+    if (uploadedEndImageUrl) requestParams.last_image = uploadedEndImageUrl;
+    if (uploadedVideoUrl) requestParams.video_url = uploadedVideoUrl;
+    const compactRequestParams = compactParams(requestParams);
+
+    const missingRequired = (currentModel?.required || []).find((name) => {
+      const value = compactRequestParams[name];
+      return value === undefined || (Array.isArray(value) && value.length === 0);
+    });
+    if (missingRequired) {
+      const label = currentModel.inputs?.[missingRequired]?.title || missingRequired;
+      alert(`Please provide ${label}.`);
+      return;
+    }
 
     if (v2vMode) {
-      if (!uploadedVideoUrl) {
+      const hasVideo = uploadedVideoUrl || Object.entries(currentModel?.inputs || {}).some(
+        ([name, schema]) => {
+          const isVideo = schema?.mediaKind === "video" || schema?.field === "video" || schema?.field === "videos_list";
+          const value = compactRequestParams[name];
+          return isVideo && (Array.isArray(value) ? value.length > 0 : Boolean(value));
+        },
+      );
+      if (!hasVideo) {
         alert("Please upload a video first.");
         return;
       }
-      if (modelRequiresImageInput(currentModel) && !uploadedImageUrl) {
+      const hasImage = uploadedImageUrl || uploadedImageUrls.length > 0 || Object.entries(currentModel?.inputs || {}).some(
+        ([name, schema]) => {
+          const isImage = schema?.mediaKind === "image" || schema?.field === "image" || schema?.field === "images_list";
+          const value = compactRequestParams[name];
+          return isImage && (Array.isArray(value) ? value.length > 0 : Boolean(value));
+        },
+      );
+      if (modelRequiresImageInput(currentModel) && !hasImage) {
         alert("Please upload a reference image for motion control.");
         return;
       }
@@ -1117,20 +1174,19 @@ export default function VideoStudio({
         return;
       }
     } else if (imageMode) {
-      const maxImgs = maxImagesForI2VModel(currentModel);
-      if (maxImgs > 1) {
-        if (uploadedImageUrls.length === 0) {
-          alert("Please upload at least one reference image first.");
-          return;
-        }
-      } else {
-        if (!uploadedImageUrl) {
-          alert("Please upload a start frame image first.");
-          return;
-        }
+      const hasImage = uploadedImageUrl || uploadedImageUrls.length > 0 || Object.entries(currentModel?.inputs || {}).some(
+        ([name, schema]) => {
+          const isImage = schema?.mediaKind === "image" || schema?.field === "image" || schema?.field === "images_list";
+          const value = compactRequestParams[name];
+          return isImage && (Array.isArray(value) ? value.length > 0 : Boolean(value));
+        },
+      );
+      if (!hasImage) {
+        alert("Please upload at least one image first.");
+        return;
       }
     } else {
-      if (!trimmedPrompt) {
+      if (modelAcceptsPrompt(currentModel) && currentModel?.promptRequired !== false && !trimmedPrompt) {
         alert("Please enter a prompt to generate a video.");
         return;
       }
@@ -1145,39 +1201,7 @@ export default function VideoStudio({
       // ── Server-persisted async path (skips seedance extend chaining) ──────
       if (serverGen.active && !isExtendMode) {
         const mode = v2vMode ? "v2v" : imageMode ? "i2v" : "t2v";
-        const params = {};
-        if (v2vMode) {
-          params.video_url = uploadedVideoUrl;
-          if (currentModel?.imageField && uploadedImageUrl) params.image_url = uploadedImageUrl;
-          if (modelAcceptsPrompt(currentModel) && trimmedPrompt) params.prompt = trimmedPrompt;
-          if (currentModel?.inputs?.aspect_ratio && selectedAr) params.aspect_ratio = selectedAr;
-          if (currentModel?.inputs?.duration && selectedDuration !== "") params.duration = selectedDuration;
-          if (currentModel?.inputs?.resolution && selectedResolution) params.resolution = selectedResolution;
-          if (currentModel?.inputs?.quality && selectedQuality) params.quality = selectedQuality;
-          if (currentModel?.inputs?.mode && selectedMode) params.mode = selectedMode;
-          if (currentModel?.inputs?.name && selectedEffect) params.name = selectedEffect;
-        } else if (imageMode) {
-          const maxImgs = maxImagesForI2VModel(currentModel);
-          if (maxImgs > 1) params.images_list = uploadedImageUrls;
-          else params.image_url = uploadedImageUrl;
-          if (trimmedPrompt) params.prompt = trimmedPrompt;
-          params.aspect_ratio = selectedAr;
-          const i2vModel = i2vModelList.find((m) => m.id === selectedModel) || i2vModels.find((m) => m.id === selectedModel);
-          if (uploadedEndImageUrl && i2vModel?.lastImageField) params.last_image = uploadedEndImageUrl;
-          if (getDurationsForI2VModel(selectedModel).length > 0) params.duration = selectedDuration;
-          if (getResolutionsForI2VModel(selectedModel).length > 0) params.resolution = selectedResolution;
-          if (selectedQuality) params.quality = selectedQuality;
-          if (selectedMode) params.mode = selectedMode;
-          if (showEffect && selectedEffect) params.name = selectedEffect;
-        } else {
-          if (trimmedPrompt) params.prompt = trimmedPrompt;
-          params.aspect_ratio = selectedAr;
-          if (getDurationsForModel(selectedModel).length > 0) params.duration = selectedDuration;
-          if (getResolutionsForVideoModel(selectedModel).length > 0) params.resolution = selectedResolution;
-          if (selectedQuality) params.quality = selectedQuality;
-          if (selectedMode) params.mode = selectedMode;
-        }
-        await serverGen.generate({ mode, model: selectedModel, params, count: 1 });
+        await serverGen.generate({ mode, model: selectedModel, params: compactRequestParams, count: 1 });
         setActiveHistoryIdx(0);
         return;
       }
@@ -1188,20 +1212,9 @@ export default function VideoStudio({
         // V2V: keep every supported model control alongside the video input.
         const v2vParams = {
           model: selectedModel,
-          video_url: uploadedVideoUrl,
+          ...compactRequestParams,
+          inputSchema: currentModel?.inputs,
         };
-        if (currentModel?.imageField && uploadedImageUrl) {
-          v2vParams.image_url = uploadedImageUrl;
-        }
-        if (modelAcceptsPrompt(currentModel) && trimmedPrompt) {
-          v2vParams.prompt = trimmedPrompt;
-        }
-        if (currentModel?.inputs?.aspect_ratio && selectedAr) v2vParams.aspect_ratio = selectedAr;
-        if (currentModel?.inputs?.duration && selectedDuration !== "") v2vParams.duration = selectedDuration;
-        if (currentModel?.inputs?.resolution && selectedResolution) v2vParams.resolution = selectedResolution;
-        if (currentModel?.inputs?.quality && selectedQuality) v2vParams.quality = selectedQuality;
-        if (currentModel?.inputs?.mode && selectedMode) v2vParams.mode = selectedMode;
-        if (currentModel?.inputs?.name && selectedEffect) v2vParams.name = selectedEffect;
         res = await processV2V(apiKey, v2vParams);
         if (!res?.url) throw new Error("No video URL returned by API");
 
@@ -1226,7 +1239,7 @@ export default function VideoStudio({
           });
       } else if (imageMode) {
         const maxImgs = maxImagesForI2VModel(currentModel);
-        const i2vParams = { model: selectedModel };
+        const i2vParams = { model: selectedModel, ...compactRequestParams, inputSchema: currentModel?.inputs };
         if (maxImgs > 1) {
           i2vParams.images_list = uploadedImageUrls;
         } else {
@@ -1277,7 +1290,7 @@ export default function VideoStudio({
           });
       } else {
         // T2V (including extend mode)
-        const params = { model: selectedModel };
+        const params = { model: selectedModel, ...compactRequestParams, inputSchema: currentModel?.inputs };
         if (trimmedPrompt) params.prompt = trimmedPrompt;
 
         if (isExtendMode) {
@@ -1337,6 +1350,7 @@ export default function VideoStudio({
   }, [
     apiKey,
     prompt,
+    modelParams,
     v2vMode,
     imageMode,
     selectedModel,
@@ -1349,6 +1363,7 @@ export default function VideoStudio({
     showEffect,
     uploadedImageUrl,
     uploadedImageUrls,
+    uploadedEndImageUrl,
     uploadedVideoUrl,
     lastGenerationId,
     getCurrentModel,
@@ -1397,6 +1412,26 @@ export default function VideoStudio({
   const currentModelObj = getCurrentModel();
   const isExtendMode = currentModelObj?.requiresRequestId;
   const promptDisabled = currentModelObj ? !modelAcceptsPrompt(currentModelObj) : false;
+  const dynamicInputValues = {
+    ...modelParams,
+    ...(currentModelObj?.inputs?.prompt ? { prompt } : {}),
+    ...(currentModelObj?.inputs?.aspect_ratio ? { aspect_ratio: selectedAr } : {}),
+    ...(currentModelObj?.inputs?.duration ? { duration: selectedDuration } : {}),
+    ...(currentModelObj?.inputs?.resolution ? { resolution: selectedResolution } : {}),
+    ...(currentModelObj?.inputs?.quality ? { quality: selectedQuality } : {}),
+    ...(currentModelObj?.inputs?.mode ? { mode: selectedMode } : {}),
+    ...(currentModelObj?.inputs?.name ? { name: selectedEffect } : {}),
+  };
+  const handleDynamicInputsChange = (next) => {
+    setModelParams(next);
+    if (next.prompt !== undefined) setPrompt(next.prompt);
+    if (next.aspect_ratio !== undefined) setSelectedAr(next.aspect_ratio);
+    if (next.duration !== undefined) setSelectedDuration(next.duration);
+    if (next.resolution !== undefined) setSelectedResolution(next.resolution);
+    if (next.quality !== undefined) setSelectedQuality(next.quality);
+    if (next.mode !== undefined) setSelectedMode(next.mode);
+    if (next.name !== undefined) setSelectedEffect(next.name);
+  };
   const imageUploadTargetModel = getImageUploadTargetModel();
   const canUploadImages = modelAcceptsImageInput(imageUploadTargetModel);
   const imageUploadMaxImages = canUploadImages ? maxImagesForI2VModel(imageUploadTargetModel) : 0;
@@ -1637,7 +1672,15 @@ export default function VideoStudio({
       {/* ── BOTTOM PROMPT BAR ── */}
       <div className="absolute bottom-4 w-full max-w-[95%] lg:max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
         <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-md border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+          <DynamicModelInputsPanel
+            model={currentModelObj}
+            values={dynamicInputValues}
+            onChange={handleDynamicInputsChange}
+            apiKey={apiKey}
+            exclude={["prompt"]}
+          />
           <div className="flex items-center gap-2 px-1">
+            <div className="hidden">
             {/* Image upload button / thumbnails */}
             {canUploadImages && imageMode && isMultiImageUpload ? (
               <div className="flex items-center gap-2 flex-wrap">
@@ -1917,6 +1960,7 @@ export default function VideoStudio({
                 )}
               </button>
             </div>
+            </div>
 
             {/* Prompt textarea */}
             <div className="flex-1 flex flex-col gap-1">
@@ -1999,7 +2043,7 @@ export default function VideoStudio({
 
               {/* Aspect ratio btn */}
               {showAr && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={toggleDropdown("ar")}
@@ -2061,7 +2105,7 @@ export default function VideoStudio({
 
               {/* Effect btn */}
               {showEffect && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={toggleDropdown("effect")}
@@ -2116,7 +2160,7 @@ export default function VideoStudio({
 
               {/* Duration btn */}
               {showDuration && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={toggleDropdown("duration")}
@@ -2172,7 +2216,7 @@ export default function VideoStudio({
 
               {/* Resolution btn */}
               {showResolution && (
-                <div className="relative">
+                <div className="hidden relative">
                   <button
                     type="button"
                     onClick={toggleDropdown("resolution")}

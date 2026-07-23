@@ -6,6 +6,7 @@ import { useServerGenerations } from "../useServerGenerations.js";
 import StudioHistoryLoading from "./StudioHistoryLoading.jsx";
 import ModelProviderMark from "./ModelProviderMark.jsx";
 import RuntimeEstimate from "./RuntimeEstimate.jsx";
+import { DynamicModelInputsPanel, compactModelParams, findMissingRequiredInput, hasModelMediaValue, mergeModelMediaParams, useDynamicModelParams } from "./DynamicModelInputs.jsx";
 
 const SCROLLBAR_STYLE = `
   .custom-scrollbar-thin::-webkit-scrollbar {
@@ -415,6 +416,7 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
     setSelectedModelId(first.id);
   }, [modelsByMode?.marketing]);
   const selectedModel = marketingModels.find((m) => m.id === selectedModelId) || null;
+  const [modelParams, setModelParams] = useDynamicModelParams(selectedModel);
 
   // Derive control options from the selected model's input enums (Replicate and
   // MuAPI models differ), falling back to the static presets for the legacy path.
@@ -581,17 +583,26 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return alert("Please enter an ad script.");
-    if (!productImage) return alert("Please upload a product image.");
+    if (!productImage && !hasModelMediaValue(selectedModel, modelParams, "image")) return alert("Please upload a product image.");
     if (serverActive && !selectedModelId) return alert("No marketing model available for the active provider.");
 
     setIsGenerating(true);
     try {
       const images_list = [productImage, avatarImage, ...additionalImages].filter(Boolean);
-      const genParams = {
+      const exactParams = compactModelParams(mergeModelMediaParams(selectedModel, {
+        ...modelParams,
         prompt,
         aspect_ratio: params.ratio,
         duration: params.duration,
         resolution: params.res,
+      }, { image: productImage, images: images_list, video: params.videoUrl }));
+      const missingRequired = findMissingRequiredInput(selectedModel, exactParams);
+      if (missingRequired) {
+        alert(`Please provide ${selectedModel.inputs?.[missingRequired]?.title || missingRequired}.`);
+        return;
+      }
+      const genParams = {
+        ...exactParams,
         images_list,
       };
       // Pass the reference/UGC video generically; models with a video input map
@@ -606,6 +617,8 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
 
       // ── Legacy synchronous path (Electron / non-hosted) ────────────────────
       const result = await generateMarketingStudioAd(apiKey, {
+        ...exactParams,
+        inputSchema: selectedModel?.inputs,
         prompt,
         aspect_ratio: params.ratio,
         duration: params.duration,
@@ -753,6 +766,22 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
       {/* ── BOTTOM PROMPT BAR ── */}
       <div style={{ animationDelay: "0.2s" }} className="absolute bottom-4 w-full max-w-[95%] lg:max-w-4xl z-40 animate-fade-in-up">
         <div className="bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-lg border border-white/10 p-4 flex flex-col gap-2 shadow-4xl">
+          <DynamicModelInputsPanel
+            model={selectedModel}
+            values={{ ...modelParams, prompt, aspect_ratio: params.ratio, duration: params.duration, resolution: params.res }}
+            onChange={(next) => {
+              setModelParams(next);
+              if (next.prompt !== undefined) setPrompt(next.prompt);
+              setParams((previous) => ({
+                ...previous,
+                ...(next.aspect_ratio !== undefined ? { ratio: next.aspect_ratio } : {}),
+                ...(next.duration !== undefined ? { duration: next.duration } : {}),
+                ...(next.resolution !== undefined ? { res: next.resolution } : {}),
+              }));
+            }}
+            apiKey={apiKey}
+            exclude={["prompt"]}
+          />
           {additionalImages.length > 0 && (
             <div className="flex items-center gap-1.5">
               {additionalImages.map((img, idx) => (
@@ -786,7 +815,7 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
             <div className="flex items-center gap-3 flex-wrap">
               
               {/* Asset Uploads Group */}
-              <div className="flex items-center gap-1.5 pr-3 border-r border-white/10">
+              <div className="hidden items-center gap-1.5 pr-3 border-r border-white/10">
                 <UploadSlot 
                   label="Product" 
                   icon={<ProductIcon />} 
@@ -848,7 +877,7 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
               )}
 
               {/* Format Button */}
-              <div className="relative">
+              <div className="hidden relative">
                 <button
                   onClick={(e) => { e.stopPropagation(); setDropdown(dropdown === 'format' ? null : 'format'); }}
                   className={`flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.08] rounded border transition-all group whitespace-nowrap ${dropdown === 'format' ? 'border-primary/50' : 'border-white/5'}`}
@@ -871,7 +900,7 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
               </div>
 
               {/* Avatar Preset Button */}
-              <div className="relative">
+              <div className="hidden relative">
                 <button
                   onClick={(e) => { e.stopPropagation(); setDropdown(dropdown === 'avatar' ? null : 'avatar'); }}
                   className={`flex items-center gap-2 px-3 py-2 bg-white/[0.03] hover:bg-white/[0.08] rounded border transition-all group whitespace-nowrap ${dropdown === 'avatar' ? 'border-primary/50' : 'border-white/5'}`}
@@ -896,7 +925,7 @@ export default function MarketingStudio({ apiKey, provider = "replicate", droppe
 
               {/* Simple Controls (options derived from the selected model) */}
               {controlKeys.map(key => (
-                <div key={key} className="relative">
+                <div key={key} className="hidden relative">
                   <button
                     onClick={(e) => { e.stopPropagation(); setDropdown(dropdown === key ? null : key); }}
                     className={`px-3 py-2 bg-white/[0.03] hover:bg-white/[0.08] rounded border transition-all text-sm font-bold ${dropdown === key ? 'border-primary/50 text-primary' : 'border-white/5 text-white/70'}`}

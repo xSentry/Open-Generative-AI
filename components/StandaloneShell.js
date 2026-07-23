@@ -86,6 +86,7 @@ export default function StandaloneShell() {
   // Drag and Drop State
   const [isDragging, setIsDragging] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
+  const supportsGlobalFileDrop = activeTab === 'clipping';
 
   // Sync tab with URL if user navigates manually or via browser back/forward
   useEffect(() => {
@@ -220,10 +221,11 @@ export default function StandaloneShell() {
   const handleDragEnter = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!supportsGlobalFileDrop) return;
     if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       setIsDragging(true);
     }
-  }, []);
+  }, [supportsGlobalFileDrop]);
 
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
@@ -238,11 +240,13 @@ export default function StandaloneShell() {
     e.stopPropagation();
     setIsDragging(false);
 
+    if (!supportsGlobalFileDrop) return;
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
       setDroppedFiles(files);
     }
-  }, []);
+  }, [supportsGlobalFileDrop]);
 
   const handleFilesHandled = useCallback(() => {
     setDroppedFiles(null);
@@ -274,7 +278,7 @@ export default function StandaloneShell() {
       onDrop={handleDrop}
     >
       {/* Drag Overlay */}
-      {isDragging && (
+      {supportsGlobalFileDrop && isDragging && (
         <div className="fixed inset-0 z-[100] bg-[var(--primary-color)]/10 backdrop-blur-md border-4 border-dashed border-[var(--primary-color)]/50 flex items-center justify-center pointer-events-none transition-all duration-300">
           <div className="bg-[#0a0a0a] p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center gap-4 scale-110 animate-pulse">
             <div className="w-20 h-20 bg-[var(--primary-color)] rounded-2xl flex items-center justify-center">
