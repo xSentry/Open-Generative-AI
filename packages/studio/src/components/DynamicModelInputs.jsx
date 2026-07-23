@@ -394,7 +394,7 @@ function valueSummary(name, schema, value) {
   return `${label} ${display.length > 12 ? `${display.slice(0, 12)}…` : display}`;
 }
 
-export function DynamicModelInputsPanel({ model, values, onChange, apiKey, exclude = [], title = "Inputs", placement: _placement = "overlay" }) {
+export function DynamicModelInputsPanel({ model, values, onChange, apiKey, exclude = [], title = "Inputs", placement = "inline" }) {
   const [open, setOpen] = useState(false);
   const excludedKey = exclude.join("|");
   const fields = useMemo(
@@ -431,7 +431,7 @@ export function DynamicModelInputsPanel({ model, values, onChange, apiKey, exclu
   };
 
   return (
-    <div className={`w-full overflow-hidden rounded-xl border bg-[#0b0b0e] transition-colors ${open ? "border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.45)]" : missing.length ? "border-amber-400/25" : "border-white/[0.08]"}`}>
+    <div className={`relative w-full rounded-xl border bg-[#0b0b0e] transition-colors ${placement === "above" ? "overflow-visible" : "overflow-hidden"} ${open ? "border-white/15 shadow-[0_12px_36px_rgba(0,0,0,0.45)]" : missing.length ? "border-amber-400/25" : "border-white/[0.08]"}`}>
       <div className="flex min-w-0 items-center gap-2 bg-[#111114] px-2 py-1.5">
         <button
           type="button"
@@ -458,8 +458,8 @@ export function DynamicModelInputsPanel({ model, values, onChange, apiKey, exclu
 
       {open && (
         <section
-          className="flex min-h-0 flex-col overflow-hidden border-t border-white/[0.08] bg-[#0b0b0e]"
-          style={{ maxHeight: "50dvh" }}
+          className={`flex min-h-0 flex-col overflow-hidden border-white/[0.08] bg-[#0b0b0e] ${placement === "above" ? "absolute inset-x-0 bottom-[calc(100%+8px)] z-[60] rounded-xl border shadow-[0_24px_80px_rgba(0,0,0,0.8)]" : "border-t"}`}
+          style={{ maxHeight: "50dvh", backgroundColor: "#0b0b0e" }}
           aria-label={`${model.name || model.id} inputs`}
         >
           <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-3.5 py-2.5">

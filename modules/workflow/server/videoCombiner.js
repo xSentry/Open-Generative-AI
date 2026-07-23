@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { resolveMediaExecutable } from '../../media/server/binaries.js';
 
 const ASPECT_SIZES = {
   '16:9': [1280, 720],
@@ -22,9 +23,7 @@ function normalizeVideoInput(value) {
 }
 
 function runProcess(command, args, missingMessage) {
-  const executable = command === 'ffmpeg'
-    ? (process.env.FFMPEG_PATH || command)
-    : (process.env.FFPROBE_PATH || command);
+  const executable = resolveMediaExecutable(command);
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
       windowsHide: true,

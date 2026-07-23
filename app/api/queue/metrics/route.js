@@ -5,6 +5,7 @@ import { collectQueueMetricsSnapshot } from '@/modules/queue/server/metrics';
 import { getStudioGenerationQueue } from '@/modules/studio/server/generationQueue';
 import { getWorkflowRunQueue } from '@/modules/workflow/server/runQueue';
 import { getDesignAgentQueue } from '@/modules/design-agent/server/jobQueue';
+import { getRemixJobQueue } from '@/modules/remix/server/jobQueue';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,11 @@ export async function GET(request) {
           name: process.env.DESIGN_AGENT_QUEUE_NAME || 'design-agent-jobs',
           queue: getDesignAgentQueue(),
           configuredConcurrency: positiveNumber(process.env.DESIGN_AGENT_WORKER_CONCURRENCY, 2),
+        },
+        {
+          name: process.env.REMIX_QUEUE_NAME || 'remix-jobs',
+          queue: getRemixJobQueue(),
+          configuredConcurrency: positiveNumber(process.env.REMIX_WORKER_CONCURRENCY, 2),
         },
       ],
     });

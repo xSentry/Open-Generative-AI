@@ -37746,6 +37746,7 @@
       "title": "Output",
       "format": "uri"
     },
+    "runtimeSignatureVersion": 1,
     "imageField": "keyframe_images",
     "videoField": "video",
     "modes": [
