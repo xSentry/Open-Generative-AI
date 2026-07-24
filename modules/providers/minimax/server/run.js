@@ -24,6 +24,12 @@ function mediaDataUrl(hex, mime = 'audio/mpeg') {
   return `data:${mime};base64,${Buffer.from(hex, 'hex').toString('base64')}`;
 }
 
+function imageDataUrl(base64) {
+  if (!base64 || typeof base64 !== 'string') return null;
+  if (/^data:image\//i.test(base64)) return base64;
+  return `data:image/jpeg;base64,${base64}`;
+}
+
 function providerFailure(message, details = {}, cause) {
   return new ProviderError('provider_request_failed', message, { provider: PROVIDER_ID, ...details }, cause ? { cause } : {});
 }
@@ -87,7 +93,10 @@ export function buildMiniMaxRequest(model, params = {}) {
       seed: params.seed,
       n: params.n ?? 1,
       prompt_optimizer: params.prompt_optimizer ?? false,
-      response_format: 'url',
+      // Returning the bytes avoids a second worker -> MiniMax CDN request.
+      // Some production networks cannot reach MiniMax's temporary image host,
+      // even though the API request itself succeeds.
+      response_format: 'base64',
       ...(params.image_url ? { subject_reference: [{ type: 'character', image_file: requireHttpsUrl(params.image_url, 'image_url') }] } : {}),
     });
   }
@@ -266,7 +275,8 @@ export async function runMiniMaxPrediction({
         const url = await pollVideo(providerRef, apiKey, signal, fetchFn, sleepFn, pollInterval);
         result = normalizedResult(providerRef, { outputs: [url] });
       } else if (operation === 'image-generation') {
-        result = normalizedResult(providerRef, { outputs: data.data?.image_urls || [] });
+        const outputs = (data.data?.image_base64 || []).map(imageDataUrl).filter(Boolean);
+        result = normalizedResult(providerRef, { outputs });
       } else if (operation === 'text-to-speech' || operation === 'music-generation') {
         const audio = data.data?.audio;
         const url = /^https?:\/\//i.test(audio || '') ? audio : mediaDataUrl(audio, `audio/${params.format || 'mpeg'}`);

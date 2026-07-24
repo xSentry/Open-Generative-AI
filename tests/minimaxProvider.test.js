@@ -22,7 +22,7 @@ test('MiniMax request translation does not mutate generic params', () => {
   const request = buildMiniMaxRequest(minimaxModelLists.i2i[0], params);
   assert.equal(request.model, 'image-01');
   assert.equal(request.subject_reference[0].image_file, params.image_url);
-  assert.equal(request.response_format, 'url');
+  assert.equal(request.response_format, 'base64');
   assert.deepEqual(params, { prompt: 'hello', image_url: 'https://example.test/input.png', n: 2 });
 });
 
@@ -48,13 +48,13 @@ test('MiniMax text uses the Anthropic client and stores a provider-prefixed runt
   assert.equal(starts.length, 1);
 });
 
-test('MiniMax custom image endpoint normalizes URLs without returning raw payloads', async () => {
+test('MiniMax custom image endpoint normalizes base64 without returning raw payloads', async () => {
   const model = minimaxModelLists.t2i[0];
   const fetchFn = async () => new Response(JSON.stringify({
-    id: 'image_123', data: { image_urls: ['https://cdn.example.test/out.png'] }, base_resp: { status_code: 0, status_msg: 'success' }, secret_internal: 'omit-me',
+    id: 'image_123', data: { image_base64: ['aW1hZ2UtYnl0ZXM='] }, base_resp: { status_code: 0, status_msg: 'success' }, secret_internal: 'omit-me',
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   const result = await runMiniMaxPrediction({ apiKey: 'test-key', model, params: { prompt: 'x' }, fetchFn });
-  assert.equal(result.url, 'https://cdn.example.test/out.png');
+  assert.equal(result.url, 'data:image/jpeg;base64,aW1hZ2UtYnl0ZXM=');
   assert.equal(result.providerRef, 'image_123');
   assert.equal(JSON.stringify(result).includes('omit-me'), false);
 });
